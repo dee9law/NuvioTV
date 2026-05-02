@@ -203,6 +203,8 @@ data class PlayerSettings(
     val streamAutoPlayPreferBingeGroupForNextEpisode: Boolean = true,
     val streamAutoPlayReuseBingeGroup: Boolean = false,
     val streamAutoPlayTimeoutSeconds: Int = 3,
+    val stillWatchingEnabled: Boolean = false,
+    val stillWatchingEpisodeThreshold: Int = DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD,
     val nextEpisodeThresholdMode: NextEpisodeThresholdMode = NextEpisodeThresholdMode.PERCENTAGE,
     val nextEpisodeThresholdPercent: Float = 99f,
     val nextEpisodeThresholdMinutesBeforeEnd: Float = 2f,
@@ -211,7 +213,13 @@ data class PlayerSettings(
     val subtitleOrganizationMode: SubtitleOrganizationMode = SubtitleOrganizationMode.NONE,
     val addonSubtitleStartupMode: AddonSubtitleStartupMode = AddonSubtitleStartupMode.ALL_SUBTITLES,
     val resizeMode: Int = 0
-)
+) {
+    companion object {
+        const val DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD = 3
+        const val MIN_STILL_WATCHING_EPISODE_THRESHOLD = 2
+        const val MAX_STILL_WATCHING_EPISODE_THRESHOLD = 5
+    }
+}
 
 enum class StreamAutoPlayMode {
     MANUAL,
@@ -353,6 +361,8 @@ class PlayerSettingsDataStore @Inject constructor(
     private val streamAutoPlayPreferBingeGroupForNextEpisodeKey = booleanPreferencesKey("stream_auto_play_prefer_bingegroup_next_episode")
     private val streamAutoPlayReuseBingeGroupKey = booleanPreferencesKey("stream_auto_play_reuse_bingegroup")
     private val streamAutoPlayTimeoutSecondsKey = intPreferencesKey("stream_auto_play_timeout_seconds")
+    private val stillWatchingEnabledKey = booleanPreferencesKey("still_watching_enabled")
+    private val stillWatchingEpisodeThresholdKey = intPreferencesKey("still_watching_episode_threshold")
     private val nextEpisodeThresholdModeKey = stringPreferencesKey("next_episode_threshold_mode")
     private val nextEpisodeThresholdPercentLegacyKey = intPreferencesKey("next_episode_threshold_percent")
     private val nextEpisodeThresholdMinutesBeforeEndLegacyKey = intPreferencesKey("next_episode_threshold_minutes_before_end")
@@ -524,6 +534,13 @@ class PlayerSettingsDataStore @Inject constructor(
                 streamAutoPlayReuseBingeGroup =
                     prefs[streamAutoPlayReuseBingeGroupKey] ?: false,
                 streamAutoPlayTimeoutSeconds = (prefs[streamAutoPlayTimeoutSecondsKey] ?: 3).coerceIn(0, 11),
+                stillWatchingEnabled = prefs[stillWatchingEnabledKey] ?: false,
+                stillWatchingEpisodeThreshold = prefs[stillWatchingEpisodeThresholdKey]
+                    ?.coerceIn(
+                        PlayerSettings.MIN_STILL_WATCHING_EPISODE_THRESHOLD,
+                        PlayerSettings.MAX_STILL_WATCHING_EPISODE_THRESHOLD
+                    )
+                    ?: PlayerSettings.DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD,
                 nextEpisodeThresholdMode = prefs[nextEpisodeThresholdModeKey]?.let {
                     runCatching { NextEpisodeThresholdMode.valueOf(it) }.getOrDefault(NextEpisodeThresholdMode.PERCENTAGE)
                 } ?: NextEpisodeThresholdMode.PERCENTAGE,
@@ -795,6 +812,21 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setStreamAutoPlayTimeoutSeconds(seconds: Int) {
         store().edit { prefs ->
             prefs[streamAutoPlayTimeoutSecondsKey] = seconds.coerceIn(0, 11)
+        }
+    }
+
+    suspend fun setStillWatchingEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[stillWatchingEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setStillWatchingEpisodeThreshold(threshold: Int) {
+        store().edit { prefs ->
+            prefs[stillWatchingEpisodeThresholdKey] = threshold.coerceIn(
+                PlayerSettings.MIN_STILL_WATCHING_EPISODE_THRESHOLD,
+                PlayerSettings.MAX_STILL_WATCHING_EPISODE_THRESHOLD
+            )
         }
     }
 
