@@ -15,6 +15,7 @@ import com.nuvio.tv.core.sync.homeCatalogKey
 import com.nuvio.tv.core.sync.homeCollectionKey
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.Collection
+import com.nuvio.tv.domain.model.ContinueWatchingSortMode
 import com.nuvio.tv.domain.model.DiscoverLocation
 import com.nuvio.tv.domain.model.Feel
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
@@ -89,6 +90,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val showUnairedNextUpKey = booleanPreferencesKey("show_unaired_next_up")
     private val nextUpFromFurthestEpisodeKey = booleanPreferencesKey("next_up_from_furthest_episode")
     private val blurContinueWatchingNextUpKey = booleanPreferencesKey("blur_continue_watching_next_up")
+    private val continueWatchingSortModeKey = stringPreferencesKey("continue_watching_sort_mode")
     private val detailPageTrailerButtonEnabledKey = booleanPreferencesKey("detail_page_trailer_button_enabled")
     private val preferExternalMetaAddonDetailKey = booleanPreferencesKey("prefer_external_meta_addon_detail")
     private val modernHeroFullScreenBackdropKey = booleanPreferencesKey("modern_hero_full_screen_backdrop")
@@ -330,6 +332,12 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val blurContinueWatchingNextUp: Flow<Boolean> = profileFlow { prefs ->
         prefs[blurContinueWatchingNextUpKey] ?: false
+    }
+
+    val continueWatchingSortMode: Flow<ContinueWatchingSortMode> = profileFlow { prefs ->
+        val stored = prefs[continueWatchingSortModeKey] ?: ContinueWatchingSortMode.DEFAULT.name
+        runCatching { ContinueWatchingSortMode.valueOf(stored) }
+            .getOrDefault(ContinueWatchingSortMode.DEFAULT)
     }
 
     val detailPageTrailerButtonEnabled: Flow<Boolean> = profileFlow { prefs ->
@@ -690,6 +698,12 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setBlurContinueWatchingNextUp(enabled: Boolean) {
         store().edit { prefs ->
             prefs[blurContinueWatchingNextUpKey] = enabled
+        }
+    }
+
+    suspend fun setContinueWatchingSortMode(mode: ContinueWatchingSortMode) {
+        store().edit { prefs ->
+            prefs[continueWatchingSortModeKey] = mode.name
         }
     }
 
