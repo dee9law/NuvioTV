@@ -386,9 +386,9 @@ private fun PlayerRuntimeController.openExternalStreamInBrowser(
     if (externalUrl.isNullOrBlank()) {
         _uiState.update {
             if (fromEpisodePanel) {
-                it.copy(episodeStreamsError = "Invalid external URL")
+                it.copy(episodeStreamsError = context.getString(com.nuvio.tv.R.string.player_stream_error_invalid_external_url))
             } else {
-                it.copy(sourceStreamsError = "Invalid external URL")
+                it.copy(sourceStreamsError = context.getString(com.nuvio.tv.R.string.player_stream_error_invalid_external_url))
             }
         }
         return true
@@ -420,9 +420,9 @@ private fun PlayerRuntimeController.openExternalStreamInBrowser(
     }.onFailure { error ->
         _uiState.update {
             if (fromEpisodePanel) {
-                it.copy(episodeStreamsError = error.message ?: "Unable to open external link")
+                it.copy(episodeStreamsError = error.message ?: context.getString(com.nuvio.tv.R.string.player_stream_error_open_external_link_failed))
             } else {
-                it.copy(sourceStreamsError = error.message ?: "Unable to open external link")
+                it.copy(sourceStreamsError = error.message ?: context.getString(com.nuvio.tv.R.string.player_stream_error_open_external_link_failed))
             }
         }
     }
@@ -478,7 +478,7 @@ internal fun PlayerRuntimeController.switchToSourceStream(stream: Stream) {
 
     val url = stream.getStreamUrl()
     if (url.isNullOrBlank()) {
-        _uiState.update { it.copy(sourceStreamsError = "Invalid stream URL") }
+        _uiState.update { it.copy(sourceStreamsError = context.getString(com.nuvio.tv.R.string.player_stream_error_invalid_url)) }
         return
     }
 
@@ -639,7 +639,7 @@ internal fun PlayerRuntimeController.buildEpisodeRequestKey(type: String, video:
 internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRefresh: Boolean) {
     val type = contentType
     if (type.isNullOrBlank()) {
-        _uiState.update { it.copy(episodeStreamsError = "Missing content type") }
+        _uiState.update { it.copy(episodeStreamsError = context.getString(com.nuvio.tv.R.string.player_stream_error_missing_content_type)) }
         return
     }
 
@@ -774,7 +774,7 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(
 
     val url = stream.getStreamUrl()
     if (url.isNullOrBlank()) {
-        _uiState.update { it.copy(episodeStreamsError = "Invalid stream URL") }
+        _uiState.update { it.copy(episodeStreamsError = context.getString(com.nuvio.tv.R.string.player_stream_error_invalid_url)) }
         return
     }
 

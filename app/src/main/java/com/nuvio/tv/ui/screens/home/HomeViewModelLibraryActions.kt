@@ -128,7 +128,7 @@ fun BaseHomeViewModel.openPosterListPicker(item: MetaPreview, addonBaseUrl: Stri
                 state.copy(
                     showPosterListPicker = true,
                     posterListPickerPending = false,
-                    posterListPickerError = error.message ?: "Failed to load lists"
+                    posterListPickerError = error.message ?: appContext.getString(com.nuvio.tv.R.string.home_poster_lists_error_load_failed)
                 )
             }
         }
@@ -182,7 +182,7 @@ fun BaseHomeViewModel.savePosterListPickerMembership() {
             _uiState.update { state ->
                 state.copy(
                     posterListPickerPending = false,
-                    posterListPickerError = error.message ?: "Failed to update lists"
+                    posterListPickerError = error.message ?: appContext.getString(com.nuvio.tv.R.string.home_poster_lists_error_update_failed)
                 )
             }
         }
