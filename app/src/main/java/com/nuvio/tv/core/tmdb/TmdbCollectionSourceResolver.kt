@@ -192,6 +192,7 @@ class TmdbCollectionSourceResolver @Inject constructor(
                     logo = null,
                     description = it.overview?.takeIf { value -> value.isNotBlank() },
                     releaseInfo = it.releaseDate?.take(4),
+                    released = it.releaseDate?.takeIf { value -> value.isNotBlank() },
                     imdbRating = it.voteAverage?.toFloat(),
                     genres = emptyList()
                 )
@@ -356,6 +357,7 @@ class TmdbCollectionSourceResolver @Inject constructor(
             logo = null,
             description = overview?.takeIf { it.isNotBlank() },
             releaseInfo = (releaseDate ?: firstAirDate)?.take(4),
+            released = (releaseDate ?: firstAirDate)?.takeIf { it.isNotBlank() },
             imdbRating = voteAverage?.toFloat(),
             genres = emptyList()
         )
@@ -383,6 +385,10 @@ class TmdbCollectionSourceResolver @Inject constructor(
                 TmdbCollectionMediaType.MOVIE -> releaseDate?.take(4)
                 TmdbCollectionMediaType.TV -> firstAirDate?.take(4)
             },
+            released = when (mediaType) {
+                TmdbCollectionMediaType.MOVIE -> releaseDate?.takeIf { it.isNotBlank() }
+                TmdbCollectionMediaType.TV -> firstAirDate?.takeIf { it.isNotBlank() }
+            },
             imdbRating = voteAverage?.toFloat(),
             genres = emptyList()
         )
@@ -409,6 +415,10 @@ class TmdbCollectionSourceResolver @Inject constructor(
                 TmdbCollectionMediaType.MOVIE -> releaseDate?.take(4)
                 TmdbCollectionMediaType.TV -> firstAirDate?.take(4)
             },
+            released = when (mediaType) {
+                TmdbCollectionMediaType.MOVIE -> releaseDate?.takeIf { it.isNotBlank() }
+                TmdbCollectionMediaType.TV -> firstAirDate?.takeIf { it.isNotBlank() }
+            },
             imdbRating = voteAverage?.toFloat(),
             genres = emptyList()
         )
@@ -434,6 +444,10 @@ class TmdbCollectionSourceResolver @Inject constructor(
             releaseInfo = when (mediaType) {
                 TmdbCollectionMediaType.MOVIE -> releaseDate?.take(4)
                 TmdbCollectionMediaType.TV -> firstAirDate?.take(4)
+            },
+            released = when (mediaType) {
+                TmdbCollectionMediaType.MOVIE -> releaseDate?.takeIf { it.isNotBlank() }
+                TmdbCollectionMediaType.TV -> firstAirDate?.takeIf { it.isNotBlank() }
             },
             imdbRating = voteAverage?.toFloat(),
             genres = emptyList()
