@@ -66,6 +66,10 @@ internal class PlaybackSpeedAwareAudioSink(
         return shouldRejectDirectPlayback(format)
     }
 
+    fun notifyAudioProcessingRequirementChanged() {
+        listener?.onAudioCapabilitiesChanged()
+    }
+
     private fun shouldRejectDirectPlayback(format: Format): Boolean {
         return requiresPcmForSpeed(format) && (forcePcmForCurrentSession || playbackSpeed != 1f)
     }
