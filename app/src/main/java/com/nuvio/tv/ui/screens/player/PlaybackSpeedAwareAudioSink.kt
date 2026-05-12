@@ -8,7 +8,8 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 
 internal class PlaybackSpeedAwareAudioSink(
-    sink: AudioSink
+    sink: AudioSink,
+    private val forceAudioProcessingPcmProvider: () -> Boolean = { false }
 ) : ForwardingAudioSink(sink) {
 
     @Volatile
@@ -71,6 +72,9 @@ internal class PlaybackSpeedAwareAudioSink(
     }
 
     private fun shouldRejectDirectPlayback(format: Format): Boolean {
+        if (forceAudioProcessingPcmProvider() && requiresPcmForAudioProcessing(format)) {
+            return true
+        }
         return requiresPcmForSpeed(format) && (forcePcmForCurrentSession || playbackSpeed != 1f)
     }
 
@@ -85,6 +89,11 @@ internal class PlaybackSpeedAwareAudioSink(
 
     private fun normalizeSpeed(speed: Float): Float {
         return speed.takeIf { it > 0f } ?: 1f
+    }
+
+    private fun requiresPcmForAudioProcessing(format: Format): Boolean {
+        val mimeType = format.sampleMimeType ?: return false
+        return MimeTypes.isAudio(mimeType) && mimeType != MimeTypes.AUDIO_RAW
     }
 
     private fun requiresPcmForSpeed(format: Format): Boolean {
