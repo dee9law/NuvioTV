@@ -616,7 +616,10 @@ fun FolderEditorContent(
                         it.addonId == addon.addonId && it.type == addon.type && it.catalogId == addon.catalogId
                     }
                 }
-                val isMissing = addonSource != null && catalog == null
+                val addonCatalogInfo = addonSource?.let { src ->
+                    uiState.addonCatalogInfoByKey["${src.addonId}|${src.type}|${src.catalogId}"]
+                }
+                val isMissing = addonSource != null && catalog == null && addonCatalogInfo == null
                 val sourceKey = collectionSourceKey(source)
                 val removeFocusRequester = catalogFocusRequesters.getOrPut(sourceKey) { FocusRequester() }
                 val genreLabel = addonSource?.genre ?: if (catalog?.genreRequired == true) {
@@ -651,6 +654,7 @@ fun FolderEditorContent(
                                 text = catalog?.catalogName?.replaceFirstChar { it.uppercase() }
                                     ?: tmdbSource?.title
                                     ?: traktSource?.title
+                                    ?: addonCatalogInfo?.catalogName?.replaceFirstChar { it.uppercase() }
                                     ?: addonSource?.catalogId
                                     ?: stringResource(R.string.collections_editor_source),
                                 style = MaterialTheme.typography.bodyMedium,
@@ -660,6 +664,7 @@ fun FolderEditorContent(
                                 text = when {
                                     isMissing -> stringResource(R.string.collections_editor_addon_missing, addonSource.addonId)
                                     addonSource != null && catalog != null -> "$addonTypeLabel - ${catalog.addonName}"
+                                    addonSource != null && addonCatalogInfo != null -> "$addonTypeLabel - ${addonCatalogInfo.addonName}"
                                     tmdbSource != null -> tmdbSourceSubtitle(tmdbSource)
                                     traktSource != null -> traktSourceSubtitle(traktSource)
                                     else -> stringResource(R.string.collections_editor_source)
