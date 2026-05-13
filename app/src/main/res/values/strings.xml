@@ -2100,12 +2100,10 @@
     <string name="meta_error_detail_addon_request_failed">the addon request failed</string>
 
     <!-- Stream repository: addon detail error fragments + fetch -->
-    <string name="stream_error_detail_no_streams_for_id">returned no streams for this id</string>
     <string name="stream_error_detail_addon_unreachable">could not reach the addon server</string>
     <string name="stream_error_detail_addon_connection_failed">connection to the addon failed</string>
     <string name="stream_error_detail_addon_timeout">the addon request timed out</string>
     <string name="stream_error_detail_addon_cleartext_blocked">the addon uses an insecure HTTP connection blocked by Android</string>
-    <string name="stream_error_detail_addon_request_failed">the addon request failed</string>
     <string name="stream_error_fetch_failed">Failed to fetch streams</string>
 
     <!-- Trakt: paginated fetch + comments -->
