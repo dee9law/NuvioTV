@@ -218,9 +218,9 @@ class ProfileSettingsSyncService @Inject constructor(
                         val entries = mutableMapOf<Preferences.Key<*>, Any>()
                         catalogKeysExcludedFromBlob.forEach { keyName ->
                             val strKey = stringPreferencesKey(keyName)
-                            mutablePrefs[strKey]?.let { entries[strKey] = it }
+                            runCatching { mutablePrefs[strKey] }.getOrNull()?.let { entries[strKey] = it }
                             val boolKey = booleanPreferencesKey(keyName)
-                            mutablePrefs[boolKey]?.let { entries[boolKey] = it }
+                            runCatching { mutablePrefs[boolKey] }.getOrNull()?.let { entries[boolKey] = it }
                         }
                         entries
                     } else {
