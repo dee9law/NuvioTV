@@ -408,7 +408,8 @@ class WatchProgressRepositoryImpl @Inject constructor(
                             .map { items ->
                                 val nowMs = System.currentTimeMillis()
                                 items.filter { progress ->
-                                    isOptimisticNextUpSeedCandidate(progress, nowMs)
+                                    isOptimisticNextUpSeedCandidate(progress, nowMs) ||
+                                        progress.source == WatchProgress.SOURCE_TRAKT_HISTORY
                                 }
                             }
                             .onStart { emit(emptyList()) }
