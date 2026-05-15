@@ -548,7 +548,9 @@ class PlayerSettingsDataStore @Inject constructor(
                     prefs[streamAutoPlayPreferBingeGroupForNextEpisodeKey] ?: true,
                 streamAutoPlayReuseBingeGroup =
                     prefs[streamAutoPlayReuseBingeGroupKey] ?: false,
-                streamAutoPlayTimeoutSeconds = (prefs[streamAutoPlayTimeoutSecondsKey] ?: 3).coerceIn(0, 11),
+                streamAutoPlayTimeoutSeconds = PlayerSettings.applyLegacyTimeoutSentinelMigration(
+                    prefs[streamAutoPlayTimeoutSecondsKey]
+                ),
                 stillWatchingEnabled = prefs[stillWatchingEnabledKey] ?: false,
                 stillWatchingEpisodeThreshold = prefs[stillWatchingEpisodeThresholdKey]
                     ?.coerceIn(
@@ -826,7 +828,7 @@ class PlayerSettingsDataStore @Inject constructor(
 
     suspend fun setStreamAutoPlayTimeoutSeconds(seconds: Int) {
         store().edit { prefs ->
-            prefs[streamAutoPlayTimeoutSecondsKey] = seconds.coerceIn(0, 11)
+            prefs[streamAutoPlayTimeoutSecondsKey] = PlayerSettings.applyLegacyTimeoutSentinelMigration(seconds)
         }
     }
 
