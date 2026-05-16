@@ -677,6 +677,18 @@ class WatchProgressRepositoryImpl @Inject constructor(
         if (shouldUseTraktProgress()) {
             traktProgressService.applyOptimisticProgress(progress)
             watchProgressPreferences.saveProgress(progress)
+            if (progress.isCompleted()) {
+                watchedItemsPreferences.markAsWatched(
+                    WatchedItem(
+                        contentId = progress.contentId,
+                        contentType = progress.contentType,
+                        title = progress.name,
+                        season = progress.season,
+                        episode = progress.episode,
+                        watchedAt = System.currentTimeMillis()
+                    )
+                )
+            }
             // Mirror to Nuvio Sync so data is ready if user switches source later.
             if (syncRemote && authManager.isAuthenticated) {
                 syncScope.launch(NonCancellable) {
@@ -684,6 +696,9 @@ class WatchProgressRepositoryImpl @Inject constructor(
                         .onFailure { error ->
                             Log.w(TAG, "Failed single progress push (Trakt mirror); falling back to full sync next cycle", error)
                         }
+                }
+                if (progress.isCompleted()) {
+                    triggerWatchedItemsSync()
                 }
             }
             return
@@ -723,6 +738,10 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 }
             }
             watchProgressPreferences.saveProgressBatch(progressList)
+            // Mirror to Nuvio Sync so data is ready if user switches source later.
+            if (syncRemote && authManager.isAuthenticated) {
+                triggerRemoteSync()
+            }
             return
         }
 
