@@ -305,6 +305,7 @@ class StartupSyncService @Inject constructor(
             val isTraktConnected = traktAuthDataStore.isEffectivelyAuthenticated.first()
             val shouldUseSupabaseWatchProgressSync = watchProgressSyncService.shouldUseSupabaseWatchProgressSync()
             watchProgressSyncService.restoreLastPushTimestamp()
+            watchedItemsSyncService.restoreLastPushTimestamp()
             Log.d(
                 TAG,
                 "Watch progress sync: isTraktConnected=$isTraktConnected shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"

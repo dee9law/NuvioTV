@@ -30,6 +30,18 @@ class WatchedItemsPreferences @Inject constructor(
 
     private val gson = Gson()
     private val watchedItemsKey = stringSetPreferencesKey("watched_items")
+    private val lastSuccessfulPushMsKey = androidx.datastore.preferences.core.longPreferencesKey("last_successful_watched_push_ms")
+
+    suspend fun getLastSuccessfulPushMs(): Long {
+        val prefs = store().data.first()
+        return prefs[lastSuccessfulPushMsKey] ?: 0L
+    }
+
+    suspend fun setLastSuccessfulPushMs(timestampMs: Long) {
+        store().edit { prefs ->
+            prefs[lastSuccessfulPushMsKey] = timestampMs
+        }
+    }
 
     internal val allItems: Flow<List<WatchedItem>> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { preferences ->
