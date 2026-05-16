@@ -29,6 +29,7 @@ import kotlinx.coroutines.delay
 
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
@@ -457,11 +458,14 @@ fun ClassicHomeContent(
                 HeroCarousel(
                     items = uiState.heroItems.asStable(),
                     focusRequester = if (shouldRequestInitialFocus) heroFocusRequester else null,
-                    modifier = Modifier.onFocusChanged {
-                        if (it.hasFocus && uiState.classicFocusGradientEnabled) {
-                            focusedArtwork = null
-                        }
-                    },
+                    modifier = Modifier
+                        // Hero → navBar on Up (per spec L2 chain).
+                        .focusProperties { up = classicNavBarFr }
+                        .onFocusChanged {
+                            if (it.hasFocus && uiState.classicFocusGradientEnabled) {
+                                focusedArtwork = null
+                            }
+                        },
                     onItemFocus = handleHeroFocus,
                     onItemClick = { item ->
                         onNavigateToDetail(
@@ -634,7 +638,12 @@ fun ClassicHomeContent(
                         enableRowFocusRestorer = true,
                         focusedItemIndex = focusedItemIndex,
                         restorerFocusedIndex = rowFocusedItemIndex[catalogKey] ?: -1,
-                        upFocusRequester = if (index == 0) classicNavBarFr else null,
+                        // Up from the first catalog row goes to the hero when
+                        // it's visible; otherwise straight to the TopBar
+                        // (Grid/Classic spec for the hero focus chain).
+                        upFocusRequester = if (index == 0) {
+                            if (heroVisible) heroFocusRequester else classicNavBarFr
+                        } else null,
                         onItemFocused = { itemIndex ->
                             if (restoringFocus) restoringFocus = false
                             currentFocusSnapshot.rowIndex = index

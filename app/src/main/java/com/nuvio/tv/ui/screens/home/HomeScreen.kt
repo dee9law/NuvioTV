@@ -603,11 +603,13 @@ private fun GridHomeRoute(
 ) {
     val gridFocusState by viewModel.gridFocusState.collectAsStateWithLifecycle()
     val scrollToTopTrigger by viewModel.scrollToTopTrigger.collectAsStateWithLifecycle()
+    val resetRowFocusTrigger by viewModel.resetRowFocusTrigger.collectAsStateWithLifecycle()
     GridHomeContent(
         uiState = uiState,
         posterCardStyle = posterCardStyle,
         gridFocusState = gridFocusState,
         scrollToTopTrigger = scrollToTopTrigger,
+        resetRowFocusTrigger = resetRowFocusTrigger,
         onNavigateToDetail = onNavigateToDetail,
         onContinueWatchingClick = onContinueWatchingClick,
         onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginning,

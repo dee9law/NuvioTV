@@ -43,6 +43,7 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import com.nuvio.tv.ui.navigation.dpadUpToTopNav
 import com.nuvio.tv.ui.util.asStable
 import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import androidx.compose.ui.res.stringResource
@@ -274,6 +275,13 @@ fun GridHomeContent(
                 .fillMaxSize()
                 .focusRequester(contentFocusRequester)
                 .focusRestorer()
+                // Hero focus chain: when the user is on the first content row
+                // (or on the hero card itself) and presses Up, natural
+                // spatial focus search exhausts upward — route to the TopBar.
+                // When a hero IS rendered the spatial search lands on it
+                // first, so this only kicks in for the hero-OFF case and for
+                // Up-from-hero in the hero-ON case.
+                .dpadUpToTopNav()
                 .dpadRepeatThrottle(),
             contentPadding = PaddingValues(
                 start = 48.dp,
@@ -285,6 +293,11 @@ fun GridHomeContent(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             var firstGridFocusableAssigned = false
+            // Tracks whether [gridFirstContentFocusRequester] has been attached
+            // to a card yet this pass. We want it on the FIRST content/SeeAll
+            // card encountered so L3 Back lands consistently regardless of the
+            // initial-focus path.
+            var firstContentFocusAttached = false
 
             // Emit pre-section items (Hero)
             if (preItems.isNotEmpty()) {
@@ -455,9 +468,14 @@ fun GridHomeContent(
                         } else {
                             null
                         }
+                        val l3BackModifier = if (!firstContentFocusAttached) {
+                            firstContentFocusAttached = true
+                            Modifier.focusRequester(gridFirstContentFocusRequester)
+                        } else Modifier
                         GridContentCard(
                             item = gridItem.item,
                             focusRequester = focusRequester ?: focusRequesters.getOrPut(itemKey) { FocusRequester() },
+                            modifier = l3BackModifier,
                             posterCardStyle = posterCardStyle,
                             showLabel = uiState.posterLabelsEnabled,
                             isWatched = isCatalogItemWatched(gridItem.item),
@@ -496,9 +514,14 @@ fun GridHomeContent(
                         } else {
                             null
                         }
+                        val l3BackModifier = if (!firstContentFocusAttached) {
+                            firstContentFocusAttached = true
+                            Modifier.focusRequester(gridFirstContentFocusRequester)
+                        } else Modifier
                         SeeAllGridCard(
                             posterCardStyle = posterCardStyle,
                             focusRequester = focusRequester,
+                            modifier = l3BackModifier,
                             label = catalogSeeAllLabel,
                             onClick = {
                                 onNavigateToCatalogSeeAll(
