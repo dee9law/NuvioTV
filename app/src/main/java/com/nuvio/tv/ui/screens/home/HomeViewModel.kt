@@ -54,8 +54,7 @@ import java.util.Collections
 import javax.inject.Inject
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
-@HiltViewModel
-class HomeViewModel @Inject constructor(
+open class BaseHomeViewModel(
     @ApplicationContext internal val appContext: Context,
     internal val addonRepository: AddonRepository,
     internal val catalogRepository: CatalogRepository,
@@ -76,10 +75,23 @@ class HomeViewModel @Inject constructor(
     internal val watchedItemsPreferences: WatchedItemsPreferences,
     internal val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     internal val cwEnrichmentCache: ContinueWatchingEnrichmentCache,
-    private val profileManager: com.nuvio.tv.core.profile.ProfileManager
+    private val profileManager: com.nuvio.tv.core.profile.ProfileManager,
+    /**
+     * The screen scope this ViewModel renders. Movies / TV subclasses pass
+     * their own value; the HOME-scope subclass defaults to HOME. MUST be a
+     * constructor parameter (not an overridable `val`) because the base init
+     * block touches it inside a `viewModelScope.launch` that may dispatch
+     * synchronously on the main thread before subclass field initializers run
+     * — which would cause a "non-null parameter is null" NPE when the open
+     * val's getter returns the not-yet-initialized subclass field.
+     */
+    internal val homeScope: com.nuvio.tv.domain.model.LayoutScreenScope =
+        com.nuvio.tv.domain.model.LayoutScreenScope.HOME,
+    /** Empty-state string for this scope. Same construction-order rationale as [homeScope]. */
+    internal val emptyStateStringRes: Int = com.nuvio.tv.R.string.home_no_rows_configured,
 ) : ViewModel() {
     companion object {
-        internal const val TAG = "HomeViewModel"
+        internal const val TAG = "BaseHomeViewModel"
         internal const val STARTUP_GRACE_PERIOD_MS = 3_000L
         internal const val CONTINUE_WATCHING_ENRICHMENT_GRACE_PERIOD_MS = 1_000L
         private const val CONTINUE_WATCHING_WINDOW_MS = 30L * 24 * 60 * 60 * 1000
@@ -126,6 +138,25 @@ class HomeViewModel @Inject constructor(
         _gridFocusState.value = HomeScreenFocusState()
         _scrollToTopTrigger.value++
     }
+
+    // ── Back-button Level-Up hierarchy triggers ───────────────────────────
+    //
+    // HomeScreen's BackHandler calls these to drive the 3-level Back
+    // behavior from the nav spec.  The actual focus-move happens inside the
+    // content composables (Modern/Classic) — they observe the trigger flow
+    // and use their internal FocusRequester maps because the per-row first
+    // item is something only they know.  Using bump-counters here keeps the
+    // VM stateless about UI focus internals.
+
+    /** Bumped by HomeScreen.BackHandler L3 → "reset focus to first item of current row". */
+    private val _resetRowFocusTrigger = MutableStateFlow(0)
+    val resetRowFocusTrigger: StateFlow<Int> = _resetRowFocusTrigger.asStateFlow()
+    fun requestResetCurrentRowFocus() { _resetRowFocusTrigger.value++ }
+
+    /** Bumped by HomeScreen.BackHandler L1 → "jump focus to hero / billboard". */
+    private val _focusHeroTrigger = MutableStateFlow(0)
+    val focusHeroTrigger: StateFlow<Int> = _focusHeroTrigger.asStateFlow()
+    fun requestFocusHero() { _focusHeroTrigger.value++ }
 
     internal val _loadingCatalogs = MutableStateFlow<Set<String>>(emptySet())
     val loadingCatalogs: StateFlow<Set<String>> = _loadingCatalogs.asStateFlow()
@@ -228,6 +259,20 @@ class HomeViewModel @Inject constructor(
     internal var startupGracePeriodActive: Boolean = true
     internal var startupAuthNoticeJob: Job? = null
 
+    /** Snapshot of the user's enabled rows for [homeScope]. */
+    internal var configuredHomeRows: List<com.nuvio.tv.domain.model.LayoutRowConfig> = emptyList()
+
+    /**
+     * Canonical catalog keys ("addonId_apiType_catalogId") that are allowed to
+     * load and render under [homeScope] — derived from [configuredHomeRows].
+     * Empty until the first emission of `rowsForScope(homeScope)`.
+     */
+    internal var allowedHomeCatalogKeys: Set<String> = emptySet()
+
+    /** True once the rows-only pipeline has observed `rowsForScope` at least once. */
+    @Volatile
+    internal var configuredRowsObserved: Boolean = false
+
     // Lazy catalog loading
     internal val eagerCatalogLoadCount: Int = 4
     internal val lazyLoadRequestedKeys = Collections.synchronizedSet(mutableSetOf<String>())
@@ -255,6 +300,10 @@ class HomeViewModel @Inject constructor(
             profileManager.activeProfileReady.first { it }
             watchedSeriesStateHolder.loadFromDisk()
             observeLayoutPreferences()
+            observeDisplayPreferences()
+            observeFocusedPoster()
+            observePosterCardSize()
+            observeGlobalLayoutTier()
             observeModernHomePresentation()
             observeExternalMetaPrefetchPreference()
             loadHomeCatalogOrderPreference()
@@ -266,9 +315,11 @@ class HomeViewModel @Inject constructor(
             observeMdbListSettings()
             observeBlurUnwatchedEpisodes()
             observeMemoryOnlyVerticalScroll()
+            observeHomeRowConfigLookup()
             observeProgressSourceChanges()
             loadContinueWatching()
             observeCollections()
+            observeConfiguredHomeRowsPipeline()
             observeInstalledAddons()
 
             // Clear CW state when profile changes so items don't leak between profiles.
@@ -355,6 +406,14 @@ class HomeViewModel @Inject constructor(
 
     private fun observeLayoutPreferences() = observeLayoutPreferencesPipeline()
 
+    private fun observeDisplayPreferences() = observeDisplayPreferencesPipeline()
+
+    private fun observeFocusedPoster() = observeFocusedPosterPipeline()
+
+    private fun observePosterCardSize() = observePosterCardSizePipeline()
+
+    private fun observeGlobalLayoutTier() = observeGlobalLayoutTierPipeline()
+
     private fun observeModernHomePresentation() = observeModernHomePresentationPipeline()
 
     private fun observeExternalMetaPrefetchPreference() = observeExternalMetaPrefetchPreferencePipeline()
@@ -395,6 +454,17 @@ class HomeViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { enabled ->
                     _uiState.update { it.copy(memoryOnlyVerticalScroll = enabled) }
+                }
+        }
+    }
+
+    private fun observeHomeRowConfigLookup() {
+        viewModelScope.launch {
+            layoutPreferenceDataStore
+                .rowConfigsForScope(homeScope)
+                .distinctUntilChanged()
+                .collect { lookup ->
+                    _uiState.update { it.copy(rowConfigLookup = lookup) }
                 }
         }
     }
@@ -607,6 +677,9 @@ class HomeViewModel @Inject constructor(
 
     private fun observeInstalledAddons() = observeInstalledAddonsPipeline()
 
+    private fun observeConfiguredHomeRowsPipeline() =
+        observeConfiguredHomeRowsForScopePipeline()
+
     private suspend fun loadAllCatalogs(addons: List<Addon>, forceReload: Boolean = false) =
         loadAllCatalogsPipeline(addons, forceReload)
 
@@ -794,3 +867,58 @@ class HomeViewModel @Inject constructor(
         super.onCleared()
     }
 }
+
+/**
+ * Concrete `@HiltViewModel` ViewModel for the HOME scope. Hilt does not
+ * support `@HiltViewModel` on a class that other `@HiltViewModel` classes
+ * subclass — so [BaseHomeViewModel] is `open` but not annotated, and the
+ * scope-specific viewmodels (HomeViewModel / MoviesViewModel / TvShowsViewModel)
+ * are leaf `@HiltViewModel` siblings, all extending the same base.
+ */
+@OptIn(kotlinx.coroutines.FlowPreview::class)
+@HiltViewModel
+class HomeViewModel @Inject constructor(
+    @ApplicationContext appContext: Context,
+    addonRepository: AddonRepository,
+    catalogRepository: CatalogRepository,
+    watchProgressRepository: WatchProgressRepository,
+    libraryRepository: LibraryRepository,
+    metaRepository: MetaRepository,
+    collectionsDataStore: CollectionsDataStore,
+    layoutPreferenceDataStore: LayoutPreferenceDataStore,
+    playerSettingsDataStore: PlayerSettingsDataStore,
+    tmdbSettingsDataStore: TmdbSettingsDataStore,
+    mdbListSettingsDataStore: MDBListSettingsDataStore,
+    traktSettingsDataStore: TraktSettingsDataStore,
+    authSessionNoticeDataStore: AuthSessionNoticeDataStore,
+    tmdbService: TmdbService,
+    tmdbMetadataService: TmdbMetadataService,
+    mdbListRepository: MDBListRepository,
+    trailerService: TrailerService,
+    watchedItemsPreferences: WatchedItemsPreferences,
+    watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
+    cwEnrichmentCache: ContinueWatchingEnrichmentCache,
+    profileManager: com.nuvio.tv.core.profile.ProfileManager,
+) : BaseHomeViewModel(
+    appContext = appContext,
+    addonRepository = addonRepository,
+    catalogRepository = catalogRepository,
+    watchProgressRepository = watchProgressRepository,
+    libraryRepository = libraryRepository,
+    metaRepository = metaRepository,
+    collectionsDataStore = collectionsDataStore,
+    layoutPreferenceDataStore = layoutPreferenceDataStore,
+    playerSettingsDataStore = playerSettingsDataStore,
+    tmdbSettingsDataStore = tmdbSettingsDataStore,
+    mdbListSettingsDataStore = mdbListSettingsDataStore,
+    traktSettingsDataStore = traktSettingsDataStore,
+    authSessionNoticeDataStore = authSessionNoticeDataStore,
+    tmdbService = tmdbService,
+    tmdbMetadataService = tmdbMetadataService,
+    mdbListRepository = mdbListRepository,
+    trailerService = trailerService,
+    watchedItemsPreferences = watchedItemsPreferences,
+    watchedSeriesStateHolder = watchedSeriesStateHolder,
+    cwEnrichmentCache = cwEnrichmentCache,
+    profileManager = profileManager,
+)

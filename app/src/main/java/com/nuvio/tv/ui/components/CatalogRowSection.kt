@@ -57,6 +57,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.ui.navigation.tvLeftFromFirstItemToSideRail
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.util.formatAddonTypeLabel
 
@@ -95,6 +96,11 @@ fun CatalogRowSection(
     /** FocusRequester that will be attached to the first-or-last-focused card.
      *  Wide elements above (CW, collections) can point their D-pad down here. */
     entryFocusRequester: FocusRequester? = null,
+    /** Always attached to index 0 of the row so callers (L3 Back, programmatic
+     *  jump-to-start) can land focus on the first item regardless of which card
+     *  the user last focused. Distinct from [entryFocusRequester] which lands
+     *  on the last-focused card via focusRestorer semantics. */
+    firstItemFocusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
     listState: LazyListState = rememberLazyListState(initialFirstVisibleItemIndex = initialScrollIndex)
 ) {
@@ -323,8 +329,22 @@ fun CatalogRowSection(
                     onLongPress = onItemLongPressStable,
                     modifier = Modifier
                         .then(directionalFocusModifier)
+                        // Nav-spec: D-pad Left from index 0 of a horizontal
+                        // carousel invokes the SideRail. From any other index
+                        // Compose's natural left-traversal moves to index-1.
+                        .then(
+                            if (index == 0) Modifier.tvLeftFromFirstItemToSideRail()
+                            else Modifier
+                        )
                         .then(
                             if (isEntryTarget) Modifier.focusRequester(entryFocusRequester!!) else Modifier
+                        )
+                        // L3 Back hook: callers attach [firstItemFocusRequester]
+                        // to programmatically jump focus to item 0 of this row.
+                        .then(
+                            if (index == 0 && firstItemFocusRequester != null) {
+                                Modifier.focusRequester(firstItemFocusRequester)
+                            } else Modifier
                         ),
                     focusRequester = cardFocusRequester
                 )

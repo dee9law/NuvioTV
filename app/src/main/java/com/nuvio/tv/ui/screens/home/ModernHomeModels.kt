@@ -120,6 +120,30 @@ data class HeroCarouselRow(
     val isLoading: Boolean = false
 )
 
+/**
+ * Canonical key the row uses to look itself up inside the per-screen
+ * `Flow<Map<String, LayoutRowConfig>>` exposed by `LayoutPreferenceDataStore`.
+ * Returns null for synthetic rows (e.g. Continue Watching) that aren't user-
+ * configurable via the "Layout & Rows" screen.
+ */
+internal val HeroCarouselRow.layoutConfigKey: String?
+    get() {
+        val addon = addonId
+        val type = apiType
+        val cat = catalogId
+        if (!addon.isNullOrBlank() && !type.isNullOrBlank() && !cat.isNullOrBlank()) {
+            return com.nuvio.tv.domain.model.LayoutRowKey.forAddon(addon, type, cat)
+        }
+        // Collection rows are stored with key "collection_<id>" in the home
+        // presentation pipeline; layout settings key them as "collection|<id>".
+        val collectionPrefix = "collection_"
+        if (key.startsWith(collectionPrefix)) {
+            return com.nuvio.tv.domain.model.LayoutRowKey
+                .forCollection(key.removePrefix(collectionPrefix))
+        }
+        return null
+    }
+
 @Immutable
 data class CarouselRowLookups(
     val rowIndexByKey: StableMap<String, Int>,

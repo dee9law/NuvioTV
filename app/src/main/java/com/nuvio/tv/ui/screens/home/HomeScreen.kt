@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,7 +65,7 @@ private const val HOME_STABLE_GATE_TIMEOUT_MS = 5_000L
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    viewModel: HomeViewModel = hiltViewModel(),
+    viewModel: BaseHomeViewModel = hiltViewModel<HomeViewModel>(),
     onNavigateToDetail: (String, String, String) -> Unit,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit = { item ->
         onNavigateToDetail(
@@ -82,7 +83,9 @@ fun HomeScreen(
     onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit = onContinueWatchingClick,
     onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit = onContinueWatchingClick,
     onNavigateToCatalogSeeAll: (String, String, String) -> Unit = { _, _, _ -> },
-    onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> }
+    onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> },
+    onNavigateToAddonManager: () -> Unit = {},
+    onNavigateToAppearanceRows: (com.nuvio.tv.domain.model.LayoutScreenScope) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val initialCwResolved by viewModel.initialCwResolved.collectAsStateWithLifecycle()
@@ -114,6 +117,42 @@ fun HomeScreen(
     // Notify ViewModel of locale changes after activity recreation
     LaunchedEffect(Unit) {
         viewModel.notifyLocaleChanged()
+    }
+
+    // ── TopBar immersion mode ────────────────────────────────────────────
+    // When focus is on the hero (row 0) or above (TopBar/SideRail), keep
+    // the TopBar visible.  When the user moves focus into a catalog row
+    // (row index >= 1), fade the TopBar out so the rows feel immersive.
+    // The fade is gradual (600ms tween) and driven by MainActivity, which
+    // owns the TopBar overlay.
+    val focusStateForImmersion by viewModel.focusState.collectAsStateWithLifecycle()
+    LaunchedEffect(focusStateForImmersion.focusedRowIndex) {
+        val onHeroOrTop = focusStateForImmersion.focusedRowIndex <= 0
+        com.nuvio.tv.ui.components.TopBarImmersionState.setVisible(onHeroOrTop)
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            // Restore the TopBar when leaving the screen so the next screen
+            // (Search, Settings, etc.) doesn't start with it hidden.
+            com.nuvio.tv.ui.components.TopBarImmersionState.reset()
+        }
+    }
+
+    // ── Back-button Level-Up hierarchy (spec L1 / L2 / L3) ───────────────
+    // L3: focus deep in a row (focusedItemIndex > 0) → reset to row's first item.
+    // L1: focus on a carousel row (focusedRowIndex > 0, at item 0)        → jump to hero.
+    // L2: focus on hero (focusedRowIndex == 0)                            → jump to TopBar.
+    // L4 / TopBar: handled by MainActivity's app-exit BackHandler since this
+    //   BackHandler is disabled when content doesn't have focus.
+    var contentHasFocus by remember { mutableStateOf(true) }
+    val navBarFr = com.nuvio.tv.LocalNavBarFocusRequester.current
+    androidx.activity.compose.BackHandler(enabled = contentHasFocus) {
+        val fs = viewModel.focusState.value
+        when {
+            fs.focusedItemIndex > 0 -> viewModel.requestResetCurrentRowFocus()
+            fs.focusedRowIndex > 0 -> viewModel.requestFocusHero()
+            else -> runCatching { navBarFr.requestFocus() }
+        }
     }
 
     // Watched status: the lambda is recreated whenever movieWatchedStatus changes,
@@ -195,7 +234,14 @@ fun HomeScreen(
     val noCatalogAddonsError = stringResource(R.string.home_error_no_catalog_addons)
 
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            // Track focus so our BackHandler stays enabled only while the
+            // user is on home content.  When focus moves up to TopBar pills
+            // (which live outside this Box, in MainActivity), `hasFocus`
+            // flips false and the BackHandler in MainActivity wins → app
+            // exit on Back.
+            .onFocusChanged { contentHasFocus = it.hasFocus }
     ) {
         val hasAnyContent = uiState.catalogRows.isNotEmpty() ||
             uiState.continueWatchingItems.isNotEmpty() ||
@@ -263,6 +309,31 @@ fun HomeScreen(
                 ErrorState(
                     message = uiState.error ?: stringResource(R.string.error_generic),
                     onRetry = { viewModel.onEvent(HomeEvent.OnRetry) }
+                )
+            }
+
+            // Rows-only mode: nothing to render yet. Show a 2-state empty UI:
+            //   - no addons installed → "Add Your Addons" → AddonManager
+            //   - addons installed but no configured rows → "Add Your Catalogs"
+            //     → Settings → Appearance → Rows, scoped to this screen
+            // Skips the stable gate because there's nothing to wait for.
+            !uiState.isLoading &&
+                !uiState.hasConfiguredRows -> {
+                val noAddons = uiState.installedAddonsCount == 0
+                EmptyContentState(
+                    title = stringResource(R.string.empty_state_add_your_content),
+                    subtitle = stringResource(
+                        if (noAddons) R.string.empty_state_no_addons_subtitle
+                        else R.string.empty_state_no_rows_subtitle
+                    ),
+                    buttonLabel = stringResource(
+                        if (noAddons) R.string.empty_state_add_your_addons
+                        else R.string.empty_state_add_your_catalogs
+                    ),
+                    onButtonClick = {
+                        if (noAddons) onNavigateToAddonManager()
+                        else onNavigateToAppearanceRows(viewModel.homeScope)
+                    },
                 )
             }
 
@@ -464,7 +535,7 @@ fun HomeScreen(
 
 @Composable
 private fun ClassicHomeRoute(
-    viewModel: HomeViewModel,
+    viewModel: BaseHomeViewModel,
     uiState: HomeUiState,
     posterCardStyle: PosterCardStyle,
     onNavigateToDetail: (String, String, String) -> Unit,
@@ -479,11 +550,13 @@ private fun ClassicHomeRoute(
 ) {
     val focusState by viewModel.focusState.collectAsStateWithLifecycle()
     val scrollToTopTrigger by viewModel.scrollToTopTrigger.collectAsStateWithLifecycle()
+    val resetRowFocusTrigger by viewModel.resetRowFocusTrigger.collectAsStateWithLifecycle()
     ClassicHomeContent(
         uiState = uiState,
         posterCardStyle = posterCardStyle,
         focusState = focusState,
         scrollToTopTrigger = scrollToTopTrigger,
+        resetRowFocusTrigger = resetRowFocusTrigger,
         trailerPreviewUrls = viewModel.trailerPreviewUrls,
         trailerPreviewAudioUrls = viewModel.trailerPreviewAudioUrls,
         onNavigateToDetail = onNavigateToDetail,
@@ -515,7 +588,7 @@ private fun ClassicHomeRoute(
 
 @Composable
 private fun GridHomeRoute(
-    viewModel: HomeViewModel,
+    viewModel: BaseHomeViewModel,
     uiState: HomeUiState,
     posterCardStyle: PosterCardStyle,
     onNavigateToDetail: (String, String, String) -> Unit,
@@ -564,7 +637,7 @@ private fun GridHomeRoute(
 
 @Composable
 private fun ModernHomeRoute(
-    viewModel: HomeViewModel,
+    viewModel: BaseHomeViewModel,
     uiState: HomeUiState,
     onNavigateToDetail: (String, String, String) -> Unit,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
@@ -577,6 +650,8 @@ private fun ModernHomeRoute(
 ) {
     val focusState by viewModel.focusState.collectAsStateWithLifecycle()
     val scrollToTopTrigger by viewModel.scrollToTopTrigger.collectAsStateWithLifecycle()
+    val resetRowFocusTrigger by viewModel.resetRowFocusTrigger.collectAsStateWithLifecycle()
+    val focusHeroTrigger by viewModel.focusHeroTrigger.collectAsStateWithLifecycle()
     val enrichingItemId by viewModel.enrichingItemId.collectAsStateWithLifecycle()
     val lastEnrichedPreview by viewModel.lastEnrichedPreview.collectAsStateWithLifecycle()
     val enrichedPreviews by viewModel.enrichedPreviews.collectAsStateWithLifecycle()
@@ -610,6 +685,8 @@ private fun ModernHomeRoute(
         uiState = uiState,
         focusState = focusState,
         scrollToTopTrigger = scrollToTopTrigger,
+        resetRowFocusTrigger = resetRowFocusTrigger,
+        focusHeroTrigger = focusHeroTrigger,
         enrichingItemId = enrichingItemId,
         lastEnrichedPreview = lastEnrichedPreview,
         enrichedPreviews = enrichedPreviews,
@@ -798,6 +875,83 @@ private fun HomeLibraryListPickerDialog(
                 )
             ) {
                 Text(if (isPending) stringResource(R.string.action_saving) else stringResource(R.string.action_save))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun EmptyContentState(
+    title: String,
+    subtitle: String,
+    buttonLabel: String,
+    onButtonClick: () -> Unit,
+) {
+    val buttonFr = remember { FocusRequester() }
+    // Re-request focus on every ON_RESUME so the empty-state button is
+    // reachable again after the user navigates to AddonManager (or any
+    // other screen) and comes back.  A bare `LaunchedEffect(Unit)` only
+    // fires once when the composable enters composition; with Compose
+    // Nav's saveState behavior the empty-state composable can survive
+    // hidden in the back stack, so its initial focus request happened
+    // long ago and the user lands here without focus on Back.
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                runCatching { buttonFr.requestFocus() }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    // Initial focus on first composition (the lifecycle observer only fires
+    // on RESUME events, not on the very first compose pass before resume).
+    LaunchedEffect(buttonLabel) {
+        delay(80)
+        runCatching { buttonFr.requestFocus() }
+    }
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.foundation.layout.Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 64.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineMedium,
+                color = NuvioColors.TextPrimary,
+            )
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.heightIn(min = 8.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuvioColors.TextSecondary,
+            )
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.heightIn(min = 24.dp))
+            Button(
+                onClick = onButtonClick,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .focusRequester(buttonFr),
+                shape = ButtonDefaults.shape(shape = RoundedCornerShape(24.dp)),
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioColors.Primary,
+                    focusedContainerColor = NuvioColors.FocusBackground,
+                    contentColor = Color.White,
+                    focusedContentColor = Color.White,
+                ),
+            ) {
+                Text(
+                    text = buttonLabel,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
             }
         }
     }

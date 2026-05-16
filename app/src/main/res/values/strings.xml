@@ -100,6 +100,14 @@
     <!-- HomeScreen -->
     <string name="home_no_addons">No addons installed. Add one to get started.</string>
     <string name="home_no_catalog_addons">No catalog addons installed. Install a catalog addon to see content.</string>
+    <string name="home_no_rows_configured">No rows added yet — go to Settings → Appearance → Rows to add content.</string>
+    <string name="movies_no_rows_configured">No rows added yet — go to Settings → Appearance → Rows to add content.</string>
+    <string name="tv_no_rows_configured">No rows added yet — go to Settings → Appearance → Rows to add content.</string>
+    <string name="empty_state_add_your_content">Add Your Content</string>
+    <string name="empty_state_add_your_addons">Add Your Addons</string>
+    <string name="empty_state_add_your_catalogs">Add Your Catalogs</string>
+    <string name="empty_state_no_addons_subtitle">Install your first addon to start browsing catalogs.</string>
+    <string name="empty_state_no_rows_subtitle">Pick which catalogs appear on this screen in Settings → Appearance → Rows.</string>
     <string name="auth_notice_nuvio_logged_out">You have been signed out of Nuvio. Please sign in again.</string>
     <string name="auth_notice_trakt_logged_out">You have been signed out of Trakt. Please reconnect.</string>
     <string name="error_generic">An error occurred</string>
@@ -1497,7 +1505,7 @@
     <string name="audio_passthrough_info">Audio passthrough (TrueHD, DTS, AC-3, etc.) is automatic. When connected to a compatible AV receiver or soundbar via HDMI, lossless audio is sent as-is without decoding.</string>
     <string name="audio_dv_title">DV7 - HEVC Fallback</string>
 
-    <!-- SidebarNavigation / MainActivity -->
+    <!-- TopNavBar / MainActivity -->
     <string name="nav_home">Home</string>
     <string name="nav_discover">Discover</string>
     <string name="nav_search">Search</string>
@@ -1506,6 +1514,7 @@
     <string name="nav_movies">Movies</string>
     <string name="nav_series">Series</string>
     <string name="nav_settings">Settings</string>
+    <string name="nav_account">Account</string>
     <string name="action_select">Select</string>
     <string name="settings_rounded_ui">Rounded UI</string>
     <string name="cd_expand_sidebar">Expand sidebar</string>

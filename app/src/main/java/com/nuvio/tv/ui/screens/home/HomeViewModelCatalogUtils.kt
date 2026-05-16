@@ -6,11 +6,11 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
 import kotlinx.coroutines.Job
 
-internal fun HomeViewModel.catalogKey(addonId: String, type: String, catalogId: String): String {
+internal fun BaseHomeViewModel.catalogKey(addonId: String, type: String, catalogId: String): String {
     return "${addonId}_${type}_${catalogId}"
 }
 
-internal fun HomeViewModel.buildHomeCatalogLoadSignature(addons: List<Addon>): String {
+internal fun BaseHomeViewModel.buildHomeCatalogLoadSignature(addons: List<Addon>): String {
     val addonCatalogSignature = addons
         .flatMap { addon ->
             addon.catalogs.map { catalog ->
@@ -23,10 +23,19 @@ internal fun HomeViewModel.buildHomeCatalogLoadSignature(addons: List<Addon>): S
         .asSequence()
         .sorted()
         .joinToString(separator = ",")
-    return "$addonCatalogSignature::$disabledSignature"
+    // Include the rows-only allowlist in the signature so adding/removing a
+    // row in Settings → Appearance → Rows triggers a reload even though
+    // `addons` and `disabledHomeCatalogKeys` are unchanged. Without this, the
+    // signature-skip check inside `loadAllCatalogsPipeline` would treat a
+    // pure rows-config change as a no-op.
+    val allowedSignature = allowedHomeCatalogKeys
+        .asSequence()
+        .sorted()
+        .joinToString(separator = ",")
+    return "$addonCatalogSignature::$disabledSignature::$allowedSignature"
 }
 
-internal fun HomeViewModel.registerCatalogLoadJob(job: Job) {
+internal fun BaseHomeViewModel.registerCatalogLoadJob(job: Job) {
     synchronized(activeCatalogLoadJobs) {
         activeCatalogLoadJobs.add(job)
     }
@@ -37,14 +46,14 @@ internal fun HomeViewModel.registerCatalogLoadJob(job: Job) {
     }
 }
 
-internal fun HomeViewModel.cancelInFlightCatalogLoads() {
+internal fun BaseHomeViewModel.cancelInFlightCatalogLoads() {
     val jobsToCancel = synchronized(activeCatalogLoadJobs) {
         activeCatalogLoadJobs.toList().also { activeCatalogLoadJobs.clear() }
     }
     jobsToCancel.forEach { it.cancel() }
 }
 
-private fun HomeViewModel.reindexCatalogRow(
+private fun BaseHomeViewModel.reindexCatalogRow(
     key: String,
     previousRow: CatalogRow?,
     updatedRow: CatalogRow?
@@ -62,30 +71,30 @@ private fun HomeViewModel.reindexCatalogRow(
     }
 }
 
-internal fun HomeViewModel.hasAnyCatalogRows(): Boolean = synchronized(catalogStateLock) {
+internal fun BaseHomeViewModel.hasAnyCatalogRows(): Boolean = synchronized(catalogStateLock) {
     catalogsMap.isNotEmpty()
 }
 
-internal fun HomeViewModel.isCatalogOrderEmpty(): Boolean = synchronized(catalogStateLock) {
+internal fun BaseHomeViewModel.isCatalogOrderEmpty(): Boolean = synchronized(catalogStateLock) {
     catalogOrder.isEmpty()
 }
 
-internal fun HomeViewModel.hasCatalogOrderEntries(): Boolean = synchronized(catalogStateLock) {
+internal fun BaseHomeViewModel.hasCatalogOrderEntries(): Boolean = synchronized(catalogStateLock) {
     catalogOrder.isNotEmpty()
 }
 
-internal fun HomeViewModel.readCatalogRow(key: String): CatalogRow? = synchronized(catalogStateLock) {
+internal fun BaseHomeViewModel.readCatalogRow(key: String): CatalogRow? = synchronized(catalogStateLock) {
     catalogsMap[key]
 }
 
-internal fun HomeViewModel.replaceCatalogRow(key: String, row: CatalogRow) {
+internal fun BaseHomeViewModel.replaceCatalogRow(key: String, row: CatalogRow) {
     synchronized(catalogStateLock) {
         val previousRow = catalogsMap.put(key, row)
         reindexCatalogRow(key, previousRow, row)
     }
 }
 
-internal inline fun HomeViewModel.updateCatalogRow(
+internal inline fun BaseHomeViewModel.updateCatalogRow(
     key: String,
     transform: (CatalogRow) -> CatalogRow
 ): CatalogRow? {
@@ -100,7 +109,7 @@ internal inline fun HomeViewModel.updateCatalogRow(
     }
 }
 
-internal fun HomeViewModel.clearCatalogData() {
+internal fun BaseHomeViewModel.clearCatalogData() {
     synchronized(catalogStateLock) {
         catalogsMap.clear()
         catalogItemKeyIndex.clear()
@@ -111,22 +120,22 @@ internal fun HomeViewModel.clearCatalogData() {
     lazyLoadRequestedKeys.clear()
 }
 
-internal fun HomeViewModel.snapshotCatalogKeys(): Set<String> = synchronized(catalogStateLock) {
+internal fun BaseHomeViewModel.snapshotCatalogKeys(): Set<String> = synchronized(catalogStateLock) {
     catalogsMap.keys.toSet()
 }
 
-internal fun HomeViewModel.snapshotCatalogState(): Pair<List<String>, Map<String, CatalogRow>> = synchronized(catalogStateLock) {
+internal fun BaseHomeViewModel.snapshotCatalogState(): Pair<List<String>, Map<String, CatalogRow>> = synchronized(catalogStateLock) {
     catalogOrder.toList() to catalogsMap.toMap()
 }
 
-internal fun HomeViewModel.findCatalogItemById(itemId: String): MetaPreview? = synchronized(catalogStateLock) {
+internal fun BaseHomeViewModel.findCatalogItemById(itemId: String): MetaPreview? = synchronized(catalogStateLock) {
     val rowKeys = catalogItemKeyIndex[itemId]?.toList().orEmpty()
     rowKeys.firstNotNullOfOrNull { key ->
         catalogsMap[key]?.items?.firstOrNull { it.id == itemId }
     }
 }
 
-internal inline fun HomeViewModel.updateIndexedCatalogItem(
+internal inline fun BaseHomeViewModel.updateIndexedCatalogItem(
     itemId: String,
     transform: (MetaPreview) -> MetaPreview
 ): Boolean {
@@ -153,23 +162,33 @@ internal inline fun HomeViewModel.updateIndexedCatalogItem(
     }
 }
 
-internal fun HomeViewModel.getTruncatedRowCacheEntry(key: String): HomeViewModel.TruncatedRowCacheEntry? = synchronized(catalogStateLock) {
+internal fun BaseHomeViewModel.getTruncatedRowCacheEntry(key: String): BaseHomeViewModel.TruncatedRowCacheEntry? = synchronized(catalogStateLock) {
     truncatedRowCache[key]
 }
 
-internal fun HomeViewModel.putTruncatedRowCacheEntry(key: String, entry: HomeViewModel.TruncatedRowCacheEntry) {
+internal fun BaseHomeViewModel.putTruncatedRowCacheEntry(key: String, entry: BaseHomeViewModel.TruncatedRowCacheEntry) {
     synchronized(catalogStateLock) {
         truncatedRowCache[key] = entry
     }
 }
 
-internal fun HomeViewModel.removeTruncatedRowCacheEntry(key: String) {
+internal fun BaseHomeViewModel.removeTruncatedRowCacheEntry(key: String) {
     synchronized(catalogStateLock) {
         truncatedRowCache.remove(key)
     }
 }
 
-internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
+internal fun BaseHomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
+    // Rows-only mode: the configured row order (already written to
+    // `homeCatalogOrderKeys` by `applyConfiguredHomeRows`) is authoritative.
+    // Skip the legacy default-order + saved-order merge entirely.
+    if (allowedHomeCatalogKeys.isNotEmpty()) {
+        synchronized(catalogStateLock) {
+            catalogOrder.clear()
+            catalogOrder.addAll(homeCatalogOrderKeys)
+        }
+        return
+    }
     val defaultOrder = buildDefaultCatalogOrder(addons)
     val collectionKeys = collectionsCache.map { "collection_${it.id}" }
     val allAvailable = (defaultOrder + collectionKeys).toSet()
@@ -255,7 +274,7 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
     }
 }
 
-private fun HomeViewModel.buildDefaultCatalogOrder(addons: List<Addon>): List<String> {
+private fun BaseHomeViewModel.buildDefaultCatalogOrder(addons: List<Addon>): List<String> {
     val orderedKeys = mutableListOf<String>()
     addons.forEach { addon ->
         addon.catalogs
@@ -282,7 +301,7 @@ private fun HomeViewModel.buildDefaultCatalogOrder(addons: List<Addon>): List<St
     return orderedKeys
 }
 
-internal fun HomeViewModel.isCatalogDisabled(
+internal fun BaseHomeViewModel.isCatalogDisabled(
     addonBaseUrl: String,
     addonId: String,
     type: String,
@@ -296,7 +315,7 @@ internal fun HomeViewModel.isCatalogDisabled(
     return catalogKey(addonId, type, catalogId) in disabledHomeCatalogKeys
 }
 
-internal fun HomeViewModel.disableCatalogKey(
+internal fun BaseHomeViewModel.disableCatalogKey(
     addonBaseUrl: String,
     type: String,
     catalogId: String,
@@ -318,7 +337,7 @@ internal fun MetaPreview.hasHeroArtwork(): Boolean {
     return !background.isNullOrBlank()
 }
 
-internal fun HomeViewModel.extractYear(releaseInfo: String?): String? {
+internal fun BaseHomeViewModel.extractYear(releaseInfo: String?): String? {
     if (releaseInfo.isNullOrBlank()) return null
     return Regex("\\b(19|20)\\d{2}\\b").find(releaseInfo)?.value
 }

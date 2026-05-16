@@ -15,9 +15,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.nuvio.tv.core.build.AppFeaturePolicy
-import com.nuvio.tv.domain.model.ExperienceMode
 import com.nuvio.tv.ui.screens.CatalogSeeAllScreen
-import com.nuvio.tv.ui.screens.ExperienceModeSelectionScreen
 import com.nuvio.tv.ui.screens.LayoutSelectionScreen
 import com.nuvio.tv.ui.screens.detail.MetaDetailsScreen
 import com.nuvio.tv.ui.screens.home.HomeScreen
@@ -31,7 +29,7 @@ import com.nuvio.tv.ui.screens.search.SearchScreen
 import com.nuvio.tv.ui.screens.settings.AboutScreen
 import com.nuvio.tv.ui.screens.settings.LayoutSettingsScreen
 import com.nuvio.tv.ui.screens.settings.PlaybackSettingsScreen
-import com.nuvio.tv.ui.screens.settings.SettingsScreen
+import com.nuvio.tv.ui.screens.settings.SettingsHubScreen
 import com.nuvio.tv.ui.screens.settings.SupportersContributorsScreen
 import com.nuvio.tv.ui.screens.settings.ThemeSettingsScreen
 import com.nuvio.tv.ui.screens.settings.TraktScreen
@@ -112,21 +110,12 @@ fun NuvioNavHost(
             }
         }
     ) {
-        composable(Screen.ExperienceModeSelection.route) {
-            ExperienceModeSelectionScreen(
-                onContinue = { mode ->
-                    val destination = if (mode == ExperienceMode.ESSENTIAL) {
-                        Screen.Home.route
-                    } else {
-                        Screen.LayoutSelection.route
-                    }
-                    navController.navigate(destination) {
-                        popUpTo(Screen.ExperienceModeSelection.route) { inclusive = true }
-                    }
-                }
-            )
-        }
-
+        // ExperienceModeSelection removed from the onboarding graph — users
+        // now skip straight from LayoutSelection to Home. The Essential /
+        // Advanced toggle is still available from Settings → Experience for
+        // anyone who wants to switch later; the route stays defined in
+        // [Screen] so deep-links / settings nav continue to work, but it is
+        // no longer registered here.
         composable(Screen.LayoutSelection.route) {
             LayoutSelectionScreen(
                 onContinue = {
@@ -219,7 +208,13 @@ fun NuvioNavHost(
                 },
                 onNavigateToFolderDetail = { collectionId, folderId ->
                     navController.navigate(Screen.FolderDetail.createRoute(collectionId, folderId))
-                }
+                },
+                onNavigateToAddonManager = {
+                    navController.navigate(Screen.AddonManager.route)
+                },
+                onNavigateToAppearanceRows = { scope ->
+                    navController.navigate(Screen.AppearanceRows.createRoute(scope))
+                },
             )
         }
 
@@ -900,8 +895,7 @@ fun NuvioNavHost(
                     navController.navigate(
                         Screen.CatalogSeeAll.createRoute(catalogId, addonId, type, fromSearch = true)
                     )
-                },
-                onOpenDiscover = { navController.navigate(Screen.Discover.route) }
+                }
             )
         }
 
@@ -910,6 +904,70 @@ fun NuvioNavHost(
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
                 }
+            )
+        }
+
+        composable(Screen.Movies.route) {
+            com.nuvio.tv.ui.screens.movies.MoviesScreen(
+                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                    val heroBackdrop = HeroBackdropState.consumeAndClear()
+                    navController.navigate(
+                        Screen.Detail.createRoute(
+                            itemId = itemId,
+                            itemType = itemType,
+                            addonBaseUrl = addonBaseUrl,
+                            heroBackdropUrl = heroBackdrop
+                        )
+                    )
+                },
+                onNavigateToCatalogSeeAll = { catalogId, addonId, apiType ->
+                    navController.navigate(
+                        Screen.CatalogSeeAll.createRoute(catalogId, addonId, apiType)
+                    )
+                },
+                onNavigateToFolderDetail = { collectionId, folderId ->
+                    navController.navigate(
+                        Screen.FolderDetail.createRoute(collectionId, folderId)
+                    )
+                },
+                onNavigateToAddonManager = {
+                    navController.navigate(Screen.AddonManager.route)
+                },
+                onNavigateToAppearanceRows = { scope ->
+                    navController.navigate(Screen.AppearanceRows.createRoute(scope))
+                },
+            )
+        }
+
+        composable(Screen.TvShows.route) {
+            com.nuvio.tv.ui.screens.tv.TvShowsScreen(
+                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                    val heroBackdrop = HeroBackdropState.consumeAndClear()
+                    navController.navigate(
+                        Screen.Detail.createRoute(
+                            itemId = itemId,
+                            itemType = itemType,
+                            addonBaseUrl = addonBaseUrl,
+                            heroBackdropUrl = heroBackdrop
+                        )
+                    )
+                },
+                onNavigateToCatalogSeeAll = { catalogId, addonId, apiType ->
+                    navController.navigate(
+                        Screen.CatalogSeeAll.createRoute(catalogId, addonId, apiType)
+                    )
+                },
+                onNavigateToFolderDetail = { collectionId, folderId ->
+                    navController.navigate(
+                        Screen.FolderDetail.createRoute(collectionId, folderId)
+                    )
+                },
+                onNavigateToAddonManager = {
+                    navController.navigate(Screen.AddonManager.route)
+                },
+                onNavigateToAppearanceRows = { scope ->
+                    navController.navigate(Screen.AppearanceRows.createRoute(scope))
+                },
             )
         }
 
@@ -923,15 +981,15 @@ fun NuvioNavHost(
         }
 
         composable(Screen.Settings.route) {
-            SettingsScreen(
-                showBuiltInHeader = !hideBuiltInHeaders,
-                onNavigateToTrakt = { navController.navigate(Screen.Trakt.route) },
-                onNavigateToAddons = { navController.navigate(Screen.AddonManager.route) },
+            SettingsHubScreen(
+                onBack = { navController.popBackStack() },
                 onNavigateToAuthQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
                 onNavigateToManageProfiles = { navController.navigate(Screen.ManageProfiles.route) },
                 onNavigateToSupportersContributors = {
                     navController.navigate(Screen.SupportersContributors.route)
-                }
+                },
+                onNavigateToAddons = { navController.navigate(Screen.AddonManager.route) },
+                onNavigateToTrakt = { navController.navigate(Screen.Trakt.route) },
             )
         }
 
@@ -1005,6 +1063,14 @@ fun NuvioNavHost(
             )
         }
 
+        composable(Screen.CollectionsHome.route) {
+            com.nuvio.tv.ui.screens.collection.CollectionsHomeScreen(
+                onFolderClick = { collectionId, folderId ->
+                    navController.navigate(Screen.FolderDetail.createRoute(collectionId, folderId))
+                },
+            )
+        }
+
         composable(
             route = Screen.CollectionEditor.route,
             arguments = listOf(
@@ -1066,6 +1132,20 @@ fun NuvioNavHost(
         composable(Screen.LayoutSettings.route) {
             LayoutSettingsScreen(
                 onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Screen.AppearanceRows.route,
+            arguments = listOf(navArgument("scope") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val scopeKey = backStackEntry.arguments?.getString("scope")
+            val scope = com.nuvio.tv.domain.model.LayoutScreenScope.entries
+                .firstOrNull { it.scopeKey == scopeKey }
+                ?: com.nuvio.tv.domain.model.LayoutScreenScope.HOME
+            com.nuvio.tv.ui.screens.settings.AppearanceRowsScreen(
+                scope = scope,
+                onBack = { navController.popBackStack() },
             )
         }
 

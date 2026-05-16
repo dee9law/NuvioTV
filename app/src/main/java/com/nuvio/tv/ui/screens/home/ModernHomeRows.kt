@@ -98,14 +98,17 @@ import coil3.request.CachePolicy
 import coil3.request.crossfade
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.LayoutCardStyle
+import com.nuvio.tv.domain.model.LayoutRowConfig
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.LocalSideRailController
 import com.nuvio.tv.ui.components.ContinueWatchingCard
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.components.placeholderCardShimmer
 import com.nuvio.tv.ui.components.rememberArtworkBackedCardGlow
+import com.nuvio.tv.ui.navigation.tvLeftFromFirstItemToSideRail
 import com.nuvio.tv.ui.components.rememberPlaceholderShimmerOffsetState
-import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.ThemeColors
 import kotlin.math.abs
@@ -313,10 +316,8 @@ private fun ModernCatalogRowItem(
         derivedStateOf { isBackdropExpanded() && !suppressCardExpansionForHeroTrailer }
     }
 
-    val isSidebarExpanded = LocalSidebarExpanded.current
     val playTrailerInExpandedCard =
         effectiveAutoplayEnabled &&
-            !isSidebarExpanded &&
             isCardFocused &&
             trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
             effectiveBackdropExpanded
@@ -440,13 +441,34 @@ internal fun ModernRowSection(
     onLoadMoreCatalog: (String, String, String) -> Unit,
     onBackdropInteraction: () -> Unit,
     onExpandedCatalogFocusKeyChange: (String?) -> Unit,
-    itemFocusRequesters: StableRef<MutableMap<Int, FocusRequester>> = StableRef(mutableMapOf())
+    itemFocusRequesters: StableRef<MutableMap<Int, FocusRequester>> = StableRef(mutableMapOf()),
+    upFocusRequester: FocusRequester? = null,
+    rowConfig: LayoutRowConfig? = null
 ) {
     // Unwrap StableRef wrappers
     @Suppress("NAME_SHADOWING") val focusedItemByRow = focusedItemByRow.value
     @Suppress("NAME_SHADOWING") val rowListStates = rowListStates.value
     @Suppress("NAME_SHADOWING") val loadMoreRequestedTotals = loadMoreRequestedTotals.value
     @Suppress("NAME_SHADOWING") val itemFocusRequesters = itemFocusRequesters.value
+
+    // ── Per-row config override ──────────────────────────────────────────
+    // When the user has configured this row via the "Layout & Rows" settings,
+    // the row's saved cardStyle + cardWidthDp take precedence over the
+    // globals passed in from `ModernHomeContent`. Rows without a saved
+    // [LayoutRowConfig] (Continue Watching, addons the user hasn't added to
+    // the layout settings yet) fall back to the inherited globals.
+    val effLandscape = rowConfig?.let { it.cardStyle == LayoutCardStyle.LANDSCAPE }
+    val effBaseWidth = rowConfig?.cardWidthDp?.dp
+    @Suppress("NAME_SHADOWING") val useLandscapePosters =
+        effLandscape ?: useLandscapePosters
+    @Suppress("NAME_SHADOWING") val portraitCatalogCardWidth =
+        effBaseWidth ?: portraitCatalogCardWidth
+    @Suppress("NAME_SHADOWING") val portraitCatalogCardHeight =
+        effBaseWidth?.times(1.5f) ?: portraitCatalogCardHeight
+    @Suppress("NAME_SHADOWING") val landscapeCatalogCardWidth =
+        effBaseWidth ?: landscapeCatalogCardWidth
+    @Suppress("NAME_SHADOWING") val landscapeCatalogCardHeight =
+        effBaseWidth?.div(1.77f) ?: landscapeCatalogCardHeight
     val rowKey = row.key
     // Blocks vertical focus exit during placeholder→data transition.
     val blockingFocusExit = remember { mutableStateOf(false) }
@@ -738,11 +760,21 @@ internal fun ModernRowSection(
                 null
             }
 
+            val sideRailController = LocalSideRailController.current
             LazyRow(
                 state = rowListState,
                 modifier = Modifier
                     .recompositionHighlighter()
                     .focusRequester(rowFocusRequester)
+                    .then(
+                        // Route D-pad Up from items in the topmost row directly to
+                        // the active TopNavBar tab — bypassing spatial focus search
+                        // which would otherwise pick the SideRail or a horizontally
+                        // closer (non-active) nav pill.
+                        if (upFocusRequester != null) {
+                            Modifier.focusProperties { up = upFocusRequester }
+                        } else Modifier
+                    )
                     .focusRestorer {
                         val savedIdx = focusedItemByRow[row.key] ?: 0
                         itemFocusRequesters[savedIdx]
@@ -756,7 +788,18 @@ internal fun ModernRowSection(
                                 event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight
                             }
                         } else Modifier
-                    ),
+                    )
+                    .onPreviewKeyEvent { event ->
+                        // Open the SideRail when D-pad Left is pressed at the first item.
+                        if (sideRailController != null &&
+                            event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionLeft &&
+                            (focusedItemByRow[rowKey] ?: 0) == 0
+                        ) {
+                            sideRailController()
+                            true
+                        } else false
+                    },
                 contentPadding = PaddingValues(horizontal = rowStartPadding),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -796,6 +839,17 @@ internal fun ModernRowSection(
                         isPending || isCurrent
                     }
 
+                    // Per nav-spec: D-pad Left from the FIRST item of any
+                    // horizontal carousel invokes the SideRail; from middle
+                    // items it lets focus traverse normally. Wrap each
+                    // item in a Box that intercepts Left only when this is
+                    // the index-0 item — `onPreviewKeyEvent` on the parent
+                    // fires before the focused descendant.
+                    androidx.compose.foundation.layout.Box(
+                        modifier = if (index == 0) {
+                            androidx.compose.ui.Modifier.tvLeftFromFirstItemToSideRail()
+                        } else androidx.compose.ui.Modifier
+                    ) {
                     when (val payload = item.payload) {
                         is ModernPayload.ContinueWatching -> {
                             ModernContinueWatchingRowItem(
@@ -880,6 +934,7 @@ internal fun ModernRowSection(
                             )
                         }
                     }
+                    } // first-item SideRail wrapper Box
                 }
             }
         }

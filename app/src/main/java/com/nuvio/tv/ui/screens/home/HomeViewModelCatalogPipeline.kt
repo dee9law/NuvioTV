@@ -9,8 +9,11 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.LayoutRowConfig
+import com.nuvio.tv.domain.model.LayoutRowKind
 import com.nuvio.tv.domain.model.skipStep
 import com.nuvio.tv.domain.model.supportsExtra
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
@@ -34,7 +37,7 @@ private data class CatalogUpdateResult(
 )
 
 @OptIn(FlowPreview::class)
-internal fun HomeViewModel.observeCollectionsPipeline() {
+internal fun BaseHomeViewModel.observeCollectionsPipeline() {
     viewModelScope.launch {
         collectionsDataStore.collections
             .distinctUntilChanged()
@@ -47,27 +50,35 @@ internal fun HomeViewModel.observeCollectionsPipeline() {
     }
 }
 
-internal fun HomeViewModel.loadHomeCatalogOrderPreferencePipeline() {
+internal fun BaseHomeViewModel.loadHomeCatalogOrderPreferencePipeline() {
     viewModelScope.launch {
-        layoutPreferenceDataStore.homeCatalogOrderKeys.collectLatest { keys ->
-            homeCatalogOrderKeys = keys
-            rebuildCatalogOrder(addonsCache)
-            scheduleUpdateCatalogRows()
-        }
+        // distinctUntilChanged: every cross-scope Preferences write re-emits
+        // this Flow with the same list. Without de-dup, MOVIES toggles would
+        // trigger HOME's `rebuildCatalogOrder` + `scheduleUpdateCatalogRows`
+        // on every keystroke — see Q3 contamination audit.
+        layoutPreferenceDataStore.homeCatalogOrderKeys
+            .distinctUntilChanged()
+            .collectLatest { keys ->
+                homeCatalogOrderKeys = keys
+                rebuildCatalogOrder(addonsCache)
+                scheduleUpdateCatalogRows()
+            }
     }
 }
 
-internal fun HomeViewModel.loadFollowAddonsOrderPipeline() {
+internal fun BaseHomeViewModel.loadFollowAddonsOrderPipeline() {
     viewModelScope.launch {
-        layoutPreferenceDataStore.followAddonsOrder.collectLatest { enabled ->
-            followAddonsOrderEnabled = enabled
-            rebuildCatalogOrder(addonsCache)
-            scheduleUpdateCatalogRows()
-        }
+        layoutPreferenceDataStore.followAddonsOrder
+            .distinctUntilChanged()
+            .collectLatest { enabled ->
+                followAddonsOrderEnabled = enabled
+                rebuildCatalogOrder(addonsCache)
+                scheduleUpdateCatalogRows()
+            }
     }
 }
 
-internal fun HomeViewModel.loadDisabledHomeCatalogPreferencePipeline() {
+internal fun BaseHomeViewModel.loadDisabledHomeCatalogPreferencePipeline() {
     viewModelScope.launch {
         layoutPreferenceDataStore.disabledHomeCatalogKeys.collectLatest { keys ->
             val newKeys = keys.toSet()
@@ -83,16 +94,18 @@ internal fun HomeViewModel.loadDisabledHomeCatalogPreferencePipeline() {
     }
 }
 
-internal fun HomeViewModel.loadCustomCatalogTitlesPipeline() {
+internal fun BaseHomeViewModel.loadCustomCatalogTitlesPipeline() {
     viewModelScope.launch {
-        layoutPreferenceDataStore.customCatalogTitles.collectLatest { titles ->
-            customCatalogTitles = titles
-            scheduleUpdateCatalogRows()
-        }
+        layoutPreferenceDataStore.customCatalogTitles
+            .distinctUntilChanged()
+            .collectLatest { titles ->
+                customCatalogTitles = titles
+                scheduleUpdateCatalogRows()
+            }
     }
 }
 
-internal fun HomeViewModel.observeTmdbSettingsPipeline() {
+internal fun BaseHomeViewModel.observeTmdbSettingsPipeline() {
     viewModelScope.launch {
         tmdbSettingsDataStore.settings
             .distinctUntilChanged()
@@ -114,18 +127,162 @@ internal fun HomeViewModel.observeTmdbSettingsPipeline() {
 }
 
 @OptIn(FlowPreview::class)
-internal fun HomeViewModel.observeInstalledAddonsPipeline() {
+internal fun BaseHomeViewModel.observeInstalledAddonsPipeline() {
+    // Rows-only mode: catalog loading is driven entirely by
+    // [observeConfiguredHomeRowsForScopePipeline], which combines installed
+    // addons with the user's configured rows. There is no separate
+    // addons-only observer because that would duplicate every load.
+    //
+    // TODO: re-enable for discovery mode later. The old auto-fetch pulled
+    //  EVERY installed addon catalog and rendered them all on the home
+    //  screen. To restore: re-add the `collectLatest` block below that
+    //  forwards to `loadAllCatalogsPipeline(addons)` without the rows-only
+    //  allowlist filter.
+    //
+    // viewModelScope.launch {
+    //     addonRepository.getInstalledAddons()
+    //         .distinctUntilChanged()
+    //         .collectLatest { addons ->
+    //             addonsCache = addons
+    //             loadAllCatalogsPipeline(addons)
+    //         }
+    // }
+}
+
+/**
+ * Rows-only pipeline: combines installed addons with the user's configured
+ * rows for [BaseHomeViewModel.homeScope] and drives all catalog loading from that.
+ *
+ * Behavior:
+ *  - No enabled rows configured → empty state (no auto-fetch).
+ *  - Some rows configured → derive the catalog allowlist + order from the row
+ *    config, then call into [loadAllCatalogsPipeline] which filters by the
+ *    allowlist.
+ */
+@OptIn(FlowPreview::class)
+internal fun BaseHomeViewModel.observeConfiguredHomeRowsForScopePipeline() {
     viewModelScope.launch {
-        addonRepository.getInstalledAddons()
-            .distinctUntilChanged()
-            .collectLatest { addons ->
+        combine(
+            addonRepository.getInstalledAddons().distinctUntilChanged(),
+            layoutPreferenceDataStore.rowsForScope(homeScope).distinctUntilChanged(),
+        ) { addons, rows -> addons to rows }
+            .collectLatest { (addons, rows) ->
                 addonsCache = addons
-                loadAllCatalogsPipeline(addons)
+                applyConfiguredHomeRows(addons, rows)
+                configuredRowsObserved = true
+                if (allowedHomeCatalogKeys.isEmpty()) {
+                    // No enabled rows under this scope — render empty state.
+                    cancelInFlightCatalogLoads()
+                    synchronized(catalogStateLock) {
+                        catalogOrder.clear()
+                    }
+                    clearCatalogData()
+                    activeCatalogLoadSignature = null
+                    catalogsLoadInProgress = false
+                    hasRenderedFirstCatalog = false
+                    pendingCatalogLoads = 0
+                    _fullCatalogRows.value = emptyList()
+                    _uiState.update { state ->
+                        state.copy(
+                            isLoading = false,
+                            error = null,
+                            installedAddonsCount = addons.size,
+                            catalogRows = emptyList(),
+                            homeRows = emptyList(),
+                            gridItems = emptyList(),
+                            heroItems = emptyList(),
+                        )
+                    }
+                } else {
+                    // `forceReload = false`: the signature check inside
+                    // `loadAllCatalogsPipeline` skips re-loading when addons
+                    // and the rows allowlist haven't actually changed AND
+                    // existing catalog state is healthy. This is what makes
+                    // catalogs survive a Home → Settings → Home round-trip:
+                    // the rowsForScope flow re-emits on return, but the
+                    // signature is unchanged, so we don't clear `catalogsMap`
+                    // and don't re-fire `loadCatalogPipeline` for rows that
+                    // already have data. Truly-new rows still load because
+                    // the signature includes the addon catalog set.
+                    loadAllCatalogsPipeline(addons, forceReload = false)
+                }
             }
     }
 }
 
-internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
+/**
+ * Translates the user's configured rows for [BaseHomeViewModel.homeScope] into the
+ * internal allowlist + order used by the rest of the catalog pipeline.
+ *
+ * The canonical row id is `addon|<addonId>|<apiType>|<catalogId>` (see
+ * [com.nuvio.tv.domain.model.LayoutRowKey.forAddon]). The internal catalog key
+ * uses underscores instead of pipes (see [catalogKey]).
+ */
+internal fun BaseHomeViewModel.applyConfiguredHomeRows(
+    addons: List<Addon>,
+    rows: List<LayoutRowConfig>,
+) {
+    val addonsById = addons.associateBy { it.id }
+    val orderedKeys = mutableListOf<String>()
+    val allowed = linkedSetOf<String>()
+    val enabledRows = rows.filter { it.enabled }
+    enabledRows.forEach { row ->
+        when (row.kind) {
+            LayoutRowKind.ADDON -> {
+                if (!row.id.startsWith("addon|")) return@forEach
+                val parts = row.id.split("|")
+                if (parts.size < 4) return@forEach
+                val addonId = parts.subList(1, parts.size - 2).joinToString("|")
+                val apiType = parts[parts.size - 2]
+                val catalogId = parts.last()
+                val addon = addonsById[addonId] ?: return@forEach
+                val catalog = addon.catalogs.firstOrNull {
+                    it.id == catalogId && it.apiType.equals(apiType, ignoreCase = true)
+                } ?: return@forEach
+                val key = catalogKey(
+                    addonId = addon.id,
+                    type = catalog.apiType,
+                    catalogId = catalog.id
+                )
+                if (allowed.add(key)) orderedKeys.add(key)
+            }
+            LayoutRowKind.COLLECTION -> {
+                // Format: "collection|<collectionId>" or
+                //         "collection|<collectionId>|<folderId>"  (per-folder rows).
+                // For both, the collection-level pipeline key uses only the
+                // collection id; folder-level filtering happens downstream.
+                val parts = row.id.split("|")
+                if (parts.size < 2) return@forEach
+                val collectionId = parts[1]
+                val key = "collection_$collectionId"
+                if (allowed.add(key)) orderedKeys.add(key)
+            }
+            LayoutRowKind.TRAKT,
+            LayoutRowKind.TMDB_DISCOVER,
+            LayoutRowKind.TMDB_NETWORK -> {
+                // Persisted by the new "+ TMDB Source" / "+ Trakt List"
+                // pickers; runtime rendering for these kinds lives in a
+                // separate pipeline change.
+            }
+        }
+    }
+    configuredHomeRows = enabledRows
+    allowedHomeCatalogKeys = allowed
+    homeCatalogOrderKeys = orderedKeys
+    // Disabled-key set is unused in rows-only mode (allowlist is authoritative).
+    disabledHomeCatalogKeys = emptySet()
+    // In rows-only mode the user's row order is authoritative — bypass
+    // `rebuildCatalogOrder` (which filters against `shouldShowOnHome`) and
+    // write `catalogOrder` directly. This respects users who add catalogs
+    // their addons would otherwise hide from home.
+    synchronized(catalogStateLock) {
+        catalogOrder.clear()
+        catalogOrder.addAll(orderedKeys)
+    }
+    _uiState.update { it.copy(hasConfiguredRows = enabledRows.isNotEmpty()) }
+}
+
+internal suspend fun BaseHomeViewModel.loadAllCatalogsPipeline(
     addons: List<Addon>,
     forceReload: Boolean = false
 ) {
@@ -201,16 +358,27 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             return
         }
 
+        // Rows-only mode: when the user has configured rows for this scope,
+        // restrict loading to ONLY those catalogs.  `shouldShowOnHome()` and
+        // `isCatalogDisabled()` are bypassed because the allowlist is the
+        // authoritative source of truth (a catalog the user added explicitly
+        // should render even if its addon manifest marks it as off-home).
+        val allowedKeys = allowedHomeCatalogKeys
+        val rowsOnlyMode = allowedKeys.isNotEmpty()
         val catalogsToLoad = addons.flatMap { addon ->
             addon.catalogs
-                .filterNot {
-                    !it.shouldShowOnHome() || isCatalogDisabled(
-                        addonBaseUrl = addon.baseUrl,
-                        addonId = addon.id,
-                        type = it.apiType,
-                        catalogId = it.id,
-                        catalogName = it.name
-                    )
+                .filter { catalog ->
+                    if (rowsOnlyMode) {
+                        catalogKey(addon.id, catalog.apiType, catalog.id) in allowedKeys
+                    } else {
+                        catalog.shouldShowOnHome() && !isCatalogDisabled(
+                            addonBaseUrl = addon.baseUrl,
+                            addonId = addon.id,
+                            type = catalog.apiType,
+                            catalogId = catalog.id,
+                            catalogName = catalog.name
+                        )
+                    }
                 }
                 .map { catalog -> addon to catalog }
         }
@@ -292,7 +460,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
             synchronized(catalogStateLock) {
                 placeholderDescriptors.add(
-                    HomeViewModel.PlaceholderDescriptor(
+                    BaseHomeViewModel.PlaceholderDescriptor(
                         catalogKey = key,
                         addonId = addon.id,
                         addonName = addon.displayName,
@@ -313,7 +481,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             }
         }
 
-        Log.d(HomeViewModel.TAG,
+        Log.d(BaseHomeViewModel.TAG,
             "Lazy loading: eager=${eagerHomeCatalogs.size} lazy=${lazyHomeCatalogs.size}"
         )
 
@@ -340,7 +508,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
  * Called from the presentation pipeline when [currentHeroCatalogKeys] arrives
  * after the initial catalog load (due to the layout preference debounce).
  */
-internal fun HomeViewModel.loadHeroCatalogsPipeline() {
+internal fun BaseHomeViewModel.loadHeroCatalogsPipeline() {
     val heroCatalogKeys = currentHeroCatalogKeys
     if (heroCatalogKeys.isEmpty() || addonsCache.isEmpty()) return
 
@@ -374,7 +542,7 @@ internal fun HomeViewModel.loadHeroCatalogsPipeline() {
     }
 }
 
-internal fun HomeViewModel.loadCatalogPipeline(
+internal fun BaseHomeViewModel.loadCatalogPipeline(
     addon: Addon,
     catalog: CatalogDescriptor,
     generation: Long
@@ -386,7 +554,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
             val supportsSkip = catalog.supportsExtra("skip")
             val skipStep = catalog.skipStep()
             Log.d(
-                HomeViewModel.TAG,
+                BaseHomeViewModel.TAG,
                 "Loading home catalog addonId=${addon.id} addonName=${addon.name} type=${catalog.apiType} catalogId=${catalog.id} catalogName=${catalog.name} supportsSkip=$supportsSkip skipStep=$skipStep"
             )
             catalogRepository.getCatalog(
@@ -418,7 +586,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             hasCountedCompletion = true
                         }
                         Log.d(
-                            HomeViewModel.TAG,
+                            BaseHomeViewModel.TAG,
                             "Home catalog loaded addonId=${addon.id} type=${catalog.apiType} catalogId=${catalog.id} items=${result.data.items.size} pending=$pendingCatalogLoads"
                         )
                         if (pendingCatalogLoads == 0) {
@@ -441,7 +609,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             hasCountedCompletion = true
                         }
                         Log.w(
-                            HomeViewModel.TAG,
+                            BaseHomeViewModel.TAG,
                             "Home catalog failed addonId=${addon.id} type=${catalog.apiType} catalogId=${catalog.id} code=${result.code} message=${result.message}"
                         )
                         if (pendingCatalogLoads == 0) {
@@ -459,7 +627,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
     registerCatalogLoadJob(loadJob)
 }
 
-internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addonId: String, type: String) {
+internal fun BaseHomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addonId: String, type: String) {
     val key = catalogKey(addonId = addonId, type = type, catalogId = catalogId)
     val currentRow = readCatalogRow(key) ?: return
 
@@ -511,7 +679,7 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
     }
 }
 
-internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
+internal suspend fun BaseHomeViewModel.updateCatalogRowsPipeline() {
     val (orderedKeys, catalogSnapshot) = snapshotCatalogState()
     val collectionsSnapshot = collectionsCache.associateBy { "collection_${it.id}" }
     val heroCatalogKeys = currentHeroCatalogKeys
@@ -611,7 +779,22 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             allHeroFallbackRows, { it.hasHeroArtwork() }, currentHeroOrder
         )
 
+        // Rows-only mode: hero source is the first non-empty configured row.
+        // (Spec: "Hero carousel source: first enabled row in the rows config
+        // that has content".) Overrides the legacy `heroCatalogKeys` selection
+        // unless the user has explicitly set hero catalogs.
+        val rowsOnlyHeroItems = if (allowedHomeCatalogKeys.isNotEmpty() &&
+            selectedHeroCatalogSet.isEmpty()) {
+            orderedRows
+                .firstOrNull { it.items.isNotEmpty() }
+                ?.items
+                ?.take(8)
+                .orEmpty()
+        } else {
+            emptyList()
+        }
         val computedHeroItems = when {
+            rowsOnlyHeroItems.isNotEmpty() -> rowsOnlyHeroItems
             heroItemsFromSelectedCatalogs.isNotEmpty() -> heroItemsFromSelectedCatalogs
             fallbackHeroItemsFromSelectedCatalogs.isNotEmpty() -> fallbackHeroItemsFromSelectedCatalogs
             fallbackHeroItemsWithArtwork.isNotEmpty() -> fallbackHeroItemsWithArtwork
@@ -629,7 +812,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                     val truncatedRow = row.copy(items = row.items.take(25))
                     putTruncatedRowCacheEntry(
                         key,
-                        HomeViewModel.TruncatedRowCacheEntry(
+                        BaseHomeViewModel.TruncatedRowCacheEntry(
                             sourceRow = row,
                             truncatedRow = truncatedRow
                         )
@@ -658,19 +841,29 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         val placeholdersByKey = synchronized(catalogStateLock) {
             placeholderDescriptors.associateBy { it.catalogKey }
         }
-        collectionsCache.forEach { collection ->
-            val key = "collection_${collection.id}"
-            if (collection.pinToTop && key !in disabledHomeCatalogKeys) {
-                add(HomeRow.CollectionRow(collection))
-            }
-        }
+        // Rows-only mode: skip the legacy "pin every pinToTop collection to
+        // the top of Home" block entirely. Collections appear on Home ONLY when
+        // the user explicitly adds them as collection-kind rows in
+        // Settings → Appearance → Rows (HOME scope), and they appear at the
+        // position the user chose — not at the top by virtue of `pinToTop`.
+        //
+        // TODO: re-enable for discovery mode later. The block below was the
+        //  only path that surfaced un-configured collections on Home:
+        //
+        // collectionsCache.forEach { collection ->
+        //     val key = "collection_${collection.id}"
+        //     if (collection.pinToTop && key !in disabledHomeCatalogKeys) {
+        //         add(HomeRow.CollectionRow(collection))
+        //     }
+        // }
         for (key in orderedKeys) {
             if (key in disabledHomeCatalogKeys) continue
             val collectionEntry = collectionsSnapshot[key]
             if (collectionEntry != null) {
-                if (!collectionEntry.pinToTop) {
-                    add(HomeRow.CollectionRow(collectionEntry))
-                }
+                // Always render: in rows-only mode the user's explicit row
+                // ordering wins over `pinToTop` (no separate pinToTop block
+                // above means there's no longer a risk of duplication).
+                add(HomeRow.CollectionRow(collectionEntry))
             } else {
                 val catalogRow = displayRowsByKey[key]
                 if (catalogRow != null && catalogRow.items.isNotEmpty()) {
@@ -863,7 +1056,7 @@ private fun stableHeroSortKey(
     return "${row.addonId}|${row.apiType}|${row.catalogId}|${item.id}".hashCode()
 }
 
-internal fun HomeViewModel.schedulePosterStatusReconcilePipeline(rows: List<CatalogRow>) {
+internal fun BaseHomeViewModel.schedulePosterStatusReconcilePipeline(rows: List<CatalogRow>) {
     posterStatusReconcileJob?.cancel()
     if (rows.isEmpty()) {
         reconcilePosterStatusObserversPipeline(rows)
@@ -875,11 +1068,11 @@ internal fun HomeViewModel.schedulePosterStatusReconcilePipeline(rows: List<Cata
     }
 }
 
-internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<CatalogRow>) {
+internal fun BaseHomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<CatalogRow>) {
     val desiredLibraryItemsByKey = linkedMapOf<String, Pair<String, String>>()
     rows.asSequence()
         .flatMap { row -> row.items.asSequence() }
-        .take(HomeViewModel.MAX_POSTER_STATUS_OBSERVERS)
+        .take(BaseHomeViewModel.MAX_POSTER_STATUS_OBSERVERS)
         .forEach { item ->
             val key = homeItemStatusKey(item.id, item.apiType)
             if (key !in desiredLibraryItemsByKey) {

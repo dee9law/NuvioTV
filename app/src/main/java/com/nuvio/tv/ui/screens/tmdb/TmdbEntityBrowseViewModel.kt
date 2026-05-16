@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.tmdb
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -45,6 +46,7 @@ class TmdbEntityBrowseViewModel @Inject constructor(
     val uiState: StateFlow<TmdbEntityBrowseUiState> = _uiState.asStateFlow()
 
     init {
+        Log.d("NetworkDebug", "TmdbEntityBrowseViewModel init: kind=$entityKind id=$entityId name=$entityName sourceType=$sourceType")
         posterOptions.bind(viewModelScope)
         load()
     }
@@ -110,6 +112,7 @@ class TmdbEntityBrowseViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val language = tmdbSettingsDataStore.settings.first().language
+                Log.d("NetworkDebug", "fetchEntityBrowse → kind=$entityKind id=$entityId sourceType=$sourceType language=$language name=$entityName")
                 val browseData = tmdbMetadataService.fetchEntityBrowse(
                     entityKind = entityKind,
                     entityId = entityId,
@@ -117,6 +120,7 @@ class TmdbEntityBrowseViewModel @Inject constructor(
                     fallbackName = entityName,
                     language = language
                 )
+                Log.d("NetworkDebug", "fetchEntityBrowse result → browseData=${if (browseData != null) "non-null (${browseData.rails.size} rails)" else "null"}")
                 _uiState.value = if (browseData != null) {
                     TmdbEntityBrowseUiState.Success(browseData)
                 } else {

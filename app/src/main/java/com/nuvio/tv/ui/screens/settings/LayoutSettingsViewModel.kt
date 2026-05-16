@@ -22,9 +22,6 @@ data class LayoutSettingsUiState(
     val hasChosen: Boolean = false,
     val availableCatalogs: List<CatalogInfo> = emptyList(),
     val heroCatalogKeys: List<String> = emptyList(),
-    val sidebarCollapsedByDefault: Boolean = false,
-    val modernSidebarEnabled: Boolean = false,
-    val modernSidebarBlurEnabled: Boolean = false,
     val modernLandscapePostersEnabled: Boolean = false,
     val modernHeroFullScreenBackdropEnabled: Boolean = false,
     val heroSectionEnabled: Boolean = true,
@@ -61,10 +58,14 @@ data class CatalogInfo(
 
 sealed class LayoutSettingsEvent {
     data class SelectLayout(val layout: HomeLayout) : LayoutSettingsEvent()
+    /**
+     * Writes [layout] to the GLOBAL layout key (`globalLayoutKey`) — the floor
+     * of the 3-tier resolver. Used by the onboarding LayoutSelectionScreen so
+     * the user's first choice becomes the default for every screen, not just
+     * HOME. Per-screen overrides remain whatever they were.
+     */
+    data class SelectGlobalLayout(val layout: HomeLayout) : LayoutSettingsEvent()
     data class ToggleHeroCatalog(val catalogKey: String) : LayoutSettingsEvent()
-    data class SetSidebarCollapsed(val collapsed: Boolean) : LayoutSettingsEvent()
-    data class SetModernSidebarEnabled(val enabled: Boolean) : LayoutSettingsEvent()
-    data class SetModernSidebarBlurEnabled(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetModernLandscapePostersEnabled(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetModernHeroFullScreenBackdropEnabled(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetHeroSectionEnabled(val enabled: Boolean) : LayoutSettingsEvent()
@@ -128,21 +129,6 @@ class LayoutSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             layoutPreferenceDataStore.heroCatalogSelections.distinctUntilChanged().collectLatest { keys ->
                 updateUiStateIfChanged { it.copy(heroCatalogKeys = keys) }
-            }
-        }
-        viewModelScope.launch {
-            layoutPreferenceDataStore.sidebarCollapsedByDefault.distinctUntilChanged().collectLatest { collapsed ->
-                updateUiStateIfChanged { it.copy(sidebarCollapsedByDefault = collapsed) }
-            }
-        }
-        viewModelScope.launch {
-            layoutPreferenceDataStore.modernSidebarEnabled.distinctUntilChanged().collectLatest { enabled ->
-                updateUiStateIfChanged { it.copy(modernSidebarEnabled = enabled) }
-            }
-        }
-        viewModelScope.launch {
-            layoutPreferenceDataStore.modernSidebarBlurEnabled.distinctUntilChanged().collectLatest { enabled ->
-                updateUiStateIfChanged { it.copy(modernSidebarBlurEnabled = enabled) }
             }
         }
         viewModelScope.launch {
@@ -276,10 +262,8 @@ class LayoutSettingsViewModel @Inject constructor(
     fun onEvent(event: LayoutSettingsEvent) {
         when (event) {
             is LayoutSettingsEvent.SelectLayout -> selectLayout(event.layout)
+            is LayoutSettingsEvent.SelectGlobalLayout -> selectGlobalLayout(event.layout)
             is LayoutSettingsEvent.ToggleHeroCatalog -> toggleHeroCatalog(event.catalogKey)
-            is LayoutSettingsEvent.SetSidebarCollapsed -> setSidebarCollapsed(event.collapsed)
-            is LayoutSettingsEvent.SetModernSidebarEnabled -> setModernSidebarEnabled(event.enabled)
-            is LayoutSettingsEvent.SetModernSidebarBlurEnabled -> setModernSidebarBlurEnabled(event.enabled)
             is LayoutSettingsEvent.SetModernLandscapePostersEnabled -> setModernLandscapePostersEnabled(event.enabled)
             is LayoutSettingsEvent.SetModernHeroFullScreenBackdropEnabled -> setModernHeroFullScreenBackdropEnabled(event.enabled)
             is LayoutSettingsEvent.SetHeroSectionEnabled -> setHeroSectionEnabled(event.enabled)
@@ -316,6 +300,19 @@ class LayoutSettingsViewModel @Inject constructor(
         }
     }
 
+    private fun selectGlobalLayout(layout: HomeLayout) {
+        viewModelScope.launch {
+            // Onboarding writes the GLOBAL key so the choice applies to every
+            // scope through the 3-tier resolver. We also flip `hasChosenLayout`
+            // so the onboarding gate doesn't bring the user back here on
+            // relaunch — that flag is set by `setLayout`, which also seeds the
+            // HOME-scope key (keeping the legacy per-screen layout consistent
+            // with the global default the user just picked).
+            layoutPreferenceDataStore.setGlobalLayout(layout)
+            layoutPreferenceDataStore.setLayout(layout)
+        }
+    }
+
     private fun toggleHeroCatalog(catalogKey: String) {
         viewModelScope.launch {
             val selected = _uiState.value.heroCatalogKeys.toMutableList()
@@ -325,27 +322,6 @@ class LayoutSettingsViewModel @Inject constructor(
                 selected.add(catalogKey)
             }
             layoutPreferenceDataStore.setHeroCatalogKeys(selected)
-        }
-    }
-
-    private fun setSidebarCollapsed(collapsed: Boolean) {
-        if (_uiState.value.sidebarCollapsedByDefault == collapsed) return
-        viewModelScope.launch {
-            layoutPreferenceDataStore.setSidebarCollapsedByDefault(collapsed)
-        }
-    }
-
-    private fun setModernSidebarEnabled(enabled: Boolean) {
-        if (_uiState.value.modernSidebarEnabled == enabled) return
-        viewModelScope.launch {
-            layoutPreferenceDataStore.setModernSidebarEnabled(enabled)
-        }
-    }
-
-    private fun setModernSidebarBlurEnabled(enabled: Boolean) {
-        if (_uiState.value.modernSidebarBlurEnabled == enabled) return
-        viewModelScope.launch {
-            layoutPreferenceDataStore.setModernSidebarBlurEnabled(enabled)
         }
     }
 

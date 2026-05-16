@@ -73,8 +73,8 @@ import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.ContinueWatchingOptionsDialog
-import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalContentFocusRequester
+import com.nuvio.tv.LocalNavBarFocusRequester
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.util.LocalRecompositionHighlighterEnabled
 import com.nuvio.tv.ui.util.StableRef
@@ -116,13 +116,14 @@ fun ModernHomeContent(
     onPreloadAdjacentItem: (MetaPreview) -> Unit = {},
     onSaveFocusState: (Int, Int, String?, Map<String, String>, Map<String, Int>, Int, Int) -> Unit,
     scrollToTopTrigger: Int = 0,
+    resetRowFocusTrigger: Int = 0,
+    focusHeroTrigger: Int = 0,
     onRequestLazyCatalogLoad: (String) -> Unit = {},
     onRowItemFocusedCallback: (String, Int, Boolean) -> Unit = { _, _, _ -> }
 ) {
     val onRowItemFocusedPassedDown = rememberUpdatedState(onRowItemFocusedCallback)
     val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
-    val sidebarExpanded = LocalSidebarExpanded.current
-    val isSidebarExpanded = remember(sidebarExpanded) { derivedStateOf { sidebarExpanded } }
+    val isSidebarExpanded = remember { derivedStateOf { false } }
     val lifecycleOwner = LocalLifecycleOwner.current
     val useLandscapePosters = uiState.modernLandscapePostersEnabled
     val fullScreenBackdrop = uiState.modernHeroFullScreenBackdropEnabled
@@ -216,6 +217,7 @@ fun ModernHomeContent(
     }
     val activeRowKey = remember { mutableStateOf<String?>(null) }
     val activeItemIndex = remember { mutableIntStateOf(0) }
+    val contentHasFocus = remember { mutableStateOf(false) }
     var initialAutoSelectedKey by remember { mutableStateOf<String?>(null) }
     val pendingRowFocusKey = remember { mutableStateOf<String?>(null) }
     val pendingRowFocusIndex = remember { mutableStateOf<Int?>(null) }
@@ -243,6 +245,27 @@ fun ModernHomeContent(
         if (scrollToTopTrigger > 0) {
             verticalRowListState.scrollToItem(0, 0)
         }
+    }
+
+    // L3 Back: reset focus to the first item of the currently focused row.
+    LaunchedEffect(resetRowFocusTrigger) {
+        if (resetRowFocusTrigger <= 0) return@LaunchedEffect
+        val targetRowKey = activeRowKey.value ?: carouselRows.list.firstOrNull()?.key
+            ?: return@LaunchedEffect
+        pendingRowFocusKey.value = targetRowKey
+        pendingRowFocusIndex.value = 0
+        pendingRowFocusNonce.intValue++
+    }
+
+    // L1 Back: jump focus to the hero / billboard composable (Modern's row 0).
+    LaunchedEffect(focusHeroTrigger) {
+        if (focusHeroTrigger <= 0) return@LaunchedEffect
+        val firstRow = carouselRows.list.firstOrNull() ?: return@LaunchedEffect
+        val targetIndex = (focusedItemByRow[firstRow.key] ?: 0)
+            .coerceIn(0, (firstRow.items.list.size - 1).coerceAtLeast(0))
+        pendingRowFocusKey.value = firstRow.key
+        pendingRowFocusIndex.value = targetIndex
+        pendingRowFocusNonce.intValue++
     }
 
     val currentView = LocalView.current
@@ -731,6 +754,21 @@ fun ModernHomeContent(
                 focusedCatalogSelection.value = null
                 expandedCatalogFocusKey.value = null
             }
+
+            // Back while content rows are focused:
+            //   • at item > 0  → scroll/focus the first item of the current row
+            //   • at item 0    → move focus up to the top navigation bar
+            val navBarFr = LocalNavBarFocusRequester.current
+            BackHandler(enabled = contentHasFocus.value && !isTrailerPlayingFullscreenState.value) {
+                if (activeItemIndex.intValue > 0) {
+                    pendingRowFocusKey.value   = activeRowKey.value
+                    pendingRowFocusIndex.value = 0
+                    pendingRowFocusNonce.intValue++
+                } else {
+                    runCatching { navBarFr.requestFocus() }
+                }
+            }
+
             val liveHeroSceneState = remember(
                 resolvedHeroState,
                 shouldPlayHeroTrailerState,
@@ -948,6 +986,7 @@ fun ModernHomeContent(
                 modifier = heroMetadataModifier
             )
 
+            val onContentFocusChangedLambda = remember { { focused: Boolean -> contentHasFocus.value = focused } }
             val onActiveRowKeyChangeLambda = remember { { key: String? -> focusHolder.activeRowKey = key; activeRowKey.value = key } }
             val onActiveItemIndexChangeLambda = remember { { index: Int -> focusHolder.activeItemIndex = index; activeItemIndex.intValue = index } }
             val onLastHeroNavigationAtMsChangeLambda = remember { { ms: Long -> lastHeroNavigationAtMs.longValue = ms } }
@@ -993,6 +1032,8 @@ fun ModernHomeContent(
                 focusState = focusState,
                 activeRowKey = activeRowKey,
                 activeItemIndex = activeItemIndex,
+                resetRowFocusTrigger = resetRowFocusTrigger,
+                focusHeroTrigger = focusHeroTrigger,
                 isFastScrolling = isFastScrolling,
                 onFastScrollingChanged = onFastScrollingChangedLambda,
                 contentFocusRequester = contentFocusRequester,
@@ -1034,6 +1075,7 @@ fun ModernHomeContent(
                 continueWatchingCardHeight = continueWatchingCardHeight,
                 blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
                 useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
+                rowConfigLookup = uiState.rowConfigLookup,
                 pendingRowFocusKey = pendingRowFocusKey,
                 pendingRowFocusIndex = pendingRowFocusIndex,
                 pendingRowFocusNonce = pendingRowFocusNonce,
@@ -1050,6 +1092,7 @@ fun ModernHomeContent(
                 focusedHeroMediaNonce = focusedHeroMediaNonce,
                 onFocusedHeroMediaNonceChange = onFocusedHeroMediaNonceChangeLambda,
                 onExpansionInteractionNonceChange = onExpansionInteractionNonceChangeLambda,
+                onContentFocusChanged = onContentFocusChangedLambda,
                 isVerticalRowsScrollingState = isVerticalRowsScrollingState,
                 modifier = Modifier.align(Alignment.BottomStart)
             )

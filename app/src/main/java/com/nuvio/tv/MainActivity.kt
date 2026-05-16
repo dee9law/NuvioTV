@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.res.Configuration
 import androidx.core.os.ConfigurationCompat
 import android.util.Log
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.IntOffset
 import androidx.metrics.performance.JankStats
 import androidx.metrics.performance.PerformanceMetricsState
 import androidx.activity.ComponentActivity
@@ -13,104 +15,40 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
 import java.util.Locale
-import androidx.compose.animation.core.FastOutLinearInEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.animateDp
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.updateTransition
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.draw.alpha
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import com.nuvio.tv.core.runtime.PluginRuntimeHooks
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.tv.material3.DrawerValue
-import androidx.tv.material3.Card
-import androidx.tv.material3.CardDefaults
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Icon
-import androidx.tv.material3.ModalNavigationDrawer
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
-import androidx.tv.material3.Text
-import androidx.tv.material3.rememberDrawerState
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.build.AppFeaturePolicy
+import com.nuvio.tv.core.runtime.PluginRuntimeHooks
 import com.nuvio.tv.data.local.AppOnboardingDataStore
 import com.nuvio.tv.data.local.ExperienceModeDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
@@ -127,8 +65,12 @@ import com.nuvio.tv.core.sync.StartupSyncService
 import com.nuvio.tv.data.remote.supabase.AvatarRepository
 import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
+import com.nuvio.tv.ui.components.CollectionsDropdown
+import com.nuvio.tv.ui.components.FolderPillsDropdown
 import com.nuvio.tv.ui.components.NuvioScrollDefaults
-import com.nuvio.tv.ui.components.ProfileAvatarCircle
+import com.nuvio.tv.ui.components.SideRail
+import com.nuvio.tv.ui.components.TopNavigationBar
+import com.nuvio.tv.ui.screens.home.ChannelRailViewModel
 import com.nuvio.tv.ui.screens.account.AuthQrSignInScreen
 import com.nuvio.tv.ui.screens.addon.EssentialAddonSetupScreen
 import com.nuvio.tv.ui.screens.profile.ProfileSelectionScreen
@@ -139,27 +81,16 @@ import com.nuvio.tv.ui.util.LocalRecompositionHighlighterEnabled
 import com.nuvio.tv.updater.UpdateViewModel
 import com.nuvio.tv.updater.ui.UpdatePromptDialog
 import dagger.hilt.android.AndroidEntryPoint
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.haze
 import javax.inject.Inject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import coil3.compose.rememberAsyncImagePainter
-import coil3.request.ImageRequest
-import androidx.compose.ui.res.stringResource
-import com.nuvio.tv.R
+import androidx.compose.runtime.mutableIntStateOf
 
-val LocalSidebarExpanded = compositionLocalOf { false }
 val LocalContentFocusRequester = compositionLocalOf { FocusRequester.Default }
-
-data class DrawerItem(
-    val route: String,
-    val label: String,
-    val iconRes: Int? = null,
-    val icon: ImageVector? = null
-)
+val LocalNavBarFocusRequester  = compositionLocalOf { FocusRequester.Default }
+val LocalSideRailController   = compositionLocalOf<(() -> Unit)?> { null }
 
 private data class MainUiPrefs(
     val theme: AppTheme = AppTheme.WHITE,
@@ -170,9 +101,6 @@ private data class MainUiPrefs(
     val experienceMode: ExperienceMode? = null,
     val experienceModeLoaded: Boolean = false,
     val addonSetupSkipped: Boolean = false,
-    val sidebarCollapsed: Boolean = false,
-    val modernSidebarEnabled: Boolean = false,
-    val modernSidebarBlurPref: Boolean = false,
     val smoothBringIntoViewEnabled: Boolean = true,
     val fastHorizontalNavigationEnabled: Boolean = false,
     val composeHighlighterEnabled: Boolean = false
@@ -323,15 +251,11 @@ class MainActivity : ComponentActivity() {
                     themeDataStore.selectedTheme,
                     themeDataStore.selectedFont,
                     layoutPreferenceDataStore.hasChosenLayout,
-                    layoutPreferenceDataStore.sidebarCollapsedByDefault,
-                    layoutPreferenceDataStore.modernSidebarEnabled,
-                ) { theme, font, hasChosenLayout, sidebarCollapsed, modernSidebarEnabled ->
+                ) { theme, font, hasChosenLayout ->
                     MainUiPrefs(
                         theme = theme,
                         font = font,
                         hasChosenLayout = hasChosenLayout,
-                        sidebarCollapsed = sidebarCollapsed,
-                        modernSidebarEnabled = modernSidebarEnabled,
                     )
                 }.combine(experienceModeDataStore.mode) { prefs, experienceMode ->
                     prefs.copy(experienceMode = experienceMode, experienceModeLoaded = true)
@@ -341,8 +265,6 @@ class MainActivity : ComponentActivity() {
                     prefs.copy(amoledMode = amoledMode)
                 }.combine(themeDataStore.amoledSurfacesMode) { prefs, amoledSurfacesMode ->
                     prefs.copy(amoledSurfacesMode = amoledSurfacesMode)
-                }.combine(layoutPreferenceDataStore.modernSidebarBlurEnabled) { prefs, modernSidebarBlurPref ->
-                    prefs.copy(modernSidebarBlurPref = modernSidebarBlurPref)
                 }.combine(layoutPreferenceDataStore.smoothBringIntoViewEnabled) { prefs, smoothBringIntoViewEnabled ->
                     prefs.copy(smoothBringIntoViewEnabled = smoothBringIntoViewEnabled)
                 }.combine(layoutPreferenceDataStore.fastHorizontalNavigationEnabled) { prefs, fastHorizontalNavigationEnabled ->
@@ -478,14 +400,12 @@ class MainActivity : ComponentActivity() {
                         )
                         return@Surface
                     }
-                    val sidebarCollapsed = mainUiPrefs.sidebarCollapsed
-                    val modernSidebarEnabled = mainUiPrefs.modernSidebarEnabled
-                    val modernSidebarBlurEnabled =
-                        mainUiPrefs.modernSidebarBlurPref && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-                    val hideBuiltInHeadersForFloatingPill = modernSidebarEnabled && !sidebarCollapsed
-
+                    // Onboarding flow: skip Essential/Advanced choice entirely.
+                    // First launch → LayoutSelection (writes global default) →
+                    // Home. The Essential/Advanced toggle still exists in
+                    // Settings → Experience for users who want to flip it
+                    // later; we just no longer prompt at startup.
                     val startDestination = when {
-                        needsExperienceSelection -> Screen.ExperienceModeSelection.route
                         layoutChosen -> Screen.Home.route
                         else -> Screen.LayoutSelection.route
                     }
@@ -523,102 +443,29 @@ class MainActivity : ComponentActivity() {
                         setOf(
                             Screen.Home.route,
                             Screen.Search.route,
+                            Screen.Discover.route,
                             Screen.Library.route,
-                            Screen.Settings.route,
-                            Screen.AddonManager.route
+                            Screen.Movies.route,
+                            Screen.TvShows.route,
+                            Screen.CollectionsHome.route,
+                            Screen.Account.route
                         )
                     }
 
-                    val strNavHome = stringResource(R.string.nav_home)
-                    val strNavSearch = stringResource(R.string.nav_search)
-                    val strNavLibrary = stringResource(R.string.nav_library)
-                    val strNavAddons = stringResource(R.string.nav_addons)
-                    val strNavSettings = stringResource(R.string.nav_settings)
-                    val drawerItems = remember(
-                        strNavHome,
-                        strNavSearch,
-                        strNavLibrary,
-                        strNavAddons,
-                        strNavSettings
-                    ) {
-                        listOf(
-                            DrawerItem(
-                                route = Screen.Home.route,
-                                label = strNavHome,
-                                icon = Icons.Default.Home
-                            ),
-                            DrawerItem(
-                                route = Screen.Search.route,
-                                label = strNavSearch,
-                                iconRes = R.raw.sidebar_search
-                            ),
-                            DrawerItem(
-                                route = Screen.Library.route,
-                                label = strNavLibrary,
-                                iconRes = R.raw.sidebar_library
-                            ),
-                            DrawerItem(
-                                route = Screen.AddonManager.route,
-                                label = strNavAddons,
-                                iconRes = R.raw.sidebar_plugin
-                            ),
-                            DrawerItem(
-                                route = Screen.Settings.route,
-                                label = strNavSettings,
-                                iconRes = R.raw.sidebar_settings
-                            )
-                        )
-                    }
-                    val selectedDrawerRoute = drawerItems.firstOrNull { item ->
-                        currentRoute == item.route || currentRoute?.startsWith("${item.route}/") == true
-                    }?.route
-                    val selectedDrawerItem = drawerItems.firstOrNull { it.route == selectedDrawerRoute } ?: drawerItems.first()
-
-                    if (modernSidebarEnabled) {
-                        ModernSidebarScaffold(
-                            navController = navController,
-                            startDestination = startDestination,
-                            currentRoute = currentRoute,
-                            rootRoutes = rootRoutes,
-                            drawerItems = drawerItems,
-                            selectedDrawerRoute = selectedDrawerRoute,
-                            selectedDrawerItem = selectedDrawerItem,
-                            sidebarCollapsed = sidebarCollapsed,
-                            modernSidebarBlurEnabled = modernSidebarBlurEnabled,
-                            hideBuiltInHeaders = hideBuiltInHeadersForFloatingPill,
-                            activeProfileName = activeProfile?.name ?: "",
-                            activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
-                            activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
-                            showProfileSelector = profiles.size > 1,
-                            onSwitchProfile = { hasSelectedProfileThisSession = false },
-                            onNavigate = { optimisticRoute = it },
-                            onExitApp = {
-                                finishAffinity()
-                                finishAndRemoveTask()
-                            }
-                        )
-                    } else {
-                        LegacySidebarScaffold(
-                            navController = navController,
-                            startDestination = startDestination,
-                            currentRoute = currentRoute,
-                            rootRoutes = rootRoutes,
-                            drawerItems = drawerItems,
-                            selectedDrawerRoute = selectedDrawerRoute,
-                            sidebarCollapsed = sidebarCollapsed,
-                            hideBuiltInHeaders = false,
-                            activeProfileName = activeProfile?.name ?: "",
-                            activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
-                            activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
-                            showProfileSelector = profiles.size > 1,
-                            onSwitchProfile = { hasSelectedProfileThisSession = false },
-                            onNavigate = { optimisticRoute = it },
-                            onExitApp = {
-                                finishAffinity()
-                                finishAndRemoveTask()
-                            }
-                        )
-                    }
+                    TopNavBarScaffold(
+                        navController = navController,
+                        startDestination = startDestination,
+                        currentRoute = currentRoute,
+                        rootRoutes = rootRoutes,
+                        onNavigate = { optimisticRoute = it },
+                        onExitApp = {
+                            finishAffinity()
+                            finishAndRemoveTask()
+                        },
+                        profileName = activeProfile?.name,
+                        profileColorHex = activeProfile?.avatarColorHex,
+                        profileAvatarUrl = activeProfileAvatarImageUrl,
+                    )
 
                     if (AppFeaturePolicy.inAppUpdatesEnabled && !BuildConfig.IS_DEBUG_BUILD) {
                         val updateViewModel: UpdateViewModel = hiltViewModel(this@MainActivity)
@@ -674,846 +521,257 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun LegacySidebarScaffold(
+private fun TopNavBarScaffold(
     navController: NavHostController,
     startDestination: String,
     currentRoute: String?,
     rootRoutes: Set<String>,
-    drawerItems: List<DrawerItem>,
-    selectedDrawerRoute: String?,
-    sidebarCollapsed: Boolean,
-    hideBuiltInHeaders: Boolean,
-    activeProfileName: String,
-    activeProfileColorHex: String,
-    activeProfileAvatarImageUrl: String?,
-    showProfileSelector: Boolean,
-    onSwitchProfile: () -> Unit,
     onNavigate: (String) -> Unit,
-    onExitApp: () -> Unit
+    onExitApp: () -> Unit,
+    profileName: String?,
+    profileColorHex: String?,
+    profileAvatarUrl: String?,
 ) {
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val drawerItemFocusRequesters = remember(drawerItems) {
-        drawerItems.associate { item -> item.route to FocusRequester() }
-    }
-    val showSidebar = currentRoute in rootRoutes
-
-    LaunchedEffect(currentRoute) {
-        drawerState.setValue(DrawerValue.Closed)
-    }
-
-    val closedDrawerWidth = if (sidebarCollapsed) 0.dp else 72.dp
-    val openDrawerWidth = 196.dp
-    val openDrawerItemWidth = 148.dp
-
-    val focusManager = LocalFocusManager.current
-    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    val showTopNav = currentRoute in rootRoutes
     val contentFocusRequester = remember { FocusRequester() }
-    var pendingContentFocusTransfer by remember { mutableStateOf(false) }
-    var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
+    val navBarFr              = remember { FocusRequester() }
+    val sideRailFr            = remember { FocusRequester() }
 
-    BackHandler(enabled = currentRoute in rootRoutes && drawerState.currentValue == DrawerValue.Closed) {
-        pendingSidebarFocusRequest = true
-        drawerState.setValue(DrawerValue.Open)
-    }
+    val channelRailVm: ChannelRailViewModel = hiltViewModel()
+    val railPills by channelRailVm.enabledPills.collectAsState()
+    val folderPillOptions by channelRailVm.allFolderOptions.collectAsState()
+    var showFolderPillsDropdown by remember { mutableStateOf(false) }
 
-    BackHandler(enabled = currentRoute in rootRoutes && drawerState.currentValue == DrawerValue.Open) {
-        onExitApp()
-    }
+    val collectionRailVm: com.nuvio.tv.ui.screens.collection.CollectionRailViewModel = hiltViewModel()
+    val allCollections by collectionRailVm.collections.collectAsState()
+    val selectedCollection by collectionRailVm.selectedCollection.collectAsState()
+    val folderChannels by collectionRailVm.folderChannels.collectAsState()
+    var showCollectionsDropdown by remember { mutableStateOf(false) }
 
-    LaunchedEffect(drawerState.currentValue, pendingContentFocusTransfer) {
-        if (!pendingContentFocusTransfer || drawerState.currentValue != DrawerValue.Closed) {
-            return@LaunchedEffect
-        }
-        repeat(2) { withFrameNanos { } }
-        runCatching { contentFocusRequester.requestFocus() }
-        pendingContentFocusTransfer = false
-    }
+    // Channel rail is mutually exclusive: when a collection is selected (via
+    // long-press on Collections), its folders take over the rail entirely.
+    // Default mode shows the user-curated cross-collection folder pills from
+    // [ChannelRailViewModel].
+    val effectiveChannels = if (selectedCollection != null) folderChannels else railPills
 
-    LaunchedEffect(drawerState.currentValue, selectedDrawerRoute, showSidebar, pendingSidebarFocusRequest) {
-        if (!showSidebar || !pendingSidebarFocusRequest || drawerState.currentValue != DrawerValue.Open) {
-            return@LaunchedEffect
-        }
-        val targetRoute = selectedDrawerRoute ?: run {
-            pendingSidebarFocusRequest = false
-            return@LaunchedEffect
-        }
-        val requester = drawerItemFocusRequesters[targetRoute] ?: run {
-            pendingSidebarFocusRequest = false
-            return@LaunchedEffect
-        }
-        repeat(2) { withFrameNanos { } }
-        runCatching { requester.requestFocus() }
-        pendingSidebarFocusRequest = false
-    }
+    var selectedCategoryIndex by remember { mutableIntStateOf(0) }
+    var selectedChannelIndex  by remember { mutableStateOf<Int?>(null) }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = { drawerValue ->
-            if (showSidebar) {
-                val drawerWidth = if (drawerValue == DrawerValue.Open) openDrawerWidth else closedDrawerWidth
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(drawerWidth)
-                        .background(NuvioColors.Background)
-                        .padding(12.dp)
-                        .selectableGroup()
-                        .onPreviewKeyEvent { keyEvent ->
-                            val closeKey = if (isRtl) Key.DirectionLeft else Key.DirectionRight
-                            if (keyEvent.key == closeKey && keyEvent.type == KeyEventType.KeyDown) {
-                                drawerState.setValue(DrawerValue.Closed)
-                                pendingContentFocusTransfer = false
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                ) {
-                    val isExpanded = drawerValue == DrawerValue.Open
-                    val itemWidth = if (isExpanded) openDrawerItemWidth else 48.dp
-
-                    if (isExpanded) {
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .fillMaxWidth()
-                        ) {
-                            Spacer(modifier = Modifier.height(30.dp))
-                            if (showProfileSelector && activeProfileName.isNotEmpty()) {
-                                var isProfileFocused by remember { mutableStateOf(false) }
-                                val profileItemShape = RoundedCornerShape(32.dp)
-                                val profileLeadingInset = 18.dp
-                                val profileAvatarSize = 34.dp
-                                val profileLabelStart = 60.dp
-                                val profileGapAfterAvatar =
-                                    (profileLabelStart - profileLeadingInset - profileAvatarSize).coerceAtLeast(0.dp)
-                                val profileBgColor by animateColorAsState(
-                                    targetValue = if (isProfileFocused) NuvioColors.FocusBackground else Color.Transparent,
-                                    label = "legacyProfileItemBg"
-                                )
-                                Box(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .width(itemWidth)
-                                            .height(52.dp)
-                                            .background(color = profileBgColor, shape = profileItemShape)
-                                            .onFocusChanged { isProfileFocused = it.isFocused }
-                                            .clickable {
-                                                onSwitchProfile()
-                                                drawerState.setValue(DrawerValue.Closed)
-                                            },
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Spacer(modifier = Modifier.width(profileLeadingInset))
-                                        ProfileAvatarCircle(
-                                            name = activeProfileName,
-                                            colorHex = activeProfileColorHex,
-                                            size = profileAvatarSize,
-                                            avatarImageUrl = activeProfileAvatarImageUrl
-                                        )
-                                        Spacer(modifier = Modifier.width(profileGapAfterAvatar))
-                                        Text(
-                                            text = activeProfileName,
-                                            color = if (isProfileFocused) NuvioColors.TextPrimary else NuvioColors.TextSecondary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            textAlign = TextAlign.Start,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                }
-                            } else {
-                                Image(
-                                    painter = painterResource(id = R.drawable.app_logo_wordmark),
-                                    contentDescription = stringResource(R.string.app_name),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(42.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .offset(y = 28.dp)
-                            .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalAlignment = if (isExpanded) Alignment.CenterHorizontally else Alignment.Start
-                    ) {
-                        drawerItems.forEach { item ->
-                            LegacySidebarButton(
-                                label = item.label,
-                                iconRes = item.iconRes,
-                                icon = item.icon,
-                                selected = selectedDrawerRoute == item.route,
-                                expanded = isExpanded,
-                                onClick = {
-                                    onNavigate(item.route)
-                                    navigateToDrawerRoute(
-                                        navController = navController,
-                                        currentRoute = currentRoute,
-                                        targetRoute = item.route
-                                    )
-                                    drawerState.setValue(DrawerValue.Closed)
-                                    pendingContentFocusTransfer = true
-                                },
-                                modifier = Modifier.focusRequester(
-                                    drawerItemFocusRequesters.getValue(item.route)
-                                )
-                                    .width(itemWidth)
-                                    .then(if (!isExpanded) Modifier.offset(x = 12.dp) else Modifier)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    ) {
-        val contentStartPadding by animateDpAsState(
-            targetValue = if (showSidebar) closedDrawerWidth else 0.dp,
-            animationSpec = tween(350),
-            label = "contentStartPadding"
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(start = contentStartPadding)
-                .onKeyEvent { keyEvent ->
-                    val openKey = if (isRtl) Key.DirectionRight else Key.DirectionLeft
-                    if (
-                        showSidebar &&
-                        drawerState.currentValue == DrawerValue.Closed &&
-                        keyEvent.type == KeyEventType.KeyDown &&
-                        keyEvent.key == openKey
-                    ) {
-                        if (focusManager.moveFocus(if (isRtl) FocusDirection.Right else FocusDirection.Left)) {
-                            true
-                        } else {
-                            pendingSidebarFocusRequest = true
-                            drawerState.setValue(DrawerValue.Open)
-                            true
-                        }
-                    } else {
-                        false
-                    }
-                }
-        ) {
-            CompositionLocalProvider(
-                LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
-                LocalContentFocusRequester provides contentFocusRequester
-            ) {
-                NuvioNavHost(
-                    navController = navController,
-                    startDestination = startDestination,
-                    hideBuiltInHeaders = hideBuiltInHeaders
-                )
-            }
+    // Keep nav bar visual state in sync with the current screen.
+    LaunchedEffect(currentRoute) {
+        when (currentRoute) {
+            Screen.Home.route            -> { selectedCategoryIndex = 0; selectedChannelIndex = null }
+            Screen.Movies.route          -> { selectedCategoryIndex = 1; selectedChannelIndex = null }
+            Screen.TvShows.route         -> { selectedCategoryIndex = 2; selectedChannelIndex = null }
+            Screen.CollectionsHome.route -> { selectedCategoryIndex = 3; selectedChannelIndex = null }
+            Screen.Discover.route        -> { selectedCategoryIndex = -1; selectedChannelIndex = null }
+            // On non-content screens (Search, Settings, Account) highlight nothing.
+            else                  -> selectedCategoryIndex = -1
         }
     }
-}
 
-@Composable
-private fun LegacySidebarButton(
-    label: String,
-    iconRes: Int?,
-    icon: ImageVector?,
-    selected: Boolean,
-    expanded: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    var isFocused by remember { mutableStateOf(false) }
-    val itemShape = RoundedCornerShape(32.dp)
-    val backgroundColor by animateColorAsState(
-        targetValue = when {
-            isFocused -> NuvioColors.FocusBackground
-            expanded && selected -> NuvioColors.Secondary
-            else -> Color.Transparent
-        },
-        label = "legacySidebarItemBackground"
-    )
-    val contentColor by animateColorAsState(
-        targetValue = when {
-            isFocused -> NuvioColors.TextPrimary
-            expanded && selected -> NuvioColors.OnSecondary
-            else -> NuvioColors.TextSecondary
-        },
-        label = "legacySidebarItemContent"
-    )
-    val iconTint by animateColorAsState(
-        targetValue = when {
-            isFocused -> NuvioColors.TextPrimary
-            expanded && selected -> NuvioColors.OnSecondary
-            selected -> NuvioColors.Secondary
-            !expanded -> NuvioColors.TextTertiary
-            else -> NuvioColors.TextSecondary
-        },
-        label = "legacySidebarItemIconTint"
-    )
+    BackHandler(enabled = currentRoute in rootRoutes, onBack = onExitApp)
 
-    Card(
-        onClick = onClick,
-        modifier = modifier
-            .height(52.dp)
-            .focusProperties { canFocus = expanded }
-            .onFocusChanged { isFocused = it.hasFocus },
-        colors = CardDefaults.colors(
-            containerColor = backgroundColor,
-            focusedContainerColor = backgroundColor,
+    // D-pad Left at leftmost content item moves focus into the SideRail.
+    val openSideRail: () -> Unit = remember(sideRailFr) {
+        { runCatching { sideRailFr.requestFocus() } }
+    }
+
+    // The SideRail surfaces its expansion state so the TopBar can nudge its
+    // left padding away from the overlay when the user opens the rail —
+    // otherwise the rail's panel obscures the leftmost category pill.
+    var sideRailExpanded by remember { mutableStateOf(false) }
+    val topBarLeftPadding by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (sideRailExpanded) 180.dp else 0.dp,
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = 300,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing,
         ),
-        border = CardDefaults.border(
-            border = androidx.tv.material3.Border.None,
-            focusedBorder = androidx.tv.material3.Border(
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color.Transparent),
-                shape = itemShape
-            )
-        ),
-        shape = CardDefaults.shape(shape = itemShape)
+        label = "topBarLeftPadding",
+    )
+
+    val activeSideRailItem = when (currentRoute) {
+        Screen.Home.route -> com.nuvio.tv.ui.components.SideRailItem.Home
+        Screen.Search.route -> com.nuvio.tv.ui.components.SideRailItem.Search
+        Screen.Library.route -> com.nuvio.tv.ui.components.SideRailItem.MyStuff
+        Screen.Settings.route -> com.nuvio.tv.ui.components.SideRailItem.Settings
+        else -> null
+    }
+
+    CompositionLocalProvider(
+        LocalContentFocusRequester provides contentFocusRequester,
+        LocalNavBarFocusRequester  provides navBarFr,
+        LocalSideRailController   provides openSideRail,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-        DrawerItemIcon(
-            iconRes = iconRes,
-            icon = icon,
-            tint = iconTint,
-            modifier = if (expanded) {
-                Modifier
-                    .size(22.dp)
-                    .align(Alignment.CenterStart)
-                    .offset(x = 13.dp)
-            } else {
-                Modifier
-                    .size(22.dp)
-                    .align(Alignment.Center)
-            }
-        )
-        if (expanded) {
-            com.nuvio.tv.ui.components.AutoResizeText(
-                text = label,
-                color = contentColor,
-                textAlign = TextAlign.Start,
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .fillMaxWidth()
-                    .padding(start = 54.dp, end = 14.dp)
+
+            // Full-screen content — hero extends to the very top behind the nav bar.
+            NuvioNavHost(
+                navController = navController,
+                startDestination = startDestination,
+                hideBuiltInHeaders = showTopNav,
             )
-        }
-    }
-}
-}
 
-@Composable
-private fun ModernSidebarScaffold(
-    navController: NavHostController,
-    startDestination: String,
-    currentRoute: String?,
-    rootRoutes: Set<String>,
-    drawerItems: List<DrawerItem>,
-    selectedDrawerRoute: String?,
-    selectedDrawerItem: DrawerItem,
-    sidebarCollapsed: Boolean,
-    modernSidebarBlurEnabled: Boolean,
-    hideBuiltInHeaders: Boolean,
-    activeProfileName: String,
-    activeProfileColorHex: String,
-    activeProfileAvatarImageUrl: String?,
-    showProfileSelector: Boolean,
-    onSwitchProfile: () -> Unit,
-    onNavigate: (String) -> Unit,
-    onExitApp: () -> Unit
-) {
-    val showSidebar = currentRoute in rootRoutes
-    val collapsedSidebarWidth = if (sidebarCollapsed) 0.dp else 184.dp
-    val openSidebarWidth = 262.dp
-
-    val focusManager = LocalFocusManager.current
-    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
-    val contentFocusRequester = remember { FocusRequester() }
-    val drawerItemFocusRequesters = remember(drawerItems) {
-        drawerItems.associate { item -> item.route to FocusRequester() }
-    }
-
-    var isSidebarExpanded by remember { mutableStateOf(false) }
-    var sidebarCollapsePending by remember { mutableStateOf(false) }
-    var pendingContentFocusTransfer by remember { mutableStateOf(false) }
-    var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
-    var focusedDrawerIndex by remember { mutableStateOf(-1) }
-    var isFloatingPillIconOnly by remember { mutableStateOf(false) }
-    val keepFloatingPillExpanded = selectedDrawerRoute == Screen.Settings.route
-    val keepSidebarFocusDuringCollapse =
-        isSidebarExpanded || sidebarCollapsePending || pendingContentFocusTransfer
-    val hasSidebarProfileItem = showProfileSelector && activeProfileName.isNotEmpty()
-    val sidebarTopBoundaryIndex = if (hasSidebarProfileItem) drawerItems.size else 0
-
-    LaunchedEffect(showSidebar) {
-        if (!showSidebar) {
-            isSidebarExpanded = false
-            sidebarCollapsePending = false
-            pendingContentFocusTransfer = false
-            pendingSidebarFocusRequest = false
-            isFloatingPillIconOnly = false
-        }
-    }
-
-    LaunchedEffect(keepFloatingPillExpanded, showSidebar) {
-        if (!showSidebar || keepFloatingPillExpanded) {
-            isFloatingPillIconOnly = false
-        }
-    }
-
-    BackHandler(enabled = currentRoute in rootRoutes && !isSidebarExpanded && !sidebarCollapsePending) {
-        isSidebarExpanded = true
-        sidebarCollapsePending = false
-        pendingSidebarFocusRequest = true
-    }
-
-    BackHandler(enabled = currentRoute in rootRoutes && isSidebarExpanded && !sidebarCollapsePending) {
-        onExitApp()
-    }
-
-    LaunchedEffect(sidebarCollapsePending, isSidebarExpanded, showSidebar) {
-        if (!showSidebar || !sidebarCollapsePending) {
-            return@LaunchedEffect
-        }
-        if (!isSidebarExpanded) {
-            sidebarCollapsePending = false
-            return@LaunchedEffect
-        }
-        delay(95L)
-        isSidebarExpanded = false
-        sidebarCollapsePending = false
-    }
-
-    val sidebarVisible = showSidebar && (isSidebarExpanded || !sidebarCollapsed)
-    val sidebarHazeState = remember { HazeState() }
-    val targetSidebarWidth = when {
-        !sidebarVisible -> 0.dp
-        isSidebarExpanded -> openSidebarWidth
-        else -> collapsedSidebarWidth
-    }
-    val sidebarWidth by animateDpAsState(
-        targetValue = targetSidebarWidth,
-        animationSpec = if (isSidebarExpanded) {
-            keyframes {
-                durationMillis = 365
-                (openSidebarWidth + 12.dp) at 175
-            }
-        } else {
-            tween(durationMillis = 385, easing = LinearOutSlowInEasing)
-        },
-        label = "sidebarWidth"
-    )
-    val animationDuration = if (sidebarVisible) 400 else 300
-    val animationEasing = if (sidebarVisible) FastOutSlowInEasing else FastOutLinearInEasing
-
-    val sidebarSlideX by animateDpAsState(
-        targetValue = if (sidebarVisible) 0.dp else (-24).dp,
-        animationSpec = tween(durationMillis = animationDuration, easing = animationEasing),
-        label = "sidebarSlideX"
-    )
-    val sidebarSurfaceAlpha by animateFloatAsState(
-        targetValue = if (sidebarVisible) 1f else 0f,
-        animationSpec = tween(durationMillis = animationDuration, easing = animationEasing),
-        label = "sidebarSurfaceAlpha"
-    )
-    val shouldApplySidebarHaze = showSidebar && modernSidebarBlurEnabled && (
-        isSidebarExpanded || sidebarCollapsePending
-        )
-    val sidebarTransition = updateTransition(
-        targetState = isSidebarExpanded,
-        label = "sidebarTransition"
-    )
-    val sidebarLabelAlpha by sidebarTransition.animateFloat(
-        transitionSpec = {
-            if (targetState) {
-                tween(durationMillis = 125, easing = FastOutSlowInEasing)
-            } else {
-                tween(durationMillis = 145, easing = LinearOutSlowInEasing)
-            }
-        },
-        label = "sidebarLabelAlpha"
-    ) { expanded ->
-        if (expanded) 1f else 0f
-    }
-    val sidebarExpandProgress by sidebarTransition.animateFloat(
-        transitionSpec = {
-            if (targetState) {
-                tween(durationMillis = 345, easing = FastOutSlowInEasing)
-            } else {
-                tween(durationMillis = 385, easing = LinearOutSlowInEasing)
-            }
-        },
-        label = "sidebarExpandProgress"
-    ) { expanded ->
-        if (expanded) 1f else 0f
-    }
-
-    // derivedStateOf prevents per-frame recomposition — only triggers when the boolean crosses the threshold
-    val sidebarBlocksContentKeys by remember { derivedStateOf { sidebarExpandProgress > 0.2f } }
-    val sidebarShowExpandedPanel by remember { derivedStateOf { sidebarExpandProgress > 0.01f } }
-    val sidebarShowCollapsedPill by remember { derivedStateOf { sidebarExpandProgress < 0.98f } }
-
-    val sidebarIconScale by sidebarTransition.animateFloat(
-        transitionSpec = { tween(durationMillis = 145, easing = FastOutSlowInEasing) },
-        label = "sidebarIconScale"
-    ) { expanded ->
-        if (expanded) 1f else 0.92f
-    }
-    val sidebarBloomScale by sidebarTransition.animateFloat(
-        transitionSpec = {
-            if (targetState) {
-                tween(durationMillis = 345, easing = FastOutSlowInEasing)
-            } else {
-                tween(durationMillis = 395, easing = LinearOutSlowInEasing)
-            }
-        },
-        label = "sidebarBloomScale"
-    ) { expanded ->
-        if (expanded) 1f else 0.9f
-    }
-    val sidebarDeflateOffsetX by sidebarTransition.animateDp(
-        transitionSpec = {
-            if (targetState) {
-                tween(durationMillis = 345, easing = FastOutSlowInEasing)
-            } else {
-                tween(durationMillis = 395, easing = LinearOutSlowInEasing)
-            }
-        },
-        label = "sidebarDeflateOffsetX"
-    ) { expanded ->
-        if (expanded) 0.dp else (-10).dp
-    }
-    val sidebarDeflateOffsetY by sidebarTransition.animateDp(
-        transitionSpec = {
-            if (targetState) {
-                tween(durationMillis = 345, easing = FastOutSlowInEasing)
-            } else {
-                tween(durationMillis = 395, easing = LinearOutSlowInEasing)
-            }
-        },
-        label = "sidebarDeflateOffsetY"
-    ) { expanded ->
-        if (expanded) 0.dp else (-8).dp
-    }
-
-    LaunchedEffect(isSidebarExpanded, sidebarCollapsePending, pendingContentFocusTransfer, showSidebar) {
-        if (!showSidebar || !pendingContentFocusTransfer || isSidebarExpanded || sidebarCollapsePending) {
-            return@LaunchedEffect
-        }
-        repeat(2) { withFrameNanos { } }
-        runCatching { contentFocusRequester.requestFocus() }
-        pendingContentFocusTransfer = false
-    }
-
-    LaunchedEffect(isSidebarExpanded, pendingSidebarFocusRequest, showSidebar, selectedDrawerRoute) {
-        if (!showSidebar || !pendingSidebarFocusRequest || !isSidebarExpanded) {
-            return@LaunchedEffect
-        }
-        val targetRoute = selectedDrawerRoute ?: run {
-            pendingSidebarFocusRequest = false
-            return@LaunchedEffect
-        }
-        val requester = drawerItemFocusRequesters[targetRoute] ?: run {
-            pendingSidebarFocusRequest = false
-            return@LaunchedEffect
-        }
-        repeat(2) { withFrameNanos { } }
-        runCatching { requester.requestFocus() }
-        pendingSidebarFocusRequest = false
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .onPreviewKeyEvent { keyEvent ->
-                    if (
-                        isSidebarExpanded &&
-                        !sidebarCollapsePending &&
-                        sidebarBlocksContentKeys &&
-                        keyEvent.type == KeyEventType.KeyDown &&
-                        isBlockedContentKey(keyEvent.key)
-                    ) {
-                        true
-                    } else {
-                        false
-                    }
-                }
-                .onKeyEvent { keyEvent ->
-                    if (showSidebar && !isSidebarExpanded && keyEvent.type == KeyEventType.KeyDown) {
-                        if (!keepFloatingPillExpanded) {
-                            when (keyEvent.key) {
-                                Key.DirectionDown -> isFloatingPillIconOnly = true
-                                Key.DirectionUp -> isFloatingPillIconOnly = false
-                                else -> Unit
-                            }
-                        }
-                        val openKey = if (isRtl) Key.DirectionRight else Key.DirectionLeft
-                        if (keyEvent.key == openKey) {
-                            if (focusManager.moveFocus(if (isRtl) FocusDirection.Right else FocusDirection.Left)) {
-                                true
-                            } else {
-                                isSidebarExpanded = true
-                                sidebarCollapsePending = false
-                                pendingSidebarFocusRequest = true
-                                true
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                }
-        ) {
-            CompositionLocalProvider(
-                LocalSidebarExpanded provides isSidebarExpanded,
-                LocalContentFocusRequester provides contentFocusRequester
-            ) {
-                NuvioNavHost(
-                    navController = navController,
-                    startDestination = startDestination,
-                    hideBuiltInHeaders = hideBuiltInHeaders
-                )
-            }
-        }
-
-        if (showSidebar && (sidebarVisible || sidebarWidth > 0.dp)) {
-            val panelShape = RoundedCornerShape(30.dp)
-            val showExpandedPanel = isSidebarExpanded || sidebarShowExpandedPanel
-
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .width(sidebarWidth)
-                    .padding(start = 14.dp, top = 16.dp, bottom = 12.dp, end = 8.dp)
-                    .offset {
-                        IntOffset(
-                            (sidebarSlideX + sidebarDeflateOffsetX).roundToPx(),
-                            sidebarDeflateOffsetY.roundToPx()
-                        )
-                    }
-                    .graphicsLayer {
-                        alpha = sidebarSurfaceAlpha
-                        scaleX = sidebarBloomScale
-                        scaleY = sidebarBloomScale
-                        transformOrigin = TransformOrigin(0f, 0f)
-                    }
-                    .selectableGroup()
-                    .onPreviewKeyEvent { keyEvent ->
-                        if (!isSidebarExpanded || keyEvent.type != KeyEventType.KeyDown) {
-                            return@onPreviewKeyEvent false
-                        }
-                        when (keyEvent.key) {
-                            Key.DirectionUp -> {
-                                focusedDrawerIndex == sidebarTopBoundaryIndex
-                            }
-
-                            Key.DirectionDown -> {
-                                focusedDrawerIndex == drawerItems.lastIndex
-                            }
-
-                            Key.DirectionRight, Key.DirectionLeft -> {
-                                val collapseKey = if (isRtl) Key.DirectionLeft else Key.DirectionRight
-                                if (keyEvent.key == collapseKey) {
-                                    pendingContentFocusTransfer = false
-                                    sidebarCollapsePending = true
-                                    true
-                                } else {
-                                    false
-                                }
-                            }
-
-                            else -> false
-                        }
-                    }
-            ) {
-                if (showExpandedPanel) {
-                    ModernSidebarBlurPanel(
-                        drawerItems = drawerItems,
-                        selectedDrawerRoute = selectedDrawerRoute,
-                        keepSidebarFocusDuringCollapse = keepSidebarFocusDuringCollapse,
-                        sidebarLabelAlpha = sidebarLabelAlpha,
-                        sidebarIconScale = sidebarIconScale,
-                        sidebarExpandProgress = sidebarExpandProgress,
-                        isSidebarExpanded = isSidebarExpanded,
-                        sidebarCollapsePending = sidebarCollapsePending,
-                        blurEnabled = modernSidebarBlurEnabled,
-                        sidebarHazeState = sidebarHazeState,
-                        panelShape = panelShape,
-                        drawerItemFocusRequesters = drawerItemFocusRequesters,
-                        onDrawerItemFocused = { focusedDrawerIndex = it },
-                        onDrawerItemClick = { targetRoute ->
-                            onNavigate(targetRoute)
-                            navigateToDrawerRoute(
-                                navController = navController,
-                                currentRoute = currentRoute,
-                                targetRoute = targetRoute
-                            )
-                            pendingSidebarFocusRequest = false
-                            isSidebarExpanded = false
-                            sidebarCollapsePending = false
-                            pendingContentFocusTransfer = true
-                        },
-                        activeProfileName = activeProfileName,
-                        activeProfileColorHex = activeProfileColorHex,
-                        activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
-                        showProfileSelector = showProfileSelector,
-                        onSwitchProfile = onSwitchProfile
-                    )
-                }
-            }
-
-            if (
-                !sidebarCollapsed &&
-                sidebarShowCollapsedPill &&
-                selectedDrawerRoute != Screen.Search.route
-            ) {
-                CollapsedSidebarPill(
-                    label = selectedDrawerItem.label,
-                    iconRes = selectedDrawerItem.iconRes,
-                    icon = selectedDrawerItem.icon,
-                    iconOnly = isFloatingPillIconOnly && !keepFloatingPillExpanded,
-                    blurEnabled = modernSidebarBlurEnabled,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset {
-                            IntOffset(
-                                14.dp.roundToPx(),
-                                (16.dp + sidebarDeflateOffsetY).roundToPx()
-                            )
-                        }
-                        .graphicsLayer {
-                            val progress = sidebarExpandProgress
-                            alpha = 1f - progress
-                            val s = 0.9f + (0.1f * (1f - progress))
-                            scaleX = s
-                            scaleY = s
-                            transformOrigin = TransformOrigin(0f, 0f)
-                        },
-                    onExpand = {
-                        isSidebarExpanded = true
-                        sidebarCollapsePending = false
-                        pendingSidebarFocusRequest = true
-                    }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CollapsedSidebarPill(
-    label: String,
-    iconRes: Int?,
-    icon: ImageVector?,
-    iconOnly: Boolean,
-    blurEnabled: Boolean,
-    modifier: Modifier = Modifier,
-    onExpand: () -> Unit
-) {
-    val pillShape = RoundedCornerShape(999.dp)
-    val bgElevated = NuvioColors.BackgroundElevated
-    val bgCard = NuvioColors.BackgroundCard
-    val borderBase = NuvioColors.Border
-    val pillBackgroundBrush = remember(blurEnabled, bgElevated, bgCard) {
-        if (blurEnabled) {
-            Brush.verticalGradient(listOf(Color(0xD1424851), Color(0xC73B4149)))
-        } else {
-            Brush.verticalGradient(listOf(bgElevated, bgCard))
-        }
-    }
-    val pillBorderColor = remember(blurEnabled, borderBase) {
-        if (blurEnabled) Color.White.copy(alpha = 0.14f) else borderBase.copy(alpha = 0.9f)
-    }
-
-    Row(
-        modifier = modifier
-            .focusProperties { canFocus = false }
-            .animateContentSize()
-            .clickable(onClick = onExpand)
-            .padding(horizontal = 1.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(0.25.dp)
-    ) {
-        if (!iconOnly) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_chevron_compact_left),
-                contentDescription = stringResource(R.string.cd_expand_sidebar),
-                modifier = Modifier
-                    .width(8.5.dp)
-                    .height(16.dp)
-                    .offset(y = (-0.5).dp)
+            // Transparent nav bar overlays the hero at the top.
+            // Immersion mode: when the user scrolls past the hero into the
+            // catalog rows, HomeScreen flips `TopBarImmersionState.visible`
+            // to false; we drive a gradual 600ms alpha fade so the bar
+            // smoothly disappears (per spec E: "make the fade more apparent
+            // and gradual"). Back/Up to the hero brings it back.
+            val topBarVisible by com.nuvio.tv.ui.components.TopBarImmersionState.visible
+                .collectAsState()
+            val topBarAlpha by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = if (topBarVisible) 1f else 0f,
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = 600,
+                    easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                ),
+                label = "topBarImmersionAlpha",
             )
-        }
-
-        Box(
-            modifier = Modifier
-                .height(44.dp)
-                .graphicsLayer {
-                    shape = pillShape
-                    clip = true
-                }
-                .clip(pillShape)
-                .background(brush = pillBackgroundBrush, shape = pillShape)
-                .border(width = 1.dp, color = pillBorderColor, shape = pillShape)
-        ) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .fillMaxHeight()
-                    .padding(start = 5.dp, end = if (iconOnly) 5.dp else 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(if (iconOnly) 0.dp else 9.dp)
-            ) {
-                Box(
+            if (showTopNav) {
+                androidx.compose.foundation.layout.Box(
                     modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF4F555E)),
-                    contentAlignment = Alignment.Center
+                        .padding(top = 8.dp, start = topBarLeftPadding)
+                        .alpha(topBarAlpha)
                 ) {
-                    DrawerItemIcon(
-                        iconRes = iconRes,
-                        icon = icon,
-                        tint = Color.White,
-                        modifier = Modifier
-                            .size(22.dp)
-                            .offset(y = (-0.5).dp)
-                    )
-                }
+                TopNavigationBar(
+                    channels = effectiveChannels,
+                    selectedCategoryIndex = selectedCategoryIndex,
+                    selectedChannelIndex = selectedChannelIndex,
+                    firstTabFocusRequester = navBarFr,
+                    collectionContextLabel = selectedCollection?.title,
+                    onCategoryLongPress = { index ->
+                        if (index == 3) showCollectionsDropdown = true
+                    },
+                    onCategorySelected = { index ->
+                        selectedCategoryIndex = index
+                        selectedChannelIndex = null
+                        // Reset the rail back to network channels whenever any
+                        // category pill is clicked.
+                        collectionRailVm.clear()
+                        val route = when (index) {
+                            1    -> Screen.Movies.route
+                            2    -> Screen.TvShows.route
+                            3    -> Screen.CollectionsHome.route
+                            else -> Screen.Home.route
+                        }
+                        onNavigate(route)
+                        navigateToTopNavRoute(navController, currentRoute, route)
+                    },
+                    onChannelSelected = { index ->
+                        selectedChannelIndex = index
+                        val ch = effectiveChannels.getOrNull(index) ?: return@TopNavigationBar
+                        val folderPair = com.nuvio.tv.ui.screens.collection.CollectionRailViewModel
+                            .decodeFolderTabId(ch.id)
+                        if (folderPair != null) {
+                            val (collectionId, folderId) = folderPair
+                            navController.navigate(
+                                Screen.FolderDetail.createRoute(collectionId, folderId)
+                            )
+                        }
+                        // No fallback: every rail pill is a folder pill now.
+                        // (TMDB-networks rail removed in favor of the
+                        // user-curated cross-collection folder rail.)
+                    },
+                    onNetworksClick = { showFolderPillsDropdown = true },
+                )
+                } // immersion alpha wrapper
+            }
 
-                if (!iconOnly) {
-                    Text(
-                        text = label,
-                        color = Color.White,
-                        style = androidx.tv.material3.MaterialTheme.typography.titleLarge.copy(
-                            lineHeight = 30.sp
-                        ),
-                        modifier = Modifier.offset(y = (-0.5).dp),
-                        maxLines = 1
-                    )
+            // Permanent transparent icon rail, vertically centered on the left edge.
+            if (showTopNav) {
+                SideRail(
+                    onSearchClick = {
+                        onNavigate(Screen.Search.route)
+                        navigateToTopNavRoute(navController, currentRoute, Screen.Search.route)
+                    },
+                    onHomeClick = {
+                        // Same behavior as the TopBar Home pill — keeps the
+                        // rail entry as a redundant quick-jump per spec C.
+                        onNavigate(Screen.Home.route)
+                        navigateToTopNavRoute(navController, currentRoute, Screen.Home.route)
+                    },
+                    onMyStuffClick = {
+                        // "My Stuff" reuses the Library route (rename only,
+                        // no new screen) per the approved decision B.
+                        onNavigate(Screen.Library.route)
+                        navigateToTopNavRoute(navController, currentRoute, Screen.Library.route)
+                    },
+                    onSettingsClick = {
+                        onNavigate(Screen.Settings.route)
+                        navigateToTopNavRoute(navController, currentRoute, Screen.Settings.route)
+                    },
+                    onProfileClick = {
+                        navController.navigate(Screen.ManageProfiles.route)
+                    },
+                    profileName = profileName,
+                    profileColorHex = profileColorHex,
+                    profileAvatarUrl = profileAvatarUrl,
+                    firstItemFocusRequester = sideRailFr,
+                    activeItem = activeSideRailItem,
+                    onExpandedChange = { sideRailExpanded = it },
+                    modifier = Modifier.align(Alignment.CenterStart),
+                )
+            }
+
+            if (showCollectionsDropdown) {
+                val density = LocalDensity.current
+                val dropdownOffset = with(density) {
+                    // Approximate position under the Collections pill (4th in
+                    // Zone 1). Nav bar starts at 36dp horizontal padding; pills
+                    // are ~85dp wide each with ~4dp spacing.
+                    IntOffset(x = 305.dp.roundToPx(), y = 64.dp.roundToPx())
                 }
+                CollectionsDropdown(
+                    collections = allCollections,
+                    offset = dropdownOffset,
+                    onSelect = { collection ->
+                        collectionRailVm.selectCollection(collection.id)
+                    },
+                    onDismiss = { showCollectionsDropdown = false },
+                )
+            }
+
+            if (showFolderPillsDropdown) {
+                val density = LocalDensity.current
+                // Anchored near the right edge of the nav bar (where the +
+                // button lives). Right-padding matches the nav bar's
+                // horizontal padding (36dp); vertical drop sits just below
+                // the 60dp tall bar.
+                val dropdownOffset = with(density) {
+                    IntOffset(x = -36.dp.roundToPx(), y = 64.dp.roundToPx())
+                }
+                FolderPillsDropdown(
+                    options = folderPillOptions,
+                    offset = dropdownOffset,
+                    onToggle = { option -> channelRailVm.togglePill(option) },
+                    onDismiss = { showFolderPillsDropdown = false },
+                )
             }
         }
     }
 }
 
-private fun navigateToDrawerRoute(
+private fun navigateToTopNavRoute(
     navController: NavHostController,
     currentRoute: String?,
     targetRoute: String
 ) {
-    if (currentRoute == targetRoute) {
+    // Always reconcile against the navController's REAL current destination
+    // rather than the [currentRoute] parameter — that parameter can carry a
+    // stale `optimisticRoute` value from a previous tap, which made the
+    // first tap on Movies / TV silently early-return ("nothing rendered until
+    // the second tap"). `launchSingleTop = true` below already prevents
+    // duplicate stack entries when we ARE already on the target, so the only
+    // case we need to special-case is "tap Home while on Home → scroll to top".
+    val realRoute = navController.currentDestination?.route
+    if (realRoute == targetRoute) {
         if (targetRoute == Screen.Home.route) {
-            // Scroll Home to top by clearing saved focus/scroll state on the ViewModel.
-            val homeEntry = navController.getBackStackEntry(Screen.Home.route)
-            val homeViewModel = androidx.lifecycle.ViewModelProvider(homeEntry)[com.nuvio.tv.ui.screens.home.HomeViewModel::class.java]
-            homeViewModel.requestScrollToTop()
+            val homeEntry = runCatching { navController.getBackStackEntry(Screen.Home.route) }.getOrNull()
+            val homeViewModel = homeEntry?.let {
+                androidx.lifecycle.ViewModelProvider(it)[com.nuvio.tv.ui.screens.home.HomeViewModel::class.java]
+            }
+            homeViewModel?.requestScrollToTop()
         }
         return
     }
@@ -1524,51 +782,6 @@ private fun navigateToDrawerRoute(
         launchSingleTop = true
         restoreState = true
     }
-}
-
-private fun isBlockedContentKey(key: Key): Boolean {
-    return key == Key.DirectionUp ||
-        key == Key.DirectionDown ||
-        key == Key.DirectionLeft ||
-        key == Key.DirectionRight ||
-        key == Key.DirectionCenter ||
-        key == Key.Enter
-}
-
-@Composable
-private fun DrawerItemIcon(
-    iconRes: Int?,
-    icon: ImageVector?,
-    modifier: Modifier = Modifier,
-    tint: Color = androidx.tv.material3.LocalContentColor.current
-) {
-    when {
-        icon != null -> Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = tint,
-            modifier = modifier
-        )
-
-        iconRes != null -> Icon(
-            painter = rememberRawSvgPainter(iconRes),
-            contentDescription = null,
-            tint = tint,
-            modifier = modifier
-        )
-    }
-}
-
-@Composable
-private fun rememberRawSvgPainter(rawIconRes: Int): Painter {
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val sizePx = with(density) { 24.dp.roundToPx() }
-    return rememberAsyncImagePainter(
-        model = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-            .data(rawIconRes)
-            .size(sizePx)
-            .build()
-    )
 }
 
 object LocaleCache {

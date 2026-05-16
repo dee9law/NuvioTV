@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.search
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -17,7 +18,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
+import com.nuvio.tv.LocalContentFocusRequester
+import com.nuvio.tv.ui.navigation.TvBackToFirstThenTopNav
+import com.nuvio.tv.ui.navigation.dpadLeftToSideRail
+import com.nuvio.tv.ui.navigation.dpadUpToTopNav
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -30,6 +37,7 @@ import com.nuvio.tv.ui.components.PosterCardStyle
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.roundToInt
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun DiscoverScreen(
     viewModel: SearchViewModel = hiltViewModel(),
@@ -67,9 +75,27 @@ fun DiscoverScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val contentEntryFocusRequester = LocalContentFocusRequester.current
+
+    TvBackToFirstThenTopNav(
+        contentHasFocus = { uiState.discoverEnabled },
+        isAtFirstItem = { discoverFocusedItemIndex == 0 },
+        requestFirstItemFocus = {
+            if (discoverFocusedItemIndex > 0) {
+                discoverFocusedItemIndex = 0
+                restoreDiscoverFocus = true
+            }
+        }
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .focusGroup()
+            .focusRequester(contentEntryFocusRequester)
+            .focusProperties { enter = { discoverFirstItemFocusRequester } }
+            .dpadUpToTopNav()
+            .dpadLeftToSideRail()
     ) {
         if (!uiState.discoverEnabled) {
             EmptyScreenState(

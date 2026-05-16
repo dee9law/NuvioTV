@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-internal fun HomeViewModel.observeLibraryState() {
+internal fun BaseHomeViewModel.observeLibraryState() {
     viewModelScope.launch {
         libraryRepository.sourceMode
             .distinctUntilChanged()
@@ -66,7 +66,7 @@ internal fun HomeViewModel.observeLibraryState() {
     }
 }
 
-fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) {
+fun BaseHomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) {
     val statusKey = homeItemStatusKey(item.id, item.apiType)
     if (statusKey in _uiState.value.posterLibraryPending) return
 
@@ -78,7 +78,7 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
         runCatching {
             libraryRepository.toggleDefault(item.toLibraryEntryInput(addonBaseUrl))
         }.onFailure { error ->
-            Log.w(HomeViewModel.TAG, "Failed to toggle poster library for ${item.id}: ${error.message}")
+            Log.w(BaseHomeViewModel.TAG, "Failed to toggle poster library for ${item.id}: ${error.message}")
         }
         _uiState.update { state ->
             state.copy(posterLibraryPending = state.posterLibraryPending - statusKey)
@@ -86,7 +86,7 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
     }
 }
 
-fun HomeViewModel.openPosterListPicker(item: MetaPreview, addonBaseUrl: String?) {
+fun BaseHomeViewModel.openPosterListPicker(item: MetaPreview, addonBaseUrl: String?) {
     if (_uiState.value.librarySourceMode != LibrarySourceMode.TRAKT) {
         togglePosterLibrary(item, addonBaseUrl)
         return
@@ -123,7 +123,7 @@ fun HomeViewModel.openPosterListPicker(item: MetaPreview, addonBaseUrl: String?)
                 )
             }
         }.onFailure { error ->
-            Log.w(HomeViewModel.TAG, "Failed to load poster list picker for ${item.id}: ${error.message}")
+            Log.w(BaseHomeViewModel.TAG, "Failed to load poster list picker for ${item.id}: ${error.message}")
             _uiState.update { state ->
                 state.copy(
                     showPosterListPicker = true,
@@ -135,7 +135,7 @@ fun HomeViewModel.openPosterListPicker(item: MetaPreview, addonBaseUrl: String?)
     }
 }
 
-fun HomeViewModel.togglePosterListPickerMembership(listKey: String) {
+fun BaseHomeViewModel.togglePosterListPickerMembership(listKey: String) {
     val currentValue = _uiState.value.posterListPickerMembership[listKey] == true
     _uiState.update { state ->
         state.copy(
@@ -147,7 +147,7 @@ fun HomeViewModel.togglePosterListPickerMembership(listKey: String) {
     }
 }
 
-fun HomeViewModel.savePosterListPickerMembership() {
+fun BaseHomeViewModel.savePosterListPickerMembership() {
     if (_uiState.value.posterListPickerPending) return
     if (_uiState.value.librarySourceMode != LibrarySourceMode.TRAKT) return
     val input = activePosterListPickerInput ?: return
@@ -178,7 +178,7 @@ fun HomeViewModel.savePosterListPickerMembership() {
             }
             activePosterListPickerInput = null
         }.onFailure { error ->
-            Log.w(HomeViewModel.TAG, "Failed to save poster list picker: ${error.message}")
+            Log.w(BaseHomeViewModel.TAG, "Failed to save poster list picker: ${error.message}")
             _uiState.update { state ->
                 state.copy(
                     posterListPickerPending = false,
@@ -189,7 +189,7 @@ fun HomeViewModel.savePosterListPickerMembership() {
     }
 }
 
-fun HomeViewModel.dismissPosterListPicker() {
+fun BaseHomeViewModel.dismissPosterListPicker() {
     activePosterListPickerInput = null
     _uiState.update { state ->
         state.copy(
@@ -201,7 +201,7 @@ fun HomeViewModel.dismissPosterListPicker() {
     }
 }
 
-fun HomeViewModel.togglePosterMovieWatched(item: MetaPreview) {
+fun BaseHomeViewModel.togglePosterMovieWatched(item: MetaPreview) {
     if (!item.apiType.equals("movie", ignoreCase = true)) return
     val statusKey = homeItemStatusKey(item.id, item.apiType)
     if (statusKey in _uiState.value.movieWatchedPending) return
@@ -219,7 +219,7 @@ fun HomeViewModel.togglePosterMovieWatched(item: MetaPreview) {
                 watchProgressRepository.markAsCompleted(buildCompletedMovieProgress(item))
             }
         }.onFailure { error ->
-            Log.w(HomeViewModel.TAG, "Failed to toggle poster watched status for ${item.id}: ${error.message}")
+            Log.w(BaseHomeViewModel.TAG, "Failed to toggle poster watched status for ${item.id}: ${error.message}")
         }
         _uiState.update { state ->
             state.copy(movieWatchedPending = state.movieWatchedPending - statusKey)

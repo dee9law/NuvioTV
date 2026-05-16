@@ -6,6 +6,7 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.LayoutRowConfig
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MetaPreview
@@ -59,7 +60,24 @@ data class HomeUiState(
     val useEpisodeThumbnailsInCw: Boolean = true,
     val heroEnrichmentEnabled: Boolean = false,
     val startupAuthNotice: StartupAuthNotice? = null,
-    val homeRows: List<HomeRow> = emptyList()
+    val homeRows: List<HomeRow> = emptyList(),
+    /**
+     * Per-row card style + width overrides for the HOME scope, keyed by
+     * [LayoutRowConfig.id] (e.g. "addon|<addonId>|<apiType>|<catalogId>" or
+     * "collection|<collectionId>"). Rows without an entry fall back to the
+     * inherited globals.
+     */
+    val rowConfigLookup: Map<String, LayoutRowConfig> = emptyMap(),
+    /**
+     * True when the user has at least one enabled row in this screen's
+     * Settings → Appearance → Rows configuration. Drives the empty state.
+     */
+    val hasConfiguredRows: Boolean = false,
+    /** Global default card style — floor of the 3-tier resolver. */
+    val globalCardStyle: com.nuvio.tv.domain.model.LayoutCardStyle =
+        com.nuvio.tv.domain.model.LayoutCardStyle.POSTER,
+    /** Global default layout — floor of the 3-tier resolver. */
+    val globalLayout: HomeLayout = HomeLayout.MODERN
 )
 
 @Immutable

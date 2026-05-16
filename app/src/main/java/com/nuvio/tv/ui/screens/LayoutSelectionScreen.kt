@@ -130,7 +130,10 @@ fun LayoutSelectionScreen(
             // Continue button
             Button(
                 onClick = {
-                    viewModel.onEvent(LayoutSettingsEvent.SelectLayout(selectedLayout))
+                    // Onboarding writes the GLOBAL layout key (floor of the
+                    // 3-tier resolver) so the user's first pick applies to
+                    // every screen, not just HOME.
+                    viewModel.onEvent(LayoutSettingsEvent.SelectGlobalLayout(selectedLayout))
                     onContinue()
                 },
                 modifier = Modifier

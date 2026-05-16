@@ -75,7 +75,6 @@ import com.nuvio.tv.core.tmdb.TmdbEntityMediaType
 import com.nuvio.tv.core.tmdb.TmdbEntityRail
 import com.nuvio.tv.core.tmdb.TmdbEntityRailType
 import com.nuvio.tv.domain.model.MetaPreview
-import com.nuvio.tv.ui.components.EmptyScreenState
 import com.nuvio.tv.ui.components.ErrorState
 import com.nuvio.tv.ui.components.GridContentCard
 import com.nuvio.tv.ui.components.LoadingIndicator
@@ -128,6 +127,7 @@ fun TmdbEntityBrowseScreen(
                     TmdbEntityBrowseContent(
                         data = successState.data,
                         sourceType = viewModel.sourceType,
+                        onRetry = { viewModel.retry() },
                         onNavigateToDetail = onNavigateToDetail,
                         onItemLongPress = { item ->
                             viewModel.posterOptions.show(item, null)
@@ -156,6 +156,7 @@ fun TmdbEntityBrowseScreen(
 private fun TmdbEntityBrowseContent(
     data: TmdbEntityBrowseData,
     sourceType: String,
+    onRetry: () -> Unit,
     onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit,
     onItemLongPress: (MetaPreview) -> Unit = {},
     onLoadMoreRail: (TmdbEntityMediaType, TmdbEntityRailType) -> Unit
@@ -202,9 +203,9 @@ private fun TmdbEntityBrowseContent(
         }
 
         if (data.rails.isEmpty()) {
-            EmptyScreenState(
-                title = stringResource(R.string.tmdb_entity_empty_title),
-                subtitle = stringResource(R.string.tmdb_entity_empty_subtitle),
+            ErrorState(
+                message = stringResource(R.string.tmdb_entity_empty_title),
+                onRetry = onRetry,
                 modifier = Modifier.align(Alignment.Center)
             )
         } else {

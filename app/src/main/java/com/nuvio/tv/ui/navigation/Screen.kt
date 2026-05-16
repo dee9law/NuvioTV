@@ -129,6 +129,8 @@ sealed class Screen(val route: String) {
     }
     data object Search : Screen("search")
     data object Discover : Screen("discover")
+    data object Movies : Screen("movies")
+    data object TvShows : Screen("tv_shows")
     data object Library : Screen("library")
     data object Settings : Screen("settings")
     data object Trakt : Screen("trakt")
@@ -143,6 +145,16 @@ sealed class Screen(val route: String) {
     data object ExperienceModeSelection : Screen("experience_mode_selection")
     data object LayoutSelection : Screen("layout_selection")
     data object LayoutSettings : Screen("layout_settings")
+    /**
+     * Settings → Appearance → Rows page, opened with a specific scope
+     * pre-selected (HOME / MOVIES / TV / COLLECTIONS / DETAIL). Used by the
+     * "Add Your Catalogs" empty-state button so the user lands directly on the
+     * rows list for the screen they're trying to populate.
+     */
+    data object AppearanceRows : Screen("appearance_rows/{scope}") {
+        fun createRoute(scope: com.nuvio.tv.domain.model.LayoutScreenScope): String =
+            "appearance_rows/${scope.scopeKey}"
+    }
     data object Account : Screen("account")
     data object ManageProfiles : Screen("manage_profiles")
     data object AuthSignIn : Screen("auth_sign_in")
@@ -159,6 +171,8 @@ sealed class Screen(val route: String) {
     }
 
     data object Collections : Screen("collections")
+
+    data object CollectionsHome : Screen("collections_home")
 
     data object CollectionEditor : Screen("collection_editor?collectionId={collectionId}") {
         fun createRoute(collectionId: String? = null): String {

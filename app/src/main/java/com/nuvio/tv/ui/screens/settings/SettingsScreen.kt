@@ -4,6 +4,10 @@ package com.nuvio.tv.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RawRes
+import com.nuvio.tv.LocalContentFocusRequester
+import com.nuvio.tv.ui.navigation.TvBackToFirstThenTopNav
+import com.nuvio.tv.ui.navigation.dpadLeftToSideRail
+import com.nuvio.tv.ui.navigation.dpadUpToTopNav
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -104,6 +108,27 @@ private const val SETTINGS_DETAIL_FOCUS_DELAY_MS = 120L
 private const val SETTINGS_DETAIL_ANIM_IN_DURATION_MS = 200
 private const val SETTINGS_DETAIL_ANIM_OUT_DURATION_MS = 180
 
+internal enum class SettingsGroup {
+    APPEARANCE_GROUP,
+    EXTENSIONS_GROUP,
+    ACCOUNTS_SYNC_GROUP,
+    PLAYBACK_GROUP,
+    ADVANCED_GROUP
+}
+
+internal data class SettingsGroupSpec(
+    val group: SettingsGroup,
+    val title: String,
+    val icon: ImageVector,
+    val pills: List<SettingsPillSpec>
+)
+
+internal data class SettingsPillSpec(
+    val id: String,
+    val title: String,
+    val category: SettingsCategory? = null
+)
+
 private sealed interface ExperienceModeLoadState {
     data object Loading : ExperienceModeLoadState
     data class Loaded(val mode: ExperienceMode?) : ExperienceModeLoadState
@@ -198,6 +223,96 @@ private fun rememberSettingsSectionSpecs() = listOf(
 )
 
 @Composable
+private fun rememberSettingsGroupSpecs(
+    isPrimaryProfileActive: Boolean,
+    isEssentialMode: Boolean,
+    pluginsEnabled: Boolean
+): List<SettingsGroupSpec> {
+    val appearanceTitle = stringResource(R.string.appearance_title)
+    val layoutTitle = stringResource(R.string.settings_layout)
+    val pluginsTitle = stringResource(R.string.settings_plugins)
+    val accountTitle = stringResource(R.string.settings_account)
+    val profilesTitle = stringResource(R.string.settings_profiles)
+    val integrationTitle = stringResource(R.string.settings_integration)
+    val playbackTitle = stringResource(R.string.settings_playback)
+    val advancedTitle = stringResource(R.string.settings_advanced)
+    val aboutTitle = stringResource(R.string.about_title)
+
+    return remember(
+        isPrimaryProfileActive,
+        isEssentialMode,
+        pluginsEnabled,
+        appearanceTitle,
+        layoutTitle,
+        pluginsTitle,
+        accountTitle,
+        profilesTitle,
+        integrationTitle,
+        playbackTitle,
+        advancedTitle,
+        aboutTitle
+    ) {
+        listOf(
+            SettingsGroupSpec(
+                group = SettingsGroup.APPEARANCE_GROUP,
+                title = "Appearance",
+                icon = Icons.Default.Palette,
+                pills = listOf(
+                    SettingsPillSpec("appearance", appearanceTitle, SettingsCategory.APPEARANCE),
+                    SettingsPillSpec("layout", "Old Layout", SettingsCategory.LAYOUT),
+                    SettingsPillSpec("layout_rows", "Layout & Rows", SettingsCategory.LAYOUT),
+                    SettingsPillSpec("display", "Display", null)
+                )
+            ),
+            SettingsGroupSpec(
+                group = SettingsGroup.EXTENSIONS_GROUP,
+                title = "Extensions",
+                icon = Icons.Default.Build,
+                pills = buildList {
+                    add(SettingsPillSpec("addons", "Addons", null))
+                    if (pluginsEnabled && !isEssentialMode) {
+                        add(SettingsPillSpec("plugins", pluginsTitle, SettingsCategory.PLUGINS))
+                    }
+                    add(SettingsPillSpec("collections", "Collections", null))
+                }
+            ),
+            SettingsGroupSpec(
+                group = SettingsGroup.ACCOUNTS_SYNC_GROUP,
+                title = "Accounts & Sync",
+                icon = Icons.Default.Person,
+                pills = buildList {
+                    if (isPrimaryProfileActive) {
+                        add(SettingsPillSpec("account", accountTitle, SettingsCategory.ACCOUNT))
+                        add(SettingsPillSpec("profiles", profilesTitle, SettingsCategory.PROFILES))
+                    }
+                    add(SettingsPillSpec("trakt", "Trakt", null))
+                    add(SettingsPillSpec("integrations", integrationTitle, SettingsCategory.INTEGRATION))
+                }
+            ),
+            SettingsGroupSpec(
+                group = SettingsGroup.PLAYBACK_GROUP,
+                title = "Playback",
+                icon = Icons.Rounded.PlayArrow,
+                pills = listOf(
+                    SettingsPillSpec("playback", playbackTitle, SettingsCategory.PLAYBACK),
+                    SettingsPillSpec("link_resolving", "Link Resolving", null),
+                    SettingsPillSpec("link_filtering", "Link Filtering", null)
+                )
+            ),
+            SettingsGroupSpec(
+                group = SettingsGroup.ADVANCED_GROUP,
+                title = "Advanced",
+                icon = Icons.Default.Settings,
+                pills = listOf(
+                    SettingsPillSpec("advanced", advancedTitle, SettingsCategory.ADVANCED),
+                    SettingsPillSpec("about", aboutTitle, SettingsCategory.ABOUT)
+                )
+            )
+        )
+    }
+}
+
+@Composable
 fun SettingsScreen(
     showBuiltInHeader: Boolean = true,
     onNavigateToTrakt: () -> Unit = {},
@@ -227,59 +342,45 @@ fun SettingsScreen(
     }
 
     val isEssentialMode = loadedExperienceMode == ExperienceMode.ESSENTIAL
+    val pluginsEnabled = AppFeaturePolicy.pluginsEnabled
 
-    val allSectionSpecs = rememberSettingsSectionSpecs()
-    val visibleSections = remember(isPrimaryProfileActive, isEssentialMode, allSectionSpecs) {
-        allSectionSpecs.filter { section ->
-            when (section.category) {
-                SettingsCategory.EXPERIENCE -> false
-                SettingsCategory.DEBUG -> BuildConfig.IS_DEBUG_BUILD && !isEssentialMode
-                SettingsCategory.PROFILES -> isPrimaryProfileActive
-                SettingsCategory.ACCOUNT -> isPrimaryProfileActive
-                SettingsCategory.LAYOUT -> true
-                SettingsCategory.PLUGINS -> AppFeaturePolicy.pluginsEnabled && !isEssentialMode
-                SettingsCategory.INTEGRATION -> true
-                SettingsCategory.ADVANCED -> true
-                else -> true
+    val groupSpecs = rememberSettingsGroupSpecs(
+        isPrimaryProfileActive = isPrimaryProfileActive,
+        isEssentialMode = isEssentialMode,
+        pluginsEnabled = pluginsEnabled
+    )
+
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    var selectedGroup by remember(groupSpecs) {
+        mutableStateOf(groupSpecs.firstOrNull()?.group ?: SettingsGroup.APPEARANCE_GROUP)
+    }
+    val selectedPillIdsByGroup = remember(groupSpecs) {
+        androidx.compose.runtime.mutableStateMapOf<SettingsGroup, String>().apply {
+            groupSpecs.forEach { spec ->
+                spec.pills.firstOrNull()?.let { put(spec.group, it.id) }
             }
         }
     }
-
-    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
-    var selectedCategory by remember(visibleSections) {
-        mutableStateOf(
-            visibleSections.firstOrNull()?.category ?: SettingsCategory.APPEARANCE
-        )
+    val groupFocusRequesters = remember(groupSpecs) {
+        groupSpecs.associate { it.group to FocusRequester() }
     }
-    val railFocusRequesters = remember(visibleSections) {
-        visibleSections.associate { it.category to FocusRequester() }
-    }
-    val contentFocusRequesters = remember {
-            mapOf(
-                SettingsCategory.APPEARANCE to FocusRequester(),
-                SettingsCategory.EXPERIENCE to FocusRequester(),
-                SettingsCategory.LAYOUT to FocusRequester(),
-                SettingsCategory.INTEGRATION to FocusRequester(),
-                SettingsCategory.PLAYBACK to FocusRequester(),
-                SettingsCategory.ADVANCED to FocusRequester(),
-                SettingsCategory.ABOUT to FocusRequester()
-            )
-    }
+    val pillFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val contentFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val railContainerFocusRequester = remember { FocusRequester() }
     val integrationHubFocusRequester = remember { FocusRequester() }
     val integrationTmdbFocusRequester = remember { FocusRequester() }
     val integrationMdbListFocusRequester = remember { FocusRequester() }
     val integrationAnimeSkipFocusRequester = remember { FocusRequester() }
     var integrationSection by remember { mutableStateOf(IntegrationSettingsSection.Hub) }
-    var pendingContentFocusCategory by remember { mutableStateOf<SettingsCategory?>(null) }
+    var pendingContentFocus by remember { mutableStateOf<Pair<SettingsGroup, String>?>(null) }
     var pendingContentFocusRequestId by remember { mutableLongStateOf(0L) }
     var allowDetailAutofocus by remember { mutableStateOf(false) }
 
     val focusManager = LocalFocusManager.current
 
-    LaunchedEffect(visibleSections) {
-        if (visibleSections.none { it.category == selectedCategory }) {
-            selectedCategory = visibleSections.firstOrNull()?.category ?: SettingsCategory.APPEARANCE
+    LaunchedEffect(groupSpecs) {
+        if (groupSpecs.none { it.group == selectedGroup }) {
+            selectedGroup = groupSpecs.firstOrNull()?.group ?: SettingsGroup.APPEARANCE_GROUP
         }
     }
 
@@ -288,9 +389,10 @@ fun SettingsScreen(
     }
 
     LaunchedEffect(pendingContentFocusRequestId) {
-        val category = pendingContentFocusCategory ?: return@LaunchedEffect
+        val pending = pendingContentFocus ?: return@LaunchedEffect
         delay(SETTINGS_DETAIL_FOCUS_DELAY_MS)
-        val requester = contentFocusRequesters[category]
+        val key = "${pending.first.name}|${pending.second}"
+        val requester = contentFocusRequesters[key]
         val requested = if (requester != null) {
             runCatching { requester.requestFocus() }.isSuccess
         } else {
@@ -299,8 +401,26 @@ fun SettingsScreen(
         if (!requested) {
             focusManager.moveFocus(FocusDirection.Right)
         }
-        pendingContentFocusCategory = null
+        pendingContentFocus = null
     }
+
+    val contentEntryFocusRequester = LocalContentFocusRequester.current
+    var railHadFocus by remember { mutableStateOf(false) }
+    var contentPanelHasFocus by remember { mutableStateOf(false) }
+
+    TvBackToFirstThenTopNav(
+        contentHasFocus = { contentPanelHasFocus || railHadFocus },
+        isAtFirstItem = { !contentPanelHasFocus },
+        requestFirstItemFocus = {
+            allowDetailAutofocus = false
+            val requested = groupFocusRequesters[selectedGroup]?.let { requester ->
+                runCatching { requester.requestFocus() }.isSuccess
+            } ?: false
+            if (!requested) {
+                runCatching { railContainerFocusRequester.requestFocus() }
+            }
+        }
+    )
 
     Box(
         modifier = Modifier
@@ -311,16 +431,14 @@ fun SettingsScreen(
                 top = if (showBuiltInHeader) 24.dp else 68.dp,
                 bottom = 24.dp
             )
+            .dpadUpToTopNav()
+            .dpadLeftToSideRail()
     ) {
-        SettingsWorkspaceSurface(
-            modifier = Modifier
-                .fillMaxSize()
-        ) {
+        SettingsWorkspaceSurface(modifier = Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                var railHadFocus by remember { mutableStateOf(false) }
                 val railListState = rememberLazyListState()
 
                 Box(
@@ -332,17 +450,16 @@ fun SettingsScreen(
                         state = railListState,
                         modifier = Modifier
                             .focusRequester(railContainerFocusRequester)
+                            .focusRequester(contentEntryFocusRequester)
                             .fillMaxSize()
                             .onFocusChanged { state ->
                                 val justGainedFocus = !railHadFocus && state.hasFocus
                                 railHadFocus = state.hasFocus
                                 if (justGainedFocus) {
-                                    val requester = railFocusRequesters[selectedCategory]
-                                    val requested = if (requester != null) {
-                                        runCatching { requester.requestFocus() }.isSuccess
-                                    } else {
-                                        false
-                                    }
+                                    val requester = groupFocusRequesters[selectedGroup]
+                                    val requested = requester?.let {
+                                        runCatching { it.requestFocus() }.isSuccess
+                                    } ?: false
                                     if (!requested) {
                                         focusManager.moveFocus(FocusDirection.Down)
                                     }
@@ -359,30 +476,22 @@ fun SettingsScreen(
                             },
                         verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically)
                     ) {
-                        items(
-                            items = visibleSections,
-                            key = { it.category }
-                        ) { section ->
+                        items(items = groupSpecs, key = { it.group }) { spec ->
                             SettingsRailButton(
-                                title = section.title,
-                                icon = section.icon,
-                                rawIconRes = section.rawIconRes,
-                                isSelected = selectedCategory == section.category,
-                                focusRequester = railFocusRequesters[section.category],
+                                title = spec.title,
+                                icon = spec.icon,
+                                rawIconRes = null,
+                                isSelected = selectedGroup == spec.group,
+                                focusRequester = groupFocusRequesters[spec.group],
                                 onClick = {
-                                    if (section.destination == SettingsSectionDestination.External) {
-                                        when (section.category) {
-                                            SettingsCategory.ACCOUNT -> onNavigateToAuthQrSignIn()
-                                            SettingsCategory.TRAKT -> onNavigateToTrakt()
-                                            else -> Unit
+                                    allowDetailAutofocus = true
+                                    selectedGroup = spec.group
+                                    val firstPill = spec.pills.firstOrNull()?.id
+                                    if (firstPill != null) {
+                                        if (selectedPillIdsByGroup[spec.group] == null) {
+                                            selectedPillIdsByGroup[spec.group] = firstPill
                                         }
-                                    } else {
-                                        if (section.category == SettingsCategory.INTEGRATION) {
-                                            integrationSection = IntegrationSettingsSection.Hub
-                                        }
-                                        allowDetailAutofocus = true
-                                        selectedCategory = section.category
-                                        pendingContentFocusCategory = section.category
+                                        pendingContentFocus = spec.group to (selectedPillIdsByGroup[spec.group] ?: firstPill)
                                         pendingContentFocusRequestId += 1L
                                     }
                                 }
@@ -402,7 +511,7 @@ fun SettingsScreen(
                                 val movedLeft = focusManager.moveFocus(if (isRtl) FocusDirection.Right else FocusDirection.Left)
                                 if (!movedLeft) {
                                     allowDetailAutofocus = false
-                                    val requested = railFocusRequesters[selectedCategory]?.let { requester ->
+                                    val requested = groupFocusRequesters[selectedGroup]?.let { requester ->
                                         runCatching { requester.requestFocus() }.isSuccess
                                     } ?: false
                                     if (!requested) {
@@ -415,104 +524,67 @@ fun SettingsScreen(
                             }
                         }
                         .onFocusChanged { state ->
+                            contentPanelHasFocus = state.hasFocus
                             if (state.hasFocus && !allowDetailAutofocus) {
-                                railFocusRequesters[selectedCategory]?.let { requester ->
+                                groupFocusRequesters[selectedGroup]?.let { requester ->
                                     runCatching { requester.requestFocus() }
                                 }
                             }
                         }
                 ) {
-                    when (selectedCategory) {
-                        SettingsCategory.EXPERIENCE -> EssentialAdvancedSettingsContent(
-                            experienceModeViewModel = experienceModeViewModel,
-                            initialFocusRequester = if (allowDetailAutofocus) {
-                                contentFocusRequesters[SettingsCategory.EXPERIENCE]
-                            } else {
-                                null
-                            }
-                        )
-                        SettingsCategory.PROFILES -> ProfileSettingsContent(
-                            onManageProfiles = onNavigateToManageProfiles
-                        )
-                        SettingsCategory.APPEARANCE -> ThemeSettingsContent(
-                            initialFocusRequester = if (allowDetailAutofocus) {
-                                contentFocusRequesters[SettingsCategory.APPEARANCE]
-                            } else {
-                                null
-                            }
-                        )
-                        SettingsCategory.LAYOUT -> LayoutSettingsContent(
-                            initialFocusRequester = if (allowDetailAutofocus) {
-                                contentFocusRequesters[SettingsCategory.LAYOUT]
-                            } else {
-                                null
-                            },
-                            essentialMode = isEssentialMode
-                        )
-                        SettingsCategory.PLAYBACK -> if (isEssentialMode) {
-                            EssentialPlaybackSettingsContent(
-                                initialFocusRequester = if (allowDetailAutofocus) {
-                                    contentFocusRequesters[SettingsCategory.PLAYBACK]
-                                } else {
-                                    null
+                    val activeGroupSpec = groupSpecs.firstOrNull { it.group == selectedGroup }
+                    if (activeGroupSpec != null) {
+                        val currentPillId = selectedPillIdsByGroup[selectedGroup]
+                            ?: activeGroupSpec.pills.firstOrNull()?.id
+                        val currentPill = activeGroupSpec.pills.firstOrNull { it.id == currentPillId }
+
+                        if (currentPill != null) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                SettingsPillRow(
+                                    pills = activeGroupSpec.pills,
+                                    selectedPillId = currentPill.id,
+                                    pillFocusRequester = { pillId ->
+                                        pillFocusRequesters.getOrPut(
+                                            "${selectedGroup.name}|$pillId"
+                                        ) { FocusRequester() }
+                                    },
+                                    onPillClick = { pill ->
+                                        selectedPillIdsByGroup[selectedGroup] = pill.id
+                                    }
+                                )
+
+                                Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+                                    val contentKey = "${selectedGroup.name}|${currentPill.id}"
+                                    val pillContentFr = contentFocusRequesters
+                                        .getOrPut(contentKey) { FocusRequester() }
+                                    val initialFr =
+                                        if (allowDetailAutofocus) pillContentFr else null
+
+                                    RenderPillContent(
+                                        pill = currentPill,
+                                        initialFocusRequester = initialFr,
+                                        isEssentialMode = isEssentialMode,
+                                        pluginsEnabled = pluginsEnabled,
+                                        experienceModeViewModel = experienceModeViewModel,
+                                        integrationSection = integrationSection,
+                                        onSelectIntegrationSection = { integrationSection = it },
+                                        integrationHubFocusRequester = integrationHubFocusRequester,
+                                        integrationTmdbFocusRequester = integrationTmdbFocusRequester,
+                                        integrationMdbListFocusRequester = integrationMdbListFocusRequester,
+                                        integrationAnimeSkipFocusRequester = integrationAnimeSkipFocusRequester,
+                                        autoFocusEnabled = allowDetailAutofocus,
+                                        onNavigateToTrakt = onNavigateToTrakt,
+                                        onNavigateToAddons = onNavigateToAddons,
+                                        onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
+                                        onNavigateToManageProfiles = onNavigateToManageProfiles,
+                                        onNavigateToSupportersContributors = onNavigateToSupportersContributors
+                                    )
                                 }
-                            )
-                        } else {
-                            PlaybackSettingsContent(
-                                initialFocusRequester = if (allowDetailAutofocus) {
-                                    contentFocusRequesters[SettingsCategory.PLAYBACK]
-                                } else {
-                                    null
-                                }
-                            )
+                            }
                         }
-                        SettingsCategory.ADVANCED -> if (isEssentialMode) {
-                            EssentialAdvancedSettingsContent(
-                                experienceModeViewModel = experienceModeViewModel,
-                                initialFocusRequester = if (allowDetailAutofocus) {
-                                    contentFocusRequesters[SettingsCategory.ADVANCED]
-                                } else {
-                                    null
-                                }
-                            )
-                        } else {
-                            AdvancedSettingsContent(
-                                initialFocusRequester = if (allowDetailAutofocus) {
-                                    contentFocusRequesters[SettingsCategory.ADVANCED]
-                                } else {
-                                    null
-                                },
-                                experienceModeViewModel = experienceModeViewModel
-                            )
-                        }
-                        SettingsCategory.INTEGRATION -> IntegrationSettingsContent(
-                            selectedSection = integrationSection,
-                            onSelectSection = { integrationSection = it },
-                            initialFocusRequester = if (allowDetailAutofocus) {
-                                contentFocusRequesters[SettingsCategory.INTEGRATION]
-                            } else {
-                                null
-                            },
-                            hubFocusRequester = integrationHubFocusRequester,
-                            tmdbFocusRequester = integrationTmdbFocusRequester,
-                            mdbListFocusRequester = integrationMdbListFocusRequester,
-                            animeSkipFocusRequester = integrationAnimeSkipFocusRequester,
-                            autoFocusEnabled = allowDetailAutofocus
-                        )
-                        SettingsCategory.ABOUT -> AboutSettingsContent(
-                            onNavigateToSupportersContributors = onNavigateToSupportersContributors,
-                            initialFocusRequester = if (allowDetailAutofocus) {
-                                contentFocusRequesters[SettingsCategory.ABOUT]
-                            } else {
-                                null
-                            }
-                        )
-                        SettingsCategory.PLUGINS -> if (AppFeaturePolicy.pluginsEnabled) PluginsSettingsContent()
-                        SettingsCategory.ACCOUNT -> AccountSettingsInline(
-                            onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn
-                        )
-                        SettingsCategory.DEBUG -> DebugSettingsContent()
-                        SettingsCategory.TRAKT -> Unit
                     }
                 }
             }
@@ -590,7 +662,7 @@ private fun EssentialAdvancedSettingsContent(
 }
 
 @Composable
-private fun AccountSettingsInline(
+internal fun AccountSettingsInline(
     onNavigateToAuthQrSignIn: () -> Unit
 ) {
     val accountViewModel: com.nuvio.tv.ui.screens.account.AccountViewModel = hiltViewModel()
@@ -707,6 +779,253 @@ private fun IntegrationSettingsContent(
         IntegrationSettingsSection.AnimeSkip -> {
             AnimeSkipSettingsContent(
                 initialFocusRequester = animeSkipFocusRequester
+            )
+        }
+    }
+}
+
+// ── Pill sub-navigation ──────────────────────────────────────────────────────
+
+@Composable
+private fun SettingsPillRow(
+    pills: List<SettingsPillSpec>,
+    selectedPillId: String,
+    pillFocusRequester: (String) -> FocusRequester,
+    onPillClick: (SettingsPillSpec) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        pills.forEach { pill ->
+            SettingsPillTab(
+                text = pill.title,
+                isSelected = pill.id == selectedPillId,
+                focusRequester = pillFocusRequester(pill.id),
+                onClick = { onPillClick(pill) }
+            )
+        }
+    }
+}
+
+@OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SettingsPillTab(
+    text: String,
+    isSelected: Boolean,
+    focusRequester: FocusRequester,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    val containerColor = when {
+        isSelected -> androidx.compose.ui.graphics.Color.White
+        isFocused -> androidx.compose.ui.graphics.Color.White.copy(alpha = 0.14f)
+        else -> androidx.compose.ui.graphics.Color.Transparent
+    }
+    val textColor = if (isSelected) {
+        androidx.compose.ui.graphics.Color(0xFF0A1628)
+    } else {
+        androidx.compose.ui.graphics.Color.White
+    }
+    val pillShape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+
+    androidx.tv.material3.Card(
+        onClick = onClick,
+        modifier = Modifier
+            .focusRequester(focusRequester)
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus },
+        shape = androidx.tv.material3.CardDefaults.shape(pillShape),
+        colors = androidx.tv.material3.CardDefaults.colors(
+            containerColor = containerColor,
+            focusedContainerColor = containerColor
+        ),
+        border = androidx.tv.material3.CardDefaults.border(
+            border = androidx.tv.material3.Border.None,
+            focusedBorder = androidx.tv.material3.Border(
+                border = androidx.compose.foundation.BorderStroke(
+                    1.5.dp,
+                    if (isSelected) {
+                        androidx.compose.ui.graphics.Color.Transparent
+                    } else {
+                        androidx.compose.ui.graphics.Color.White.copy(alpha = 0.45f)
+                    }
+                ),
+                shape = pillShape
+            )
+        ),
+        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f)
+    ) {
+        androidx.tv.material3.Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
+            style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
+            color = textColor,
+            fontWeight = if (isSelected) {
+                androidx.compose.ui.text.font.FontWeight.SemiBold
+            } else {
+                androidx.compose.ui.text.font.FontWeight.Medium
+            }
+        )
+    }
+}
+
+// ── Pill content dispatcher ──────────────────────────────────────────────────
+
+@Composable
+private fun RenderPillContent(
+    pill: SettingsPillSpec,
+    initialFocusRequester: FocusRequester?,
+    isEssentialMode: Boolean,
+    pluginsEnabled: Boolean,
+    experienceModeViewModel: ExperienceModeSettingsViewModel,
+    integrationSection: IntegrationSettingsSection,
+    onSelectIntegrationSection: (IntegrationSettingsSection) -> Unit,
+    integrationHubFocusRequester: FocusRequester,
+    integrationTmdbFocusRequester: FocusRequester,
+    integrationMdbListFocusRequester: FocusRequester,
+    integrationAnimeSkipFocusRequester: FocusRequester,
+    autoFocusEnabled: Boolean,
+    onNavigateToTrakt: () -> Unit,
+    onNavigateToAddons: () -> Unit,
+    onNavigateToAuthQrSignIn: () -> Unit,
+    onNavigateToManageProfiles: () -> Unit,
+    onNavigateToSupportersContributors: () -> Unit
+) {
+    when (pill.id) {
+        "appearance" -> ThemeSettingsContent(initialFocusRequester = initialFocusRequester)
+        "layout" -> LayoutSettingsContent(
+            initialFocusRequester = initialFocusRequester,
+            essentialMode = isEssentialMode
+        )
+        "layout_rows" -> NewLayoutSettingsContent(
+            initialFocusRequester = initialFocusRequester
+        )
+        "display" -> SettingsComingSoonContent(
+            title = "Display",
+            subtitle = "Display options (resolution, refresh rate, scaling) will live here."
+        )
+        "addons" -> SettingsLaunchContent(
+            title = "Addons",
+            subtitle = "Manage installed addons and discover new ones.",
+            buttonLabel = "Open Addon Manager",
+            initialFocusRequester = initialFocusRequester,
+            onLaunch = onNavigateToAddons
+        )
+        "plugins" -> if (pluginsEnabled && !isEssentialMode) {
+            PluginsSettingsContent()
+        } else {
+            SettingsComingSoonContent(
+                title = "Plugins",
+                subtitle = "Plugins are disabled in this build / mode."
+            )
+        }
+        "collections" -> SettingsComingSoonContent(
+            title = "Collections",
+            subtitle = "Manage your saved collections here."
+        )
+        "account" -> AccountSettingsInline(onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn)
+        "profiles" -> ProfileSettingsContent(onManageProfiles = onNavigateToManageProfiles)
+        "trakt" -> SettingsLaunchContent(
+            title = "Trakt",
+            subtitle = "Sign in and manage your Trakt sync settings.",
+            buttonLabel = "Open Trakt Settings",
+            initialFocusRequester = initialFocusRequester,
+            onLaunch = onNavigateToTrakt
+        )
+        "integrations" -> IntegrationSettingsContent(
+            selectedSection = integrationSection,
+            onSelectSection = onSelectIntegrationSection,
+            initialFocusRequester = initialFocusRequester,
+            hubFocusRequester = integrationHubFocusRequester,
+            tmdbFocusRequester = integrationTmdbFocusRequester,
+            mdbListFocusRequester = integrationMdbListFocusRequester,
+            animeSkipFocusRequester = integrationAnimeSkipFocusRequester,
+            autoFocusEnabled = autoFocusEnabled
+        )
+        "playback" -> if (isEssentialMode) {
+            EssentialPlaybackSettingsContent(initialFocusRequester = initialFocusRequester)
+        } else {
+            PlaybackSettingsContent(initialFocusRequester = initialFocusRequester)
+        }
+        "link_resolving" -> SettingsComingSoonContent(
+            title = "Link Resolving",
+            subtitle = "Configure how stream links are resolved."
+        )
+        "link_filtering" -> SettingsComingSoonContent(
+            title = "Link Filtering",
+            subtitle = "Filter streams by quality, language, size, and source."
+        )
+        "advanced" -> if (isEssentialMode) {
+            EssentialAdvancedSettingsContent(
+                experienceModeViewModel = experienceModeViewModel,
+                initialFocusRequester = initialFocusRequester
+            )
+        } else {
+            AdvancedSettingsContent(
+                initialFocusRequester = initialFocusRequester,
+                experienceModeViewModel = experienceModeViewModel
+            )
+        }
+        "about" -> AboutSettingsContent(
+            onNavigateToSupportersContributors = onNavigateToSupportersContributors,
+            initialFocusRequester = initialFocusRequester
+        )
+    }
+}
+
+// ── Placeholder + launch panels ──────────────────────────────────────────────
+
+@Composable
+private fun SettingsComingSoonContent(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        SettingsDetailHeader(title = title, subtitle = subtitle)
+        SettingsGroupCard(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                androidx.tv.material3.Text(
+                    text = "Coming soon",
+                    style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
+                    color = NuvioColors.TextSecondary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsLaunchContent(
+    title: String,
+    subtitle: String,
+    buttonLabel: String,
+    initialFocusRequester: FocusRequester?,
+    onLaunch: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        SettingsDetailHeader(title = title, subtitle = subtitle)
+        SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
+            SettingsActionRow(
+                title = buttonLabel,
+                subtitle = "Tap to open the full screen.",
+                onClick = onLaunch,
+                modifier = if (initialFocusRequester != null) {
+                    Modifier.focusRequester(initialFocusRequester)
+                } else {
+                    Modifier
+                }
             )
         }
     }

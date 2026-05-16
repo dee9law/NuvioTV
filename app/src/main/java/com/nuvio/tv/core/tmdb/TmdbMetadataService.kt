@@ -690,6 +690,7 @@ class TmdbMetadataService(
         val normalizedLanguage = normalizeTmdbLanguage(language)
         val normalizedSourceType = normalizeEntitySourceType(sourceType)
         val cacheKey = "${entityKind.routeValue}:$entityId:$normalizedSourceType:$normalizedLanguage"
+        Log.d("NetworkDebug", "fetchEntityBrowse ENTER: kind=${entityKind.routeValue} id=$entityId sourceType=$normalizedSourceType lang=$normalizedLanguage cacheHit=${entityBrowseCache.containsKey(cacheKey)}")
         entityBrowseCache[cacheKey]?.let { return@withContext it }
 
         val header = fetchEntityHeader(
@@ -740,7 +741,9 @@ class TmdbMetadataService(
             ),
             rails = rails
         )
-        entityBrowseCache[cacheKey] = data
+        if (rails.isNotEmpty()) {
+            entityBrowseCache[cacheKey] = data
+        }
         data
     }
 
@@ -851,17 +854,22 @@ class TmdbMetadataService(
                 }
 
                 TmdbEntityMediaType.TV -> {
-                    tmdbApi.discoverTv(
+                    val withNetworksParam = if (entityKind == TmdbEntityKind.NETWORK) entityId.toString() else null
+                    val withCompaniesParam = if (entityKind == TmdbEntityKind.COMPANY) entityId.toString() else null
+                    val firstAirDateLteParam = if (railType == TmdbEntityRailType.RECENT) today else null
+                    Log.d("NetworkDebug", "discoverTv → kind=${entityKind.routeValue} railType=${railType.value} page=$page sortBy=${tvSortBy(railType)} withNetworks=$withNetworksParam withCompanies=$withCompaniesParam firstAirDateLte=$firstAirDateLteParam voteCountGte=$voteCountFloor language=$language")
+                    val tvResponse = tmdbApi.discoverTv(
                         apiKey = TMDB_API_KEY,
                         language = language,
                         page = page,
                         sortBy = tvSortBy(railType),
-                        withCompanies = if (entityKind == TmdbEntityKind.COMPANY) entityId.toString() else null,
-                        withNetworks = if (entityKind == TmdbEntityKind.NETWORK) entityId.toString() else null,
-                        firstAirDateLte = if (railType == TmdbEntityRailType.RECENT || entityKind == TmdbEntityKind.NETWORK) today else null,
+                        withCompanies = withCompaniesParam,
+                        withNetworks = withNetworksParam,
+                        firstAirDateLte = firstAirDateLteParam,
                         voteCountGte = voteCountFloor,
-                        withStatus = if (entityKind == TmdbEntityKind.NETWORK) "0|3|4" else null
-                    ).body()
+                    )
+                    Log.d("NetworkDebug", "discoverTv response → httpCode=${tvResponse.code()} totalResults=${tvResponse.body()?.totalResults} totalPages=${tvResponse.body()?.totalPages} resultCount=${tvResponse.body()?.results?.size} errorBody=${if (!tvResponse.isSuccessful) tvResponse.errorBody()?.string() else null}")
+                    tvResponse.body()
                 }
             }
 

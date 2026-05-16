@@ -37,6 +37,9 @@ import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 import com.nuvio.tv.ui.util.asStable
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import com.nuvio.tv.domain.model.LayoutCardStyle
+import com.nuvio.tv.domain.model.LayoutRowConfig
+import com.nuvio.tv.domain.model.LayoutRowKey
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.CollectionFolder
@@ -61,6 +64,38 @@ private const val CLASSIC_CATALOG_POSTER_SCALE = 1.35f
 private const val CLASSIC_SECONDARY_ROW_POSTER_SCALE = 1.2f
 private val CLASSIC_ROW_HEADER_FOCUS_INSET = 85.dp
 
+/**
+ * Resolves a per-row [PosterCardStyle] via the full 3-tier
+ * [com.nuvio.tv.domain.model.resolveLayoutSetting] hierarchy:
+ *
+ *  - per-row → [LayoutRowConfig.cardStyle] / [LayoutRowConfig.cardWidthDp]
+ *  - per-screen → not yet exposed; passed as `null` (the resolver falls through)
+ *  - global → [globalCardStyle] (style) / [base] (width)
+ *
+ * When neither per-row nor per-screen opts in for a given dimension, that
+ * dimension comes from [base] (the globals already wired into [HomeUiState]).
+ */
+private fun resolvePosterCardStyle(
+    config: LayoutRowConfig?,
+    base: PosterCardStyle,
+    globalCardStyle: LayoutCardStyle = LayoutCardStyle.POSTER,
+): PosterCardStyle {
+    val resolvedStyle = com.nuvio.tv.domain.model.resolveLayoutSetting(
+        perRow = config?.cardStyle,
+        perScreen = null,
+        global = globalCardStyle,
+    )
+    val width = config?.cardWidthDp?.dp ?: base.width
+    val height = if (config != null) {
+        if (resolvedStyle == LayoutCardStyle.LANDSCAPE) width * (9f / 16f) else width * 1.5f
+    } else {
+        // No per-row override — keep base height if the global style matches,
+        // otherwise recompute for the new aspect ratio.
+        if (resolvedStyle == LayoutCardStyle.LANDSCAPE) width * (9f / 16f) else base.height
+    }
+    return base.copy(width = width, height = height)
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ClassicHomeContent(
@@ -84,9 +119,14 @@ fun ClassicHomeContent(
     catalogSeeAllLabel: String? = null,
     onSaveFocusState: (Int, Int, String?, Map<String, String>, Map<String, Int>, Int, Int) -> Unit,
     scrollToTopTrigger: Int = 0,
+    /** L3 Back nonce — when it ticks, focus jumps to index 0 of the currently
+     *  focused row. Wired from [BaseHomeViewModel.resetRowFocusTrigger] so the
+     *  same back-hierarchy that Modern uses also works here. */
+    resetRowFocusTrigger: Int = 0,
     onRequestLazyCatalogLoad: (String) -> Unit = {}
 ) {
     val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
+    val classicNavBarFr = com.nuvio.tv.LocalNavBarFocusRequester.current
     val density = LocalDensity.current
     val verticalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec) {
         val topInsetPx = with(density) { CLASSIC_ROW_HEADER_FOCUS_INSET.toPx() }
@@ -166,6 +206,9 @@ fun ClassicHomeContent(
     val rowStates = remember { mutableMapOf<String, LazyListState>() }
     val rowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val rowEntryFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    /** Per-row item-0 focus requester used by the L3 Back observer below to
+     *  jump focus to the first card of the currently focused row. */
+    val rowFirstItemFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val rowFocusedItemIndex = remember { mutableMapOf<String, Int>() }
 
     var restoringFocus by remember { mutableStateOf(focusState.hasSavedFocus) }
@@ -196,6 +239,27 @@ fun ClassicHomeContent(
         rowStates.keys.retainAll(visibleRowKeys)
         rowFocusRequesters.keys.retainAll(visibleRowKeys)
         rowEntryFocusRequesters.keys.retainAll(visibleRowKeys)
+        rowFirstItemFocusRequesters.keys.retainAll(visibleRowKeys)
+    }
+
+    // L3 Back: when [resetRowFocusTrigger] fires, jump focus to index 0 of the
+    // currently focused row. Mirrors ModernHomeRowsList's observer so Back
+    // from deep in a row works the same way in Classic.
+    LaunchedEffect(resetRowFocusTrigger) {
+        if (resetRowFocusTrigger <= 0) return@LaunchedEffect
+        val rowKey = currentFocusSnapshot.rowKey
+            ?: visibleHomeRows.firstOrNull()?.let { row ->
+                when (row) {
+                    is HomeRow.Catalog -> "${row.row.addonId}_${row.row.apiType}_${row.row.catalogId}"
+                    is HomeRow.CollectionRow -> "collection_${row.collection.id}"
+                    is HomeRow.PlaceholderCatalog -> row.catalogKey
+                }
+            }
+            ?: return@LaunchedEffect
+        val requester = rowFirstItemFocusRequesters[rowKey]
+            ?: rowEntryFocusRequesters[rowKey]
+            ?: return@LaunchedEffect
+        runCatching { requester.requestFocus() }
     }
 
     DisposableEffect(Unit) {
@@ -503,6 +567,18 @@ fun ClassicHomeContent(
                 is HomeRow.Catalog -> {
                     val catalogRow = homeRow.row
                     val catalogKey = "${catalogRow.addonId}_${catalogRow.apiType}_${catalogRow.catalogId}"
+                    val rowConfig = uiState.rowConfigLookup[
+                        LayoutRowKey.forAddon(
+                            catalogRow.addonId,
+                            catalogRow.apiType,
+                            catalogRow.catalogId
+                        )
+                    ]
+                    val rowPosterStyle = resolvePosterCardStyle(
+                        config = rowConfig,
+                        base = classicCatalogPosterCardStyle,
+                        globalCardStyle = uiState.globalCardStyle,
+                    )
                     // Match by saved row key first, fall back to index
                     val shouldRestoreFocus = restoringFocus &&
                         (currentFocusSnapshot.rowKey == catalogKey || index == focusState.focusedRowIndex)
@@ -526,7 +602,7 @@ fun ClassicHomeContent(
 
                     CatalogRowSection(
                         catalogRow = catalogRow,
-                        posterCardStyle = classicCatalogPosterCardStyle,
+                        posterCardStyle = rowPosterStyle,
                         showPosterLabels = uiState.posterLabelsEnabled,
                         showAddonName = uiState.catalogAddonNameEnabled,
                         showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled,
@@ -553,10 +629,12 @@ fun ClassicHomeContent(
                         },
                         rowFocusRequester = rowFocusRequester,
                         entryFocusRequester = rowEntryFocusRequesters.getOrPut(catalogKey) { FocusRequester() },
+                        firstItemFocusRequester = rowFirstItemFocusRequesters.getOrPut(catalogKey) { FocusRequester() },
                         listState = listState,
                         enableRowFocusRestorer = true,
                         focusedItemIndex = focusedItemIndex,
                         restorerFocusedIndex = rowFocusedItemIndex[catalogKey] ?: -1,
+                        upFocusRequester = if (index == 0) classicNavBarFr else null,
                         onItemFocused = { itemIndex ->
                             if (restoringFocus) restoringFocus = false
                             currentFocusSnapshot.rowIndex = index
@@ -569,6 +647,14 @@ fun ClassicHomeContent(
 
                 is HomeRow.CollectionRow -> {
                     val collectionKey = "collection_${homeRow.collection.id}"
+                    val collectionRowConfig = uiState.rowConfigLookup[
+                        LayoutRowKey.forCollection(homeRow.collection.id)
+                    ]
+                    val collectionPosterStyle = resolvePosterCardStyle(
+                        config = collectionRowConfig,
+                        base = classicSecondaryPosterCardStyle,
+                        globalCardStyle = uiState.globalCardStyle,
+                    )
                     // Match by saved row key first, fall back to index
                     val shouldRestoreCollectionFocus = restoringFocus &&
                         (currentFocusSnapshot.rowKey == collectionKey || index == focusState.focusedRowIndex)
@@ -587,7 +673,7 @@ fun ClassicHomeContent(
                         collection = homeRow.collection,
                         onFolderClick = onNavigateToFolderDetail,
                         listState = listState,
-                        posterCardStyle = classicSecondaryPosterCardStyle,
+                        posterCardStyle = collectionPosterStyle,
                         focusedItemIndex = collectionFocusedItemIndex,
                         entryFocusRequester = rowEntryFocusRequesters.getOrPut(collectionKey) { FocusRequester() },
                         onItemFocused = { itemIndex ->

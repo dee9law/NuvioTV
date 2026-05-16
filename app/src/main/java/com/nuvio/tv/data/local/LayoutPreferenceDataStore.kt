@@ -17,6 +17,10 @@ import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.LayoutCardStyle
+import com.nuvio.tv.domain.model.LayoutRowConfig
+import com.nuvio.tv.domain.model.LayoutRowKind
+import com.nuvio.tv.domain.model.LayoutScreenScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -657,5 +661,406 @@ class LayoutPreferenceDataStore @Inject constructor(
             disabledKeys = parseCatalogKeys(prefs[disabledHomeCatalogKeysKey]).toSet(),
             customTitles = parseCustomTitles(prefs[customCatalogTitlesKey])
         )
+    }
+
+    // ── Per-screen layout settings (new "Layout & Rows" screen) ──────────────
+    //
+    // For HOME, these reuse the existing app-global keys so the new screen
+    // stays in sync with the old "Layout & Rows" (now "Old Layout"). For other
+    // scopes, dedicated suffixed keys are used.
+
+    private fun scopedLayoutKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) layoutKey
+        else stringPreferencesKey("selected_layout_${scope.scopeKey}")
+
+    private fun scopedCornerRadiusKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) posterCardCornerRadiusDpKey
+        else intPreferencesKey("poster_card_corner_radius_dp_${scope.scopeKey}")
+
+    private fun scopedFullscreenHeroKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) modernHeroFullScreenBackdropKey
+        else booleanPreferencesKey("modern_hero_full_screen_backdrop_${scope.scopeKey}")
+
+    private fun scopedRowsKey(scope: LayoutScreenScope) =
+        stringPreferencesKey("layout_rows_${scope.scopeKey}")
+
+    fun selectedLayoutForScope(scope: LayoutScreenScope): Flow<HomeLayout> = profileFlow { prefs ->
+        val defaultLayout = when (scope) {
+            LayoutScreenScope.MOVIES, LayoutScreenScope.TV -> HomeLayout.GRID
+            else -> HomeLayout.MODERN
+        }
+        val raw = prefs[scopedLayoutKey(scope)] ?: defaultLayout.name
+        runCatching { HomeLayout.valueOf(raw) }.getOrDefault(defaultLayout)
+    }
+
+    fun posterCardCornerRadiusForScope(scope: LayoutScreenScope): Flow<Int> = profileFlow { prefs ->
+        prefs[scopedCornerRadiusKey(scope)] ?: DEFAULT_POSTER_CARD_CORNER_RADIUS_DP
+    }
+
+    fun fullscreenHeroBackdropForScope(scope: LayoutScreenScope): Flow<Boolean> = profileFlow { prefs ->
+        prefs[scopedFullscreenHeroKey(scope)] ?: false
+    }
+
+    fun rowsForScope(scope: LayoutScreenScope): Flow<List<LayoutRowConfig>> = profileFlow { prefs ->
+        // Strict per-scope filtering: only return rows whose viewContext
+        // matches [scope]. Rows missing viewContext (legacy, pre-view-context)
+        // are defaulted to HOME by [toDomain], so they only surface under the
+        // HOME pill — preserving backwards compatibility for existing setups.
+        parseRows(prefs[scopedRowsKey(scope)]).filter { it.viewContext == scope }
+    }
+
+    /**
+     * Lookup map keyed by [LayoutRowConfig.id] for callers that need to
+     * resolve a single row's overrides without holding the whole list. Used by
+     * row renderers (Modern/Classic/Collections) to find each row's cardStyle
+     * and cardWidthDp by its canonical row key.
+     */
+    fun rowConfigsForScope(scope: LayoutScreenScope): Flow<Map<String, LayoutRowConfig>> =
+        rowsForScope(scope).map { rows -> rows.associateBy { it.id } }
+
+    suspend fun setSelectedLayoutForScope(scope: LayoutScreenScope, layout: HomeLayout) {
+        if (scope == LayoutScreenScope.HOME) {
+            // Reuse the global setter — it also flips hasChosenKey and seeds
+            // the trailer playback target, which we want to preserve.
+            setLayout(layout)
+            return
+        }
+        store().edit { prefs -> prefs[scopedLayoutKey(scope)] = layout.name }
+    }
+
+    suspend fun setPosterCardCornerRadiusForScope(scope: LayoutScreenScope, dp: Int) {
+        store().edit { prefs -> prefs[scopedCornerRadiusKey(scope)] = dp }
+    }
+
+    suspend fun setFullscreenHeroBackdropForScope(scope: LayoutScreenScope, enabled: Boolean) {
+        store().edit { prefs -> prefs[scopedFullscreenHeroKey(scope)] = enabled }
+    }
+
+    suspend fun setRowsForScope(scope: LayoutScreenScope, rows: List<LayoutRowConfig>) {
+        store().edit { prefs ->
+            if (rows.isEmpty()) {
+                prefs.remove(scopedRowsKey(scope))
+            } else {
+                prefs[scopedRowsKey(scope)] = gson.toJson(rows.map { it.toSerializable() })
+            }
+        }
+    }
+
+    // ── Per-scope View Options + Focused Poster settings ─────────────────────
+    //
+    // Each pair below follows the same convention as [scopedLayoutKey]: HOME
+    // reuses the existing app-global key (so the Old-Layout screen and the
+    // new per-screen pills stay in sync for Home) while every other scope
+    // gets a dedicated suffixed key. Read flows return the global default if
+    // the per-scope key is unset, so existing user choices migrate naturally
+    // to the HOME pill without re-prompting.
+
+    private fun scopedHeroSectionEnabledKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) heroSectionEnabledKey
+        else booleanPreferencesKey("hero_section_enabled_${scope.scopeKey}")
+
+    private fun scopedSearchDiscoverEnabledKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) searchDiscoverEnabledKey
+        else booleanPreferencesKey("search_discover_enabled_${scope.scopeKey}")
+
+    private fun scopedPosterLabelsEnabledKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) posterLabelsEnabledKey
+        else booleanPreferencesKey("poster_labels_enabled_${scope.scopeKey}")
+
+    private fun scopedCatalogAddonNameEnabledKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) catalogAddonNameEnabledKey
+        else booleanPreferencesKey("catalog_addon_name_enabled_${scope.scopeKey}")
+
+    private fun scopedCatalogTypeSuffixEnabledKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) catalogTypeSuffixEnabledKey
+        else booleanPreferencesKey("catalog_type_suffix_enabled_${scope.scopeKey}")
+
+    private fun scopedHideUnreleasedContentKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) hideUnreleasedContentKey
+        else booleanPreferencesKey("hide_unreleased_content_${scope.scopeKey}")
+
+    private fun scopedFocusedPosterBackdropExpandEnabledKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) focusedPosterBackdropExpandEnabledKey
+        else booleanPreferencesKey("focused_poster_backdrop_expand_enabled_${scope.scopeKey}")
+
+    private fun scopedFocusedPosterBackdropExpandDelaySecondsKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) focusedPosterBackdropExpandDelaySecondsKey
+        else intPreferencesKey("focused_poster_backdrop_expand_delay_seconds_${scope.scopeKey}")
+
+    private fun scopedFocusedPosterBackdropTrailerMutedKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) focusedPosterBackdropTrailerMutedKey
+        else booleanPreferencesKey("focused_poster_backdrop_trailer_muted_${scope.scopeKey}")
+
+    fun heroSectionEnabledForScope(scope: LayoutScreenScope): Flow<Boolean> = profileFlow { prefs ->
+        prefs[scopedHeroSectionEnabledKey(scope)] ?: true
+    }
+
+    fun searchDiscoverEnabledForScope(scope: LayoutScreenScope): Flow<Boolean> = profileFlow { prefs ->
+        prefs[scopedSearchDiscoverEnabledKey(scope)] ?: true
+    }
+
+    fun posterLabelsEnabledForScope(scope: LayoutScreenScope): Flow<Boolean> = profileFlow { prefs ->
+        prefs[scopedPosterLabelsEnabledKey(scope)] ?: true
+    }
+
+    fun catalogAddonNameEnabledForScope(scope: LayoutScreenScope): Flow<Boolean> = profileFlow { prefs ->
+        prefs[scopedCatalogAddonNameEnabledKey(scope)] ?: true
+    }
+
+    fun catalogTypeSuffixEnabledForScope(scope: LayoutScreenScope): Flow<Boolean> = profileFlow { prefs ->
+        prefs[scopedCatalogTypeSuffixEnabledKey(scope)] ?: true
+    }
+
+    fun hideUnreleasedContentForScope(scope: LayoutScreenScope): Flow<Boolean> = profileFlow { prefs ->
+        prefs[scopedHideUnreleasedContentKey(scope)] ?: false
+    }
+
+    fun focusedPosterBackdropExpandEnabledForScope(scope: LayoutScreenScope): Flow<Boolean> = profileFlow { prefs ->
+        prefs[scopedFocusedPosterBackdropExpandEnabledKey(scope)] ?: true
+    }
+
+    fun focusedPosterBackdropExpandDelaySecondsForScope(scope: LayoutScreenScope): Flow<Int> = profileFlow { prefs ->
+        (prefs[scopedFocusedPosterBackdropExpandDelaySecondsKey(scope)]
+            ?: DEFAULT_FOCUSED_POSTER_BACKDROP_EXPAND_DELAY_SECONDS)
+            .coerceAtLeast(MIN_FOCUSED_POSTER_BACKDROP_EXPAND_DELAY_SECONDS)
+    }
+
+    fun focusedPosterBackdropTrailerMutedForScope(scope: LayoutScreenScope): Flow<Boolean> = profileFlow { prefs ->
+        prefs[scopedFocusedPosterBackdropTrailerMutedKey(scope)] ?: true
+    }
+
+    suspend fun setHeroSectionEnabledForScope(scope: LayoutScreenScope, enabled: Boolean) {
+        store().edit { it[scopedHeroSectionEnabledKey(scope)] = enabled }
+    }
+
+    suspend fun setSearchDiscoverEnabledForScope(scope: LayoutScreenScope, enabled: Boolean) {
+        store().edit { it[scopedSearchDiscoverEnabledKey(scope)] = enabled }
+    }
+
+    suspend fun setPosterLabelsEnabledForScope(scope: LayoutScreenScope, enabled: Boolean) {
+        store().edit { it[scopedPosterLabelsEnabledKey(scope)] = enabled }
+    }
+
+    suspend fun setCatalogAddonNameEnabledForScope(scope: LayoutScreenScope, enabled: Boolean) {
+        store().edit { it[scopedCatalogAddonNameEnabledKey(scope)] = enabled }
+    }
+
+    suspend fun setCatalogTypeSuffixEnabledForScope(scope: LayoutScreenScope, enabled: Boolean) {
+        store().edit { it[scopedCatalogTypeSuffixEnabledKey(scope)] = enabled }
+    }
+
+    suspend fun setHideUnreleasedContentForScope(scope: LayoutScreenScope, enabled: Boolean) {
+        store().edit { it[scopedHideUnreleasedContentKey(scope)] = enabled }
+    }
+
+    suspend fun setFocusedPosterBackdropExpandEnabledForScope(
+        scope: LayoutScreenScope,
+        enabled: Boolean,
+    ) {
+        store().edit { prefs ->
+            prefs[scopedFocusedPosterBackdropExpandEnabledKey(scope)] = enabled
+            if (!enabled) {
+                prefs[scopedFocusedPosterBackdropTrailerMutedKey(scope)] = true
+            }
+        }
+    }
+
+    suspend fun setFocusedPosterBackdropExpandDelaySecondsForScope(
+        scope: LayoutScreenScope,
+        seconds: Int,
+    ) {
+        store().edit { prefs ->
+            prefs[scopedFocusedPosterBackdropExpandDelaySecondsKey(scope)] =
+                seconds.coerceAtLeast(MIN_FOCUSED_POSTER_BACKDROP_EXPAND_DELAY_SECONDS)
+        }
+    }
+
+    suspend fun setFocusedPosterBackdropTrailerMutedForScope(
+        scope: LayoutScreenScope,
+        muted: Boolean,
+    ) {
+        store().edit { it[scopedFocusedPosterBackdropTrailerMutedKey(scope)] = muted }
+    }
+
+    // ── Per-scope hero catalogs + classic focus gradient ─────────────────────
+    //
+    // Two more settings that the simplified Layout screen needs per-pill:
+    //  - hero_catalog_keys_<scope>  → which catalogs feed the Hero strip
+    //  - classic_focus_gradient_enabled_<scope>  → classic-only artwork blend
+    // HOME aliases the existing global keys so legacy users see no jump.
+
+    private fun scopedHeroCatalogKeysKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) heroCatalogKeysKey
+        else stringPreferencesKey("hero_catalog_keys_${scope.scopeKey}")
+
+    private fun scopedClassicFocusGradientKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) classicFocusGradientEnabledKey
+        else booleanPreferencesKey("classic_focus_gradient_enabled_${scope.scopeKey}")
+
+    fun heroCatalogSelectionsForScope(scope: LayoutScreenScope): Flow<List<String>> =
+        profileFlow { prefs -> parseCatalogKeys(prefs[scopedHeroCatalogKeysKey(scope)]) }
+
+    fun classicFocusGradientEnabledForScope(scope: LayoutScreenScope): Flow<Boolean> =
+        profileFlow { prefs -> prefs[scopedClassicFocusGradientKey(scope)] ?: false }
+
+    suspend fun setHeroCatalogKeysForScope(scope: LayoutScreenScope, catalogKeys: List<String>) {
+        val normalizedKeys = normalizeCatalogOrderKeys(catalogKeys)
+        if (scope == LayoutScreenScope.HOME) {
+            // HOME also writes the legacy single-key alias for backwards-compat
+            // (callers that still read `heroCatalogKey` should not regress).
+            setHeroCatalogKeys(normalizedKeys)
+            return
+        }
+        store().edit { prefs ->
+            if (normalizedKeys.isEmpty()) {
+                prefs.remove(scopedHeroCatalogKeysKey(scope))
+            } else {
+                prefs[scopedHeroCatalogKeysKey(scope)] = gson.toJson(normalizedKeys)
+            }
+        }
+    }
+
+    suspend fun setClassicFocusGradientEnabledForScope(
+        scope: LayoutScreenScope,
+        enabled: Boolean,
+    ) {
+        store().edit { it[scopedClassicFocusGradientKey(scope)] = enabled }
+    }
+
+    // ── Global fallback layout settings (Settings → Appearance → Global) ─────
+    //
+    // These supply the floor for the per-row / per-screen / global resolution
+    // hierarchy. A per-screen value (e.g. `selectedLayoutForScope(MOVIES)`)
+    // takes precedence; if missing, the global value applies.
+
+    private val globalLayoutKey = stringPreferencesKey("global_selected_layout")
+    private val globalCardStyleKey = stringPreferencesKey("global_card_style")
+    private val globalFocusedPosterTrailerEnabledKey =
+        booleanPreferencesKey("global_focused_poster_trailer_enabled")
+    private val globalFocusedPosterTrailerTargetKey =
+        stringPreferencesKey("global_focused_poster_trailer_target")
+
+    val globalLayout: Flow<HomeLayout> = profileFlow { prefs ->
+        val raw = prefs[globalLayoutKey] ?: HomeLayout.MODERN.name
+        runCatching { HomeLayout.valueOf(raw) }.getOrDefault(HomeLayout.MODERN)
+    }
+
+    val globalCardStyle: Flow<LayoutCardStyle> = profileFlow { prefs ->
+        val raw = prefs[globalCardStyleKey] ?: LayoutCardStyle.POSTER.name
+        runCatching { LayoutCardStyle.valueOf(raw) }.getOrDefault(LayoutCardStyle.POSTER)
+    }
+
+    val globalFocusedPosterTrailerEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[globalFocusedPosterTrailerEnabledKey] ?: false
+    }
+
+    val globalFocusedPosterTrailerTarget: Flow<FocusedPosterTrailerPlaybackTarget> = profileFlow { prefs ->
+        val raw = prefs[globalFocusedPosterTrailerTargetKey]
+            ?: FocusedPosterTrailerPlaybackTarget.HERO_MEDIA.name
+        runCatching { FocusedPosterTrailerPlaybackTarget.valueOf(raw) }
+            .getOrDefault(FocusedPosterTrailerPlaybackTarget.HERO_MEDIA)
+    }
+
+    suspend fun setGlobalLayout(layout: HomeLayout) {
+        store().edit { it[globalLayoutKey] = layout.name }
+    }
+
+    suspend fun setGlobalCardStyle(style: LayoutCardStyle) {
+        store().edit { it[globalCardStyleKey] = style.name }
+    }
+
+    suspend fun setGlobalFocusedPosterTrailerEnabled(enabled: Boolean) {
+        store().edit { it[globalFocusedPosterTrailerEnabledKey] = enabled }
+    }
+
+    suspend fun setGlobalFocusedPosterTrailerTarget(target: FocusedPosterTrailerPlaybackTarget) {
+        store().edit { it[globalFocusedPosterTrailerTargetKey] = target.name }
+    }
+
+    // ── Per-scope focused-poster settings ────────────────────────────────────
+    //
+    // Two knobs per scope: trailer-enabled (all scopes) and trailer-target
+    // (HOME / DETAIL only — other scopes have no Hero Media surface). Both
+    // are nullable in `*Flow` form so the resolver hierarchy can fall back to
+    // the global tier when the user hasn't overridden per-screen.
+
+    private fun scopedFocusedPosterTrailerEnabledKey(scope: LayoutScreenScope) =
+        booleanPreferencesKey("focused_poster_trailer_enabled_${scope.scopeKey}")
+
+    private fun scopedFocusedPosterTrailerTargetKey(scope: LayoutScreenScope) =
+        stringPreferencesKey("focused_poster_trailer_target_${scope.scopeKey}")
+
+    fun focusedPosterTrailerEnabledForScope(scope: LayoutScreenScope): Flow<Boolean?> =
+        profileFlow { prefs -> prefs[scopedFocusedPosterTrailerEnabledKey(scope)] }
+
+    fun focusedPosterTrailerTargetForScope(
+        scope: LayoutScreenScope,
+    ): Flow<FocusedPosterTrailerPlaybackTarget?> = profileFlow { prefs ->
+        prefs[scopedFocusedPosterTrailerTargetKey(scope)]?.let { raw ->
+            runCatching { FocusedPosterTrailerPlaybackTarget.valueOf(raw) }.getOrNull()
+        }
+    }
+
+    suspend fun setFocusedPosterTrailerEnabledForScope(
+        scope: LayoutScreenScope,
+        enabled: Boolean,
+    ) {
+        store().edit { it[scopedFocusedPosterTrailerEnabledKey(scope)] = enabled }
+    }
+
+    suspend fun setFocusedPosterTrailerTargetForScope(
+        scope: LayoutScreenScope,
+        target: FocusedPosterTrailerPlaybackTarget,
+    ) {
+        store().edit { it[scopedFocusedPosterTrailerTargetKey(scope)] = target.name }
+    }
+
+    @androidx.annotation.Keep
+    private data class SerializableLayoutRow(
+        val id: String,
+        val kind: String,
+        val name: String,
+        val cardStyle: String = LayoutCardStyle.POSTER.name,
+        val cardWidthDp: Int = DEFAULT_POSTER_CARD_WIDTH_DP,
+        val enabled: Boolean = true,
+        // Nullable so we can detect legacy rows (pre-view-context) on read
+        // and default them to HOME for backward compatibility.
+        val viewContext: String? = null,
+        val metadata: Map<String, String>? = null,
+    )
+
+    private fun LayoutRowConfig.toSerializable() = SerializableLayoutRow(
+        id = id,
+        kind = kind.name,
+        name = name,
+        cardStyle = cardStyle.name,
+        cardWidthDp = cardWidthDp,
+        enabled = enabled,
+        viewContext = viewContext.name,
+        metadata = metadata.takeIf { it.isNotEmpty() },
+    )
+
+    private fun SerializableLayoutRow.toDomain() = LayoutRowConfig(
+        id = id,
+        kind = runCatching { LayoutRowKind.valueOf(kind) }.getOrDefault(LayoutRowKind.ADDON),
+        name = name,
+        cardStyle = runCatching { LayoutCardStyle.valueOf(cardStyle) }
+            .getOrDefault(LayoutCardStyle.POSTER),
+        cardWidthDp = cardWidthDp,
+        enabled = enabled,
+        viewContext = viewContext
+            ?.let { raw -> runCatching { LayoutScreenScope.valueOf(raw) }.getOrNull() }
+            ?: LayoutScreenScope.HOME,
+        metadata = metadata.orEmpty(),
+    )
+
+    private fun parseRows(json: String?): List<LayoutRowConfig> {
+        if (json.isNullOrBlank()) return emptyList()
+        return try {
+            val type = object : TypeToken<List<SerializableLayoutRow>>() {}.type
+            gson.fromJson<List<SerializableLayoutRow>>(json, type).orEmpty().map { it.toDomain() }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 }

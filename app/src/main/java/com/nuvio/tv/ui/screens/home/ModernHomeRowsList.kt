@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
@@ -42,7 +43,10 @@ import coil3.imageLoader
 import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.LayoutCardStyle
+import com.nuvio.tv.domain.model.LayoutRowConfig
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.LocalNavBarFocusRequester
 import com.nuvio.tv.ui.util.StableList
 import com.nuvio.tv.ui.util.StableMap
 import com.nuvio.tv.ui.util.StableRef
@@ -71,6 +75,8 @@ internal fun ModernHomeRowsList(
     focusState: HomeScreenFocusState,
     activeRowKey: State<String?>,
     activeItemIndex: State<Int>,
+    resetRowFocusTrigger: Int,
+    focusHeroTrigger: Int,
     isFastScrolling: State<Boolean>,
     onFastScrollingChanged: (Boolean) -> Unit,
     contentFocusRequester: FocusRequester,
@@ -112,6 +118,7 @@ internal fun ModernHomeRowsList(
     continueWatchingCardHeight: Dp,
     blurUnwatchedEpisodes: Boolean,
     useEpisodeThumbnails: Boolean,
+    rowConfigLookup: Map<String, LayoutRowConfig>,
     pendingRowFocusKey: State<String?>,
     pendingRowFocusIndex: State<Int?>,
     pendingRowFocusNonce: State<Int>,
@@ -128,6 +135,7 @@ internal fun ModernHomeRowsList(
     focusedHeroMediaNonce: State<Int>,
     onFocusedHeroMediaNonceChange: (Int) -> Unit,
     onExpansionInteractionNonceChange: (Int) -> Unit,
+    onContentFocusChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // Unwrap StableRef wrappers for internal use (not passed to child composables)
@@ -140,6 +148,32 @@ internal fun ModernHomeRowsList(
 
     val rowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val stableItemFocusRequestersByRow = remember { mutableMapOf<String, StableRef<MutableMap<Int, FocusRequester>>>() }
+
+    // L3 Back: when the VM bumps resetRowFocusTrigger, drop focus onto the
+    // first item of the currently focused row. The per-item requester in
+    // [stableItemFocusRequestersByRow] is the authoritative target — the
+    // row-level FocusRequester (used by focusRestorer) lands on the last-
+    // focused item, which is not what L3 wants.
+    LaunchedEffect(resetRowFocusTrigger) {
+        if (resetRowFocusTrigger <= 0) return@LaunchedEffect
+        val rowKey = activeRowKey.value ?: carouselRows.list.firstOrNull()?.key
+            ?: return@LaunchedEffect
+        val firstItemRequester = stableItemFocusRequestersByRow[rowKey]?.value?.get(0)
+            ?: rowFocusRequesters[rowKey]
+            ?: return@LaunchedEffect
+        runCatching { firstItemRequester.requestFocus() }
+    }
+
+    // L1 Back: when the VM bumps focusHeroTrigger, jump focus to the
+    // hero / billboard — in Modern, that's the first carousel row.
+    LaunchedEffect(focusHeroTrigger) {
+        if (focusHeroTrigger <= 0) return@LaunchedEffect
+        val heroRowKey = carouselRows.list.firstOrNull()?.key ?: return@LaunchedEffect
+        val target = rowFocusRequesters[heroRowKey]
+            ?: stableItemFocusRequestersByRow[heroRowKey]?.value?.get(0)
+            ?: return@LaunchedEffect
+        runCatching { target.requestFocus() }
+    }
 
     val density = LocalDensity.current
     val context = LocalContext.current
@@ -157,15 +191,36 @@ internal fun ModernHomeRowsList(
                 withContext(Dispatchers.IO) {
                     for (rowOffset in 1..prefetchAheadRows) {
                         val row = carouselRows.list.getOrNull(lastVisibleRowIndex + rowOffset) ?: continue
+                        val rowConfig = row.layoutConfigKey?.let { rowConfigLookup[it] }
+                        // 3-tier resolution: per-row override → per-screen → global.
+                        // Per-screen card style isn't yet exposed as its own knob
+                        // (the only per-screen knobs today are layout + corner
+                        // radius + fullscreen hero); the per-screen tier is passed
+                        // as null so the global tier — currently the Modern
+                        // landscape-posters toggle — supplies the floor.
+                        val rowLandscape = com.nuvio.tv.domain.model.resolveLayoutSetting(
+                            perRow = rowConfig?.cardStyle,
+                            perScreen = null,
+                            global = if (useLandscapePosters) {
+                                LayoutCardStyle.LANDSCAPE
+                            } else {
+                                LayoutCardStyle.POSTER
+                            },
+                        ) == LayoutCardStyle.LANDSCAPE
+                        val rowBaseWidth = rowConfig?.cardWidthDp?.dp
+                        val rowPortraitW = rowBaseWidth ?: portraitCatalogCardWidth
+                        val rowPortraitH = rowBaseWidth?.times(1.5f) ?: portraitCatalogCardHeight
+                        val rowLandscapeW = rowBaseWidth ?: landscapeCatalogCardWidth
+                        val rowLandscapeH = rowBaseWidth?.div(1.77f) ?: landscapeCatalogCardHeight
                         for (i in 0 until minOf(prefetchItemsPerRow, row.items.list.size)) {
                             val item = row.items.list[i]
                             val url = item.imageUrl ?: continue
                             val metrics = item.catalogCardRequestMetrics(
-                                useLandscapePosters = useLandscapePosters,
-                                portraitCardWidth = portraitCatalogCardWidth,
-                                portraitCardHeight = portraitCatalogCardHeight,
-                                landscapeCardWidth = landscapeCatalogCardWidth,
-                                landscapeCardHeight = landscapeCatalogCardHeight,
+                                useLandscapePosters = rowLandscape,
+                                portraitCardWidth = rowPortraitW,
+                                portraitCardHeight = rowPortraitH,
+                                landscapeCardWidth = rowLandscapeW,
+                                landscapeCardHeight = rowLandscapeH,
                                 expandEnabled = effectiveExpandEnabled
                             )
                             val wPx = with(density) { metrics.width.roundToPx() }
@@ -238,6 +293,7 @@ internal fun ModernHomeRowsList(
     }
 
     val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
+    val navBarFr = LocalNavBarFocusRequester.current
 
     CompositionLocalProvider(
         LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec,
@@ -254,6 +310,7 @@ internal fun ModernHomeRowsList(
                 .clipToBounds()
                 .graphicsLayer { alpha = trailerContentAlpha() }
                 .focusRequester(contentFocusRequester)
+                .onFocusChanged { onContentFocusChanged(it.hasFocus) }
                 .focusRestorer { focusRestorerRequester() }
                 .dpadVerticalFastScroll(
                     scrollableState = verticalRowListState,
@@ -308,7 +365,7 @@ internal fun ModernHomeRowsList(
                 items = carouselRows.list,
                 key = { _, row -> row.key },
                 contentType = { _, row -> row.apiType ?: "modern_home_row" }
-            ) { _, row ->
+            ) { index, row ->
                 val stableOnContinueWatchingOptions = remember(onContinueWatchingOptions) {
                     { item: ContinueWatchingItem -> onContinueWatchingOptions(item) }
                 }
@@ -410,7 +467,9 @@ internal fun ModernHomeRowsList(
                     isVerticalRowsScrollingState = isVerticalRowsScrollingState,
                     itemFocusRequesters = stableItemFocusRequestersByRow.getOrPut(row.key) {
                         StableRef(mutableMapOf())
-                    }
+                    },
+                    upFocusRequester = if (index == 0) navBarFr else null,
+                    rowConfig = row.layoutConfigKey?.let { rowConfigLookup[it] }
                 )
             }
         }

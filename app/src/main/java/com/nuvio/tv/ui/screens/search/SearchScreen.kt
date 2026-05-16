@@ -42,7 +42,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.focusGroup
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,11 +61,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import com.nuvio.tv.LocalContentFocusRequester
+import com.nuvio.tv.ui.navigation.TvBackToFirstThenTopNav
+import com.nuvio.tv.ui.navigation.dpadLeftToSideRail
+import com.nuvio.tv.ui.navigation.dpadUpToTopNav
 import com.nuvio.tv.ui.util.recompositionHighlighter
 import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -100,13 +106,12 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun SearchScreen(
     viewModel: SearchViewModel = hiltViewModel(),
     onNavigateToDetail: (String, String, String) -> Unit,
-    onNavigateToSeeAll: (catalogId: String, addonId: String, type: String) -> Unit = { _, _, _ -> },
-    onOpenDiscover: () -> Unit = {}
+    onNavigateToSeeAll: (catalogId: String, addonId: String, type: String) -> Unit = { _, _, _ -> }
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val watchedMovieIds by viewModel.watchedMovieIds.collectAsState()
@@ -120,7 +125,6 @@ fun SearchScreen(
     val strVoiceUnavailable = stringResource(R.string.search_voice_unavailable)
     val voiceFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
-    val discoverFirstItemFocusRequester = remember { FocusRequester() }
     var isSearchFieldFocused by remember { mutableStateOf(false) }
     var isRecentSearchSectionFocused by remember { mutableStateOf(false) }
     var focusResults by remember { mutableStateOf(false) }
@@ -129,11 +133,10 @@ fun SearchScreen(
     var pendingFocusMoveHadExistingSearchRows by remember { mutableStateOf(false) }
     var isVoiceListening by remember { mutableStateOf(false) }
     var voiceRmsLevel by remember { mutableStateOf(0f) }
-    var discoverFocusedItemIndex by rememberSaveable { mutableStateOf(0) }
-    var restoreDiscoverFocus by rememberSaveable { mutableStateOf(false) }
-    var pendingDiscoverRestoreOnResume by rememberSaveable { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    var focusedResultRowKey by remember { mutableStateOf<String?>(null) }
     val onVoiceQueryResultState = rememberUpdatedState<(String) -> Unit> { recognized ->
         if (recognized.isNotBlank()) {
             viewModel.onEvent(SearchEvent.QueryChanged(recognized))
@@ -364,17 +367,6 @@ fun SearchScreen(
         }
     }
 
-    LaunchedEffect(focusResults, isDiscoverMode, uiState.discoverResults.size) {
-        if (focusResults && isDiscoverMode && uiState.discoverResults.isNotEmpty()) {
-            delay(100)
-            runCatching { discoverFirstItemFocusRequester.requestFocus() }
-            focusResults = false
-            pendingFocusMoveToResultsQuery = null
-            pendingFocusMoveSawSearching = false
-            pendingFocusMoveHadExistingSearchRows = false
-        }
-    }
-
     LaunchedEffect(
         pendingFocusMoveToResultsQuery,
         pendingFocusMoveSawSearching,
@@ -425,7 +417,6 @@ fun SearchScreen(
         imm.displayCompletions(view, completions)
     }
 
-    val latestPendingDiscoverRestore by rememberUpdatedState(pendingDiscoverRestoreOnResume)
     val latestShouldKeepSearchFocus by rememberUpdatedState(
         focusResults || uiState.isSearching || isVoiceListening
     )
@@ -433,10 +424,7 @@ fun SearchScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                if (latestPendingDiscoverRestore) {
-                    restoreDiscoverFocus = true
-                    pendingDiscoverRestoreOnResume = false
-                } else if (!latestShouldKeepSearchFocus) {
+                if (!latestShouldKeepSearchFocus) {
                     coroutineScope.launch {
                         repeat(2) { withFrameNanos { } }
                         runCatching {
@@ -456,9 +444,43 @@ fun SearchScreen(
         }
     }
 
+    val contentEntryFocusRequester = LocalContentFocusRequester.current
+    LaunchedEffect(isSearchFieldFocused, isRecentSearchSectionFocused) {
+        if (isSearchFieldFocused || isRecentSearchSectionFocused) focusedResultRowKey = null
+    }
+
+    TvBackToFirstThenTopNav(
+        contentHasFocus = {
+            focusedResultRowKey != null && !isSearchFieldFocused && !isRecentSearchSectionFocused
+        },
+        isAtFirstItem = {
+            val key = focusedResultRowKey
+            key != null && (searchRowFocusedItemIndex[key] ?: 0) == 0
+        },
+        requestFirstItemFocus = {
+            val key = focusedResultRowKey
+            if (key != null) {
+                val currentIndex = searchRowFocusedItemIndex[key] ?: 0
+                if (currentIndex > 0) {
+                    coroutineScope.launch {
+                        repeat(currentIndex) {
+                            if (!focusManager.moveFocus(FocusDirection.Left)) return@launch
+                            withFrameNanos { }
+                        }
+                    }
+                }
+            }
+        }
+    )
+
     Box(
         modifier = Modifier
-            .fillMaxSize(),
+            .fillMaxSize()
+            .focusGroup()
+            .focusRequester(contentEntryFocusRequester)
+            .focusProperties { enter = { topInputFocusRequester } }
+            .dpadUpToTopNav()
+            .dpadLeftToSideRail(),
         contentAlignment = Alignment.TopCenter
     ) {
         if (isDiscoverMode) {
@@ -482,7 +504,6 @@ fun SearchScreen(
                     voiceRmsLevel = voiceRmsLevel,
                     onVoiceSearch = launchVoiceSearch,
                     onMoveToResults = { focusResults = true },
-                    onOpenDiscover = onOpenDiscover,
                     keyboardController = keyboardController
                 )
 
@@ -542,7 +563,6 @@ fun SearchScreen(
                         onMoveToResults = {
                             focusResults = true
                         },
-                        onOpenDiscover = onOpenDiscover,
                         keyboardController = keyboardController
                     )
                 }
@@ -664,6 +684,7 @@ fun SearchScreen(
                                     // pending auto-focus so it doesn't steal focus later.
                                     pendingFocusMoveToResultsQuery = null
                                     searchRowFocusedItemIndex[catalogKey] = itemIndex
+                                    focusedResultRowKey = catalogKey
                                 },
                                 onItemClick = { id, type, addonBaseUrl ->
                                     onNavigateToDetail(id, type, addonBaseUrl)
@@ -774,10 +795,8 @@ private fun SearchInputField(
     voiceRmsLevel: Float,
     onVoiceSearch: () -> Unit,
     onMoveToResults: () -> Unit,
-    onOpenDiscover: () -> Unit,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?
 ) {
-    var isDiscoverButtonFocused by remember { mutableStateOf(false) }
     var isVoiceButtonFocused by remember { mutableStateOf(false) }
 
     Row(
@@ -786,30 +805,6 @@ private fun SearchInputField(
             .padding(horizontal = 48.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(
-            onClick = onOpenDiscover,
-            modifier = Modifier
-                .onFocusChanged { isDiscoverButtonFocused = it.isFocused }
-                .size(56.dp)
-                .border(
-                    width = if (isDiscoverButtonFocused) 2.dp else 1.dp,
-                    color = if (isDiscoverButtonFocused) NuvioColors.FocusRing else NuvioColors.Border,
-                    shape = RoundedCornerShape(12.dp)
-                )
-                .background(
-                    color = NuvioColors.BackgroundCard,
-                    shape = RoundedCornerShape(12.dp)
-                )
-        ) {
-            Icon(
-                imageVector = Icons.Default.Explore,
-                contentDescription = stringResource(R.string.cd_open_discover),
-                tint = NuvioColors.TextPrimary
-            )
-        }
-
-        Spacer(modifier = Modifier.width(12.dp))
-
         if (showVoiceSearch) {
             val themeAccent = NuvioColors.Secondary
 

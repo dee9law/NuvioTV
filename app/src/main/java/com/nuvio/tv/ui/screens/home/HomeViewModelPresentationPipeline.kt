@@ -27,207 +27,70 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private data class CoreLayoutPrefs(
+/**
+ * Stripped Layout pipeline state. Per the simplification spec, the layout
+ * pipeline observes ONLY the five settings that actually influence layout
+ * choice and the catalog-loading allowlist:
+ *  - [layout]           — Modern / Grid / Classic
+ *  - [fullscreenHero]   — Modern-only backdrop expansion
+ *  - [showHeroSection]  — Grid / Classic hero toggle
+ *  - [heroCatalogKeys]  — which catalogs feed the hero
+ *  - [focusItemGradient]— Classic-only artwork blend on the right
+ *
+ * Everything else (poster labels / addon name / hide unreleased / etc.) is
+ * observed by independent per-flow pipelines below and merged into
+ * [HomeUiState] without re-triggering the catalog refresh path.
+ */
+private data class LayoutCorePrefs(
     val layout: HomeLayout,
+    val fullscreenHero: Boolean,
+    val showHeroSection: Boolean,
     val heroCatalogKeys: List<String>,
-    val heroSectionEnabled: Boolean,
-    val posterLabelsEnabled: Boolean,
-    val catalogAddonNameEnabled: Boolean,
-    val catalogTypeSuffixEnabled: Boolean,
-    val classicFocusGradientEnabled: Boolean,
-    val hideUnreleasedContent: Boolean,
-    val showFullReleaseDate: Boolean
-)
-
-private data class FocusedBackdropPrefs(
-    val expandEnabled: Boolean,
-    val expandDelaySeconds: Int,
-    val trailerEnabled: Boolean,
-    val trailerMuted: Boolean,
-    val trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget
-)
-
-private data class LayoutUiPrefs(
-    val layout: HomeLayout,
-    val heroCatalogKeys: List<String>,
-    val heroSectionEnabled: Boolean,
-    val posterLabelsEnabled: Boolean,
-    val catalogAddonNameEnabled: Boolean,
-    val catalogTypeSuffixEnabled: Boolean,
-    val classicFocusGradientEnabled: Boolean,
-    val hideUnreleasedContent: Boolean,
-    val showFullReleaseDate: Boolean,
-    val modernLandscapePostersEnabled: Boolean,
-    val modernHeroFullScreenBackdropEnabled: Boolean,
-    val focusedBackdropExpandEnabled: Boolean,
-    val focusedBackdropExpandDelaySeconds: Int,
-    val focusedBackdropTrailerEnabled: Boolean,
-    val focusedBackdropTrailerMuted: Boolean,
-    val focusedBackdropTrailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
-    val posterCardWidthDp: Int,
-    val posterCardHeightDp: Int,
-    val posterCardCornerRadiusDp: Int
+    val focusItemGradient: Boolean,
 )
 
 @OptIn(FlowPreview::class)
-internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
-    val coreLayoutPrefsFlow = combine(
-        combine(
-            layoutPreferenceDataStore.selectedLayout,
-            layoutPreferenceDataStore.heroCatalogSelections,
-            layoutPreferenceDataStore.heroSectionEnabled,
-            layoutPreferenceDataStore.posterLabelsEnabled,
-            layoutPreferenceDataStore.catalogAddonNameEnabled
-        ) { layout, heroCatalogKeys, heroSectionEnabled, posterLabelsEnabled, catalogAddonNameEnabled ->
-            CoreLayoutPrefs(
-                layout = layout,
-                heroCatalogKeys = heroCatalogKeys,
-                heroSectionEnabled = heroSectionEnabled,
-                posterLabelsEnabled = posterLabelsEnabled,
-                catalogAddonNameEnabled = catalogAddonNameEnabled,
-                catalogTypeSuffixEnabled = true,
-                classicFocusGradientEnabled = false,
-                hideUnreleasedContent = false,
-                showFullReleaseDate = true
-            )
-        },
-        layoutPreferenceDataStore.catalogTypeSuffixEnabled,
-        layoutPreferenceDataStore.hideUnreleasedContent,
-        layoutPreferenceDataStore.showFullReleaseDate,
-        layoutPreferenceDataStore.classicFocusGradientEnabled
-    ) { corePrefs, catalogTypeSuffixEnabled, hideUnreleasedContent, showFullReleaseDate, classicFocusGradientEnabled ->
-        corePrefs.copy(
-            catalogTypeSuffixEnabled = catalogTypeSuffixEnabled,
-            classicFocusGradientEnabled = classicFocusGradientEnabled,
-            hideUnreleasedContent = hideUnreleasedContent,
-            showFullReleaseDate = showFullReleaseDate
-        )
-    }
-
-    val focusedBackdropPrefsFlow = combine(
-        layoutPreferenceDataStore.focusedPosterBackdropExpandEnabled,
-        layoutPreferenceDataStore.focusedPosterBackdropExpandDelaySeconds,
-        layoutPreferenceDataStore.focusedPosterBackdropTrailerEnabled,
-        layoutPreferenceDataStore.focusedPosterBackdropTrailerMuted,
-        layoutPreferenceDataStore.focusedPosterBackdropTrailerPlaybackTarget
-    ) { expandEnabled, expandDelaySeconds, trailerEnabled, trailerMuted, trailerPlaybackTarget ->
-        FocusedBackdropPrefs(
-            expandEnabled = expandEnabled,
-            expandDelaySeconds = expandDelaySeconds,
-            trailerEnabled = trailerEnabled,
-            trailerMuted = trailerMuted,
-            trailerPlaybackTarget = trailerPlaybackTarget
-        )
-    }
-
-    val modernLayoutPrefsFlow = combine(
-        layoutPreferenceDataStore.modernLandscapePostersEnabled,
-        layoutPreferenceDataStore.modernHeroFullScreenBackdropEnabled
-    ) { landscapePosters, fullScreenBackdrop ->
-        landscapePosters to fullScreenBackdrop
-    }
-
-    val baseLayoutUiPrefsFlow = combine(
-        coreLayoutPrefsFlow,
-        focusedBackdropPrefsFlow,
-        layoutPreferenceDataStore.posterCardWidthDp,
-        layoutPreferenceDataStore.posterCardHeightDp,
-        layoutPreferenceDataStore.posterCardCornerRadiusDp
-    ) { corePrefs, focusedBackdropPrefs, posterCardWidthDp, posterCardHeightDp, posterCardCornerRadiusDp ->
-        LayoutUiPrefs(
-            layout = corePrefs.layout,
-            heroCatalogKeys = corePrefs.heroCatalogKeys,
-            heroSectionEnabled = corePrefs.heroSectionEnabled,
-            posterLabelsEnabled = corePrefs.posterLabelsEnabled,
-            catalogAddonNameEnabled = corePrefs.catalogAddonNameEnabled,
-            catalogTypeSuffixEnabled = corePrefs.catalogTypeSuffixEnabled,
-            classicFocusGradientEnabled = corePrefs.classicFocusGradientEnabled,
-            hideUnreleasedContent = corePrefs.hideUnreleasedContent,
-            showFullReleaseDate = corePrefs.showFullReleaseDate,
-            modernLandscapePostersEnabled = false,
-            modernHeroFullScreenBackdropEnabled = false,
-            focusedBackdropExpandEnabled = focusedBackdropPrefs.expandEnabled,
-            focusedBackdropExpandDelaySeconds = focusedBackdropPrefs.expandDelaySeconds,
-            focusedBackdropTrailerEnabled = focusedBackdropPrefs.trailerEnabled &&
-                AppFeaturePolicy.inAppTrailerPlaybackEnabled,
-            focusedBackdropTrailerMuted = focusedBackdropPrefs.trailerMuted,
-            focusedBackdropTrailerPlaybackTarget = focusedBackdropPrefs.trailerPlaybackTarget,
-            posterCardWidthDp = posterCardWidthDp,
-            posterCardHeightDp = posterCardHeightDp,
-            posterCardCornerRadiusDp = posterCardCornerRadiusDp
-        )
-    }
-
+internal fun BaseHomeViewModel.observeLayoutPreferencesPipeline() {
     viewModelScope.launch {
         combine(
-            baseLayoutUiPrefsFlow,
-            modernLayoutPrefsFlow
-        ) { basePrefs, modernPrefs ->
-            basePrefs.copy(
-                modernLandscapePostersEnabled = modernPrefs.first,
-                modernHeroFullScreenBackdropEnabled = modernPrefs.second
-            )
+            layoutPreferenceDataStore.selectedLayoutForScope(homeScope),
+            layoutPreferenceDataStore.fullscreenHeroBackdropForScope(homeScope),
+            layoutPreferenceDataStore.heroSectionEnabledForScope(homeScope),
+            layoutPreferenceDataStore.heroCatalogSelectionsForScope(homeScope),
+            layoutPreferenceDataStore.classicFocusGradientEnabledForScope(homeScope),
+        ) { layout, fullscreenHero, showHero, heroKeys, focusGradient ->
+            LayoutCorePrefs(layout, fullscreenHero, showHero, heroKeys, focusGradient)
         }
             .distinctUntilChanged()
             .debounce(300)
             .collectLatest { prefs ->
-                val effectivePosterLabelsEnabled = if (prefs.layout == HomeLayout.MODERN) {
-                    false
-                } else {
-                    prefs.posterLabelsEnabled
-                }
                 val previousState = _uiState.value
                 val heroKeysChanged = currentHeroCatalogKeys != prefs.heroCatalogKeys
                 val shouldRefreshCatalogPresentation =
                     heroKeysChanged ||
-                        previousState.heroSectionEnabled != prefs.heroSectionEnabled ||
-                        previousState.homeLayout != prefs.layout ||
-                        previousState.hideUnreleasedContent != prefs.hideUnreleasedContent ||
-                        previousState.posterCardWidthDp != prefs.posterCardWidthDp
+                        previousState.heroSectionEnabled != prefs.showHeroSection ||
+                        previousState.homeLayout != prefs.layout
                 currentHeroCatalogKeys = prefs.heroCatalogKeys
                 // Reset focus state when layout changes so the outgoing
-                // layout's onDispose doesn't poison the incoming layout
-                // (e.g., Modern dispose saves hasSavedFocus=true right
-                // before Classic composes, preventing hero initial focus).
+                // layout's onDispose doesn't poison the incoming layout.
                 if (previousState.homeLayout != prefs.layout) {
-                    // Suppress the outgoing layout's onDispose from saving
-                    // stale focus state before the incoming layout composes.
                     suppressFocusSave = true
                     clearFocusState()
                 }
-                _uiState.update {
-                    it.copy(
+                _uiState.update { state ->
+                    state.copy(
                         layoutPreferencesReady = true,
                         homeLayout = prefs.layout,
                         heroCatalogKeys = prefs.heroCatalogKeys,
-                        heroSectionEnabled = prefs.heroSectionEnabled,
-                        posterLabelsEnabled = effectivePosterLabelsEnabled,
-                        catalogAddonNameEnabled = prefs.catalogAddonNameEnabled,
-                        catalogTypeSuffixEnabled = prefs.catalogTypeSuffixEnabled,
-                        classicFocusGradientEnabled = prefs.classicFocusGradientEnabled && prefs.layout == HomeLayout.CLASSIC,
-                        hideUnreleasedContent = prefs.hideUnreleasedContent,
-                        showFullReleaseDate = prefs.showFullReleaseDate,
-                        modernLandscapePostersEnabled = prefs.modernLandscapePostersEnabled,
-                        modernHeroFullScreenBackdropEnabled = prefs.modernHeroFullScreenBackdropEnabled,
-                        focusedPosterBackdropExpandEnabled = prefs.focusedBackdropExpandEnabled,
-                        focusedPosterBackdropExpandDelaySeconds = prefs.focusedBackdropExpandDelaySeconds,
-                        focusedPosterBackdropTrailerEnabled = prefs.focusedBackdropTrailerEnabled,
-                        focusedPosterBackdropTrailerMuted = prefs.focusedBackdropTrailerMuted,
-                        focusedPosterBackdropTrailerPlaybackTarget = prefs.focusedBackdropTrailerPlaybackTarget,
-                        posterCardWidthDp = prefs.posterCardWidthDp,
-                        posterCardHeightDp = prefs.posterCardHeightDp,
-                        posterCardCornerRadiusDp = prefs.posterCardCornerRadiusDp
+                        heroSectionEnabled = prefs.showHeroSection,
+                        classicFocusGradientEnabled = prefs.focusItemGradient && prefs.layout == HomeLayout.CLASSIC,
+                        modernHeroFullScreenBackdropEnabled = prefs.fullscreenHero,
                     )
                 }
                 if (shouldRefreshCatalogPresentation) {
-                    // When switching to GRID layout, load all pending lazy catalogs
-                    // since grid doesn't support placeholder shimmer rows.
                     if (prefs.layout == HomeLayout.GRID) {
                         loadAllPendingLazyCatalogs()
                     }
-                    // When hero catalog keys change, load any hero catalogs
-                    // not yet in catalogsMap (e.g., after startup race or
-                    // when user changes hero selection in settings).
                     if (heroKeysChanged && prefs.heroCatalogKeys.isNotEmpty()) {
                         loadHeroCatalogsPipeline()
                     } else {
@@ -238,8 +101,204 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
     }
 }
 
+/**
+ * Display-preference observers — independent flows that each write their own
+ * slice of [HomeUiState]. Splitting these out of the layout pipeline avoids
+ * spurious catalog refreshes when an orthogonal toggle changes (e.g. flipping
+ * Hide Unreleased should not clear focus state). Each is gated by its own
+ * [distinctUntilChanged] so other scopes' DataStore writes don't fan out
+ * into this scope's UI state.
+ */
+internal fun BaseHomeViewModel.observeDisplayPreferencesPipeline() {
+    viewModelScope.launch {
+        layoutPreferenceDataStore.posterLabelsEnabled
+            .distinctUntilChanged()
+            .collect { enabled ->
+                _uiState.update { state ->
+                    val effective = if (state.homeLayout == HomeLayout.MODERN) false else enabled
+                    if (state.posterLabelsEnabled == effective) state
+                    else state.copy(posterLabelsEnabled = effective)
+                }
+            }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.catalogAddonNameEnabled
+            .distinctUntilChanged()
+            .collect { enabled ->
+                _uiState.update { state ->
+                    if (state.catalogAddonNameEnabled == enabled) state
+                    else state.copy(catalogAddonNameEnabled = enabled)
+                }
+            }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.catalogTypeSuffixEnabled
+            .distinctUntilChanged()
+            .collect { enabled ->
+                _uiState.update { state ->
+                    if (state.catalogTypeSuffixEnabled == enabled) state
+                    else state.copy(catalogTypeSuffixEnabled = enabled)
+                }
+            }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.hideUnreleasedContent
+            .distinctUntilChanged()
+            .collect { enabled ->
+                val previousValue = _uiState.value.hideUnreleasedContent
+                if (previousValue == enabled) return@collect
+                _uiState.update { it.copy(hideUnreleasedContent = enabled) }
+                // Re-render catalog rows so the unreleased filter takes effect.
+                scheduleUpdateCatalogRows()
+            }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.showFullReleaseDate
+            .distinctUntilChanged()
+            .collect { enabled ->
+                _uiState.update { state ->
+                    if (state.showFullReleaseDate == enabled) state
+                    else state.copy(showFullReleaseDate = enabled)
+                }
+            }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.modernLandscapePostersEnabled
+            .distinctUntilChanged()
+            .collect { enabled ->
+                _uiState.update { state ->
+                    if (state.modernLandscapePostersEnabled == enabled) state
+                    else state.copy(modernLandscapePostersEnabled = enabled)
+                }
+            }
+    }
+}
+
+/**
+ * Focused-poster observers — expand / delay / mute / trailer-enabled /
+ * trailer-target. Independent from layout so flipping any of these does not
+ * clear focus or refresh catalogs.
+ */
+internal fun BaseHomeViewModel.observeFocusedPosterPipeline() {
+    viewModelScope.launch {
+        layoutPreferenceDataStore.focusedPosterBackdropExpandEnabled
+            .distinctUntilChanged()
+            .collect { enabled ->
+                _uiState.update { state ->
+                    if (state.focusedPosterBackdropExpandEnabled == enabled) state
+                    else state.copy(focusedPosterBackdropExpandEnabled = enabled)
+                }
+            }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.focusedPosterBackdropExpandDelaySeconds
+            .distinctUntilChanged()
+            .collect { seconds ->
+                _uiState.update { state ->
+                    if (state.focusedPosterBackdropExpandDelaySeconds == seconds) state
+                    else state.copy(focusedPosterBackdropExpandDelaySeconds = seconds)
+                }
+            }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.focusedPosterBackdropTrailerEnabled
+            .distinctUntilChanged()
+            .collect { enabled ->
+                val effective = enabled && AppFeaturePolicy.inAppTrailerPlaybackEnabled
+                _uiState.update { state ->
+                    if (state.focusedPosterBackdropTrailerEnabled == effective) state
+                    else state.copy(focusedPosterBackdropTrailerEnabled = effective)
+                }
+            }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.focusedPosterBackdropTrailerMuted
+            .distinctUntilChanged()
+            .collect { muted ->
+                _uiState.update { state ->
+                    if (state.focusedPosterBackdropTrailerMuted == muted) state
+                    else state.copy(focusedPosterBackdropTrailerMuted = muted)
+                }
+            }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.focusedPosterBackdropTrailerPlaybackTarget
+            .distinctUntilChanged()
+            .collect { target ->
+                _uiState.update { state ->
+                    if (state.focusedPosterBackdropTrailerPlaybackTarget == target) state
+                    else state.copy(focusedPosterBackdropTrailerPlaybackTarget = target)
+                }
+            }
+    }
+}
+
+/**
+ * Poster-card-size observers — width / height / corner radius. Split out so a
+ * single dimension change doesn't ripple through the layout pipeline.
+ */
+internal fun BaseHomeViewModel.observePosterCardSizePipeline() {
+    viewModelScope.launch {
+        layoutPreferenceDataStore.posterCardWidthDp
+            .distinctUntilChanged()
+            .collect { width ->
+                val previous = _uiState.value.posterCardWidthDp
+                if (previous == width) return@collect
+                _uiState.update { it.copy(posterCardWidthDp = width) }
+                // Card width participates in row layout — schedule a refresh
+                // so changes take effect without a restart.
+                scheduleUpdateCatalogRows()
+            }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.posterCardHeightDp
+            .distinctUntilChanged()
+            .collect { height ->
+                _uiState.update { state ->
+                    if (state.posterCardHeightDp == height) state
+                    else state.copy(posterCardHeightDp = height)
+                }
+            }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.posterCardCornerRadiusForScope(homeScope)
+            .distinctUntilChanged()
+            .collect { radius ->
+                _uiState.update { state ->
+                    if (state.posterCardCornerRadiusDp == radius) state
+                    else state.copy(posterCardCornerRadiusDp = radius)
+                }
+            }
+    }
+}
+
+/**
+ * Wires the GLOBAL tier of the 3-tier `resolveLayoutSetting` hierarchy into
+ * UiState — `globalCardStyle` and `globalLayout`. These are the floor used by
+ * row renderers when both the per-row override and the per-screen value are
+ * absent. See [com.nuvio.tv.domain.model.resolveLayoutSetting].
+ */
+internal fun BaseHomeViewModel.observeGlobalLayoutTierPipeline() {
+    viewModelScope.launch {
+        combine(
+            layoutPreferenceDataStore.globalCardStyle,
+            layoutPreferenceDataStore.globalLayout,
+        ) { cardStyle, layout -> cardStyle to layout }
+            .distinctUntilChanged()
+            .collect { (cardStyle, layout) ->
+                _uiState.update { state ->
+                    if (state.globalCardStyle == cardStyle && state.globalLayout == layout) {
+                        state
+                    } else {
+                        state.copy(globalCardStyle = cardStyle, globalLayout = layout)
+                    }
+                }
+            }
+    }
+}
+
 @OptIn(FlowPreview::class)
-internal fun HomeViewModel.observeModernHomePresentationPipeline() {
+internal fun BaseHomeViewModel.observeModernHomePresentationPipeline() {
     viewModelScope.launch {
         combine(uiState, _currentLocaleTag) { state, localeTag ->
                 ModernHomePresentationInput(
@@ -307,7 +366,7 @@ internal fun HomeViewModel.observeModernHomePresentationPipeline() {
     }
 }
 
-internal fun HomeViewModel.observeExternalMetaPrefetchPreferencePipeline() {
+internal fun BaseHomeViewModel.observeExternalMetaPrefetchPreferencePipeline() {
     viewModelScope.launch {
         layoutPreferenceDataStore.preferExternalMetaAddonDetail
             .distinctUntilChanged()
@@ -322,7 +381,7 @@ internal fun HomeViewModel.observeExternalMetaPrefetchPreferencePipeline() {
     }
 }
 
-internal fun HomeViewModel.requestTrailerPreviewPipeline(item: MetaPreview) {
+internal fun BaseHomeViewModel.requestTrailerPreviewPipeline(item: MetaPreview) {
     requestTrailerPreviewPipeline(
         itemId = item.id,
         title = item.name,
@@ -332,7 +391,7 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(item: MetaPreview) {
     )
 }
 
-internal fun HomeViewModel.requestTrailerPreviewPipeline(
+internal fun BaseHomeViewModel.requestTrailerPreviewPipeline(
     itemId: String,
     title: String,
     releaseInfo: String?,
@@ -420,7 +479,7 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
     }
 }
 
-internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
+internal fun BaseHomeViewModel.onItemFocusPipeline(item: MetaPreview) {
     if (startupGracePeriodActive) return
     if (item.id in prefetchedTmdbIds || item.id in prefetchedExternalMetaIds) return
     if (pendingTmdbEnrichItemId == item.id) return
@@ -439,7 +498,7 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
     pendingTmdbEnrichItemId = item.id
     tmdbEnrichFocusJob?.cancel()
     tmdbEnrichFocusJob = viewModelScope.launch(Dispatchers.IO) {
-        delay(HomeViewModel.EXTERNAL_META_PREFETCH_FOCUS_DEBOUNCE_MS)
+        delay(BaseHomeViewModel.EXTERNAL_META_PREFETCH_FOCUS_DEBOUNCE_MS)
         if (pendingTmdbEnrichItemId != item.id) {
             if (_enrichingItemId.value == item.id) setEnrichingItemId(null)
             return@launch
@@ -502,7 +561,7 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
     }
 }
 
-internal fun HomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
+internal fun BaseHomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
     if (startupGracePeriodActive) return
     if (item.id in prefetchedTmdbIds || item.id in prefetchedExternalMetaIds) return
     if (pendingTmdbEnrichItemId == item.id || pendingAdjacentPrefetchItemId == item.id) return
@@ -512,7 +571,7 @@ internal fun HomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
     adjacentItemPrefetchJob = viewModelScope.launch(Dispatchers.IO) {
         val tmdbEnabledForCurrentLayout = currentTmdbSettings.enabled &&
             (_uiState.value.homeLayout != HomeLayout.MODERN || currentTmdbSettings.modernHomeEnabled)
-        delay(HomeViewModel.EXTERNAL_META_PREFETCH_ADJACENT_DEBOUNCE_MS)
+        delay(BaseHomeViewModel.EXTERNAL_META_PREFETCH_ADJACENT_DEBOUNCE_MS)
         if (pendingAdjacentPrefetchItemId != item.id) return@launch
 
         if (item.id in prefetchedTmdbIds || item.id in prefetchedExternalMetaIds) return@launch
@@ -559,7 +618,7 @@ internal fun HomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
     }
 }
 
-private fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment: TmdbEnrichment) {
+private fun BaseHomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment: TmdbEnrichment) {
     val isModernLayout = _uiState.value.homeLayout == HomeLayout.MODERN
     fun mergeItem(currentItem: MetaPreview): MetaPreview {
         var merged = currentItem
@@ -622,7 +681,7 @@ private fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment: 
     }
 }
 
-internal fun HomeViewModel.updateCatalogItemImdbRating(itemId: String, rating: Float) {
+internal fun BaseHomeViewModel.updateCatalogItemImdbRating(itemId: String, rating: Float) {
     updateIndexedCatalogItem(itemId) { currentItem ->
         currentItem.copy(imdbRating = rating)
     }
@@ -646,7 +705,7 @@ internal fun HomeViewModel.updateCatalogItemImdbRating(itemId: String, rating: F
     }
 }
 
-private fun HomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) {
+private fun BaseHomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) {
     val incomingTrailerYtIds = meta.trailerYtIds
     val seasonCount = meta.videos
         .asSequence()
@@ -711,7 +770,7 @@ private fun HomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) 
     }
 }
 
-internal suspend fun HomeViewModel.enrichHeroItemsPipeline(
+internal suspend fun BaseHomeViewModel.enrichHeroItemsPipeline(
     items: List<MetaPreview>,
     settings: TmdbSettings
 ): List<MetaPreview> {
@@ -778,7 +837,7 @@ internal suspend fun HomeViewModel.enrichHeroItemsPipeline(
 
                     enriched
                 } catch (e: Exception) {
-                    Log.w(HomeViewModel.TAG, "Hero enrichment failed for ${item.id}: ${e.message}")
+                    Log.w(BaseHomeViewModel.TAG, "Hero enrichment failed for ${item.id}: ${e.message}")
                     item
                 }
             }
@@ -786,7 +845,7 @@ internal suspend fun HomeViewModel.enrichHeroItemsPipeline(
     }
 }
 
-internal fun HomeViewModel.replaceGridHeroItemsPipeline(
+internal fun BaseHomeViewModel.replaceGridHeroItemsPipeline(
     gridItems: List<GridItem>,
     heroItems: List<MetaPreview>
 ): List<GridItem> {
@@ -800,7 +859,7 @@ internal fun HomeViewModel.replaceGridHeroItemsPipeline(
     }
 }
 
-internal fun HomeViewModel.heroEnrichmentSignaturePipeline(
+internal fun BaseHomeViewModel.heroEnrichmentSignaturePipeline(
     items: List<MetaPreview>,
     settings: TmdbSettings
 ): String {

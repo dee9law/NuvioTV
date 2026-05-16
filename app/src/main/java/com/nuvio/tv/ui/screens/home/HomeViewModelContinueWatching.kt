@@ -249,7 +249,7 @@ private class CwDebugSession {
 }
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
-internal fun HomeViewModel.loadContinueWatchingPipeline() {
+internal fun BaseHomeViewModel.loadContinueWatchingPipeline() {
     cwPipelineJob?.cancel()
     cwPipelineJob = viewModelScope.launch {
         combine(
@@ -1213,7 +1213,7 @@ private fun choosePreferredNextUpSeed(items: List<WatchProgress>, nextUpFromFurt
         )
 }
 
-private suspend fun HomeViewModel.resolveCurrentEpisodeDescription(
+private suspend fun BaseHomeViewModel.resolveCurrentEpisodeDescription(
     progress: WatchProgress,
     meta: CwMetaSummary,
     video: CwVideoSummary?,
@@ -1280,7 +1280,7 @@ private fun resolveVideoForProgress(progress: WatchProgress, meta: CwMetaSummary
     return null
 }
 
-private suspend fun HomeViewModel.buildLightweightNextUpItems(
+private suspend fun BaseHomeViewModel.buildLightweightNextUpItems(
     allProgress: List<WatchProgress>,
     nextUpSeeds: List<WatchProgress>,
     inProgressItems: List<ContinueWatchingItem.InProgress>,
@@ -1430,7 +1430,7 @@ private suspend fun HomeViewModel.buildLightweightNextUpItems(
     nextUpByContent.values.toList()
 }
 
-private suspend fun HomeViewModel.enrichVisibleContinueWatchingItems(
+private suspend fun BaseHomeViewModel.enrichVisibleContinueWatchingItems(
     finalItems: List<ContinueWatchingItem>,
     debug: CwDebugSession? = null
 ): Boolean = coroutineScope {
@@ -1542,7 +1542,7 @@ internal fun mergeContinueWatchingItems(
     return result
 }
 
-private suspend fun HomeViewModel.buildNextUpItem(
+private suspend fun BaseHomeViewModel.buildNextUpItem(
     progress: WatchProgress,
     showUnairedNextUp: Boolean,
     debug: CwDebugSession? = null
@@ -1639,7 +1639,7 @@ private suspend fun HomeViewModel.buildNextUpItem(
     return ContinueWatchingItem.NextUp(info)
 }
 
-private suspend fun HomeViewModel.enrichInProgressItem(
+private suspend fun BaseHomeViewModel.enrichInProgressItem(
     item: ContinueWatchingItem.InProgress,
     metaCache: MutableMap<String, CwMetaSummary?>,
     debug: CwDebugSession? = null
@@ -1706,7 +1706,7 @@ private suspend fun HomeViewModel.enrichInProgressItem(
     )
 }
 
-private suspend fun HomeViewModel.enrichNextUpItem(
+private suspend fun BaseHomeViewModel.enrichNextUpItem(
     item: ContinueWatchingItem.NextUp,
     metaCache: MutableMap<String, CwMetaSummary?>,
     debug: CwDebugSession? = null
@@ -1798,7 +1798,7 @@ private suspend fun HomeViewModel.enrichNextUpItem(
     item.copy(info = enrichedInfo)
 }
 
-private suspend fun HomeViewModel.findNextUpEpisodeFromMetaSeed(
+private suspend fun BaseHomeViewModel.findNextUpEpisodeFromMetaSeed(
     progress: WatchProgress,
     showUnairedNextUp: Boolean,
     debug: CwDebugSession? = null
@@ -2026,7 +2026,7 @@ private fun resolveNextUpVideoFromMeta(
 
 private const val CW_META_NEGATIVE_CACHE_TTL_MS = 5 * 60_000L
 
-private suspend fun HomeViewModel.resolveMetaForProgress(
+private suspend fun BaseHomeViewModel.resolveMetaForProgress(
     progress: WatchProgress,
     metaCache: MutableMap<String, CwMetaSummary?>,
     debug: CwDebugSession? = null
@@ -2142,7 +2142,7 @@ private suspend fun HomeViewModel.resolveMetaForProgress(
  * Resolves badge episodes for a group of sibling IDs (same show).
  * Resolves only the primary ID, then cross-caches under all siblings.
  */
-private suspend fun HomeViewModel.resolveBadgeGroup(group: List<String>) {
+private suspend fun BaseHomeViewModel.resolveBadgeGroup(group: List<String>) {
     for (id in group) {
         val alreadyCached = synchronized(cwBadgeEpisodeCache) {
             cwBadgeEpisodeCache.containsKey("series:$id") ||
@@ -2158,7 +2158,7 @@ private suspend fun HomeViewModel.resolveBadgeGroup(group: List<String>) {
  * Lightweight badge-only resolve: fetches meta and extracts only aired (season, episode) pairs.
  * Does NOT populate cwMetaCache — keeps memory minimal for badge evaluation of many series.
  */
-private suspend fun HomeViewModel.resolveBadgeEpisodes(
+private suspend fun BaseHomeViewModel.resolveBadgeEpisodes(
     contentId: String,
     contentType: String
 ): Set<Pair<Int, Int>>? {
@@ -2242,7 +2242,7 @@ private fun buildNextUpSeedCacheKey(
     }
 }
 
-private fun HomeViewModel.persistLocalContinueWatchingMetadata(
+private fun BaseHomeViewModel.persistLocalContinueWatchingMetadata(
     originalItems: List<ContinueWatchingItem>,
     enrichedItems: List<ContinueWatchingItem>
 ) {
@@ -2361,7 +2361,7 @@ private fun isSeriesTypeCW(type: String?): Boolean {
 
 /** Applies enriched overlay from the previous enrichment cycle to avoid
  *  flickering between addon meta and TMDB-enriched values during fresh builds. */
-private suspend fun HomeViewModel.applyContinueWatchingEnrichmentOverlay(
+private suspend fun BaseHomeViewModel.applyContinueWatchingEnrichmentOverlay(
     items: List<ContinueWatchingItem>
 ): List<ContinueWatchingItem> {
     if (cwEnrichedNextUpOverlay.isEmpty() && cwEnrichedInProgressOverlay.isEmpty()) return items
@@ -2428,7 +2428,7 @@ private suspend fun HomeViewModel.applyContinueWatchingEnrichmentOverlay(
     }
 }
 
-private fun HomeViewModel.publishBadgeUpdate(
+private fun BaseHomeViewModel.publishBadgeUpdate(
     allWatchedEpisodes: Map<String, Set<Pair<Int, Int>>>
 ) {
     val validatedNotFullyWatched = mutableSetOf<String>()
@@ -2547,7 +2547,7 @@ private fun hasEpisodeAired(raw: String?, fallback: Boolean = true): Boolean {
     return !instant.isAfter(Instant.now())
 }
 
-private suspend fun HomeViewModel.resolveContinueWatchingTmdbData(
+private suspend fun BaseHomeViewModel.resolveContinueWatchingTmdbData(
     progress: WatchProgress,
     meta: CwMetaSummary,
     season: Int,
@@ -2663,7 +2663,7 @@ private suspend fun HomeViewModel.resolveContinueWatchingTmdbData(
     }
 }
 
-private suspend fun HomeViewModel.resolveTmdbIdForNextUp(
+private suspend fun BaseHomeViewModel.resolveTmdbIdForNextUp(
     progress: WatchProgress,
     meta: CwMetaSummary,
     debug: CwDebugSession? = null
@@ -2774,7 +2774,7 @@ internal fun nextUpDismissKey(
     return contentId.trim()
 }
 
-internal fun HomeViewModel.removeContinueWatchingPipeline(
+internal fun BaseHomeViewModel.removeContinueWatchingPipeline(
     contentId: String,
     season: Int? = null,
     episode: Int? = null,

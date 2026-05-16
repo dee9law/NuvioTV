@@ -97,7 +97,10 @@ fun GridHomeContent(
     onItemFocus: (com.nuvio.tv.domain.model.MetaPreview) -> Unit = {},
     catalogSeeAllLabel: String? = null,
     onSaveGridFocusState: (Int, Int, String?) -> Unit,
-    scrollToTopTrigger: Int = 0
+    scrollToTopTrigger: Int = 0,
+    /** L3 Back nonce — focus jumps to the first grid content card when this
+     *  ticks. Wired from [BaseHomeViewModel.resetRowFocusTrigger]. */
+    resetRowFocusTrigger: Int = 0
 ) {
     val gridState = rememberLazyGridState(
         initialFirstVisibleItemIndex = gridFocusState.verticalScrollIndex,
@@ -184,9 +187,19 @@ fun GridHomeContent(
     }
     val heroFocusRequester = remember { FocusRequester() }
     val firstGridItemFocusRequester = remember { FocusRequester() }
+    /** Always attached to the first focusable grid card so L3 Back can route
+     *  focus there without depending on the initial-focus path. */
+    val gridFirstContentFocusRequester = remember { FocusRequester() }
     val hasContinueWatching = continueWatchingItems.isNotEmpty()
     val hasStandaloneFocusableGridItem = remember(gridItems) {
         gridItems.any { it is GridItem.Content || it is GridItem.SeeAll }
+    }
+
+    // L3 Back: when the VM bumps [resetRowFocusTrigger], land focus on the
+    // first focusable grid card. Mirrors ModernHomeRowsList's observer.
+    LaunchedEffect(resetRowFocusTrigger) {
+        if (resetRowFocusTrigger <= 0) return@LaunchedEffect
+        runCatching { gridFirstContentFocusRequester.requestFocus() }
     }
 
     LaunchedEffect(
