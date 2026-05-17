@@ -151,7 +151,8 @@ class WatchedItemsPreferences @Inject constructor(
         }
     }
 
-    suspend fun replaceWithRemoteItems(remoteItems: List<WatchedItem>) {
+    suspend fun replaceWithRemoteItems(remoteItems: List<WatchedItem>, lastSuccessfulPushMs: Long = 0L): Boolean {
+        var preservedLocalItems = false
         store().edit { preferences ->
             val current = preferences[watchedItemsKey] ?: emptySet()
             if (remoteItems.isEmpty() && current.isNotEmpty()) {
@@ -162,10 +163,24 @@ class WatchedItemsPreferences @Inject constructor(
             remoteItems.forEach { item ->
                 deduped[Triple(item.contentId, item.season, item.episode)] = item
             }
+            if (lastSuccessfulPushMs > 0L) {
+                val localItems = current.mapNotNull { json ->
+                    runCatching { gson.fromJson(json, WatchedItem::class.java) }.getOrNull()
+                }
+                localItems.forEach { localItem ->
+                    val key = Triple(localItem.contentId, localItem.season, localItem.episode)
+                    if (key !in deduped && localItem.watchedAt > lastSuccessfulPushMs) {
+                        deduped[key] = localItem
+                        preservedLocalItems = true
+                        Log.d(TAG, "replaceWithRemoteItems: preserved local item ${localItem.contentId} s${localItem.season}e${localItem.episode} (watchedAt=${localItem.watchedAt} > lastPush=$lastSuccessfulPushMs)")
+                    }
+                }
+            }
             preferences[watchedItemsKey] = deduped.values
                 .map { gson.toJson(it) }
                 .toSet()
         }
+        return preservedLocalItems
     }
 
     suspend fun clearAll() {
