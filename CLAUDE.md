@@ -334,3 +334,19 @@ For the full app-wide reference, see the global `~/.claude/CLAUDE.md`.
 - `ui/screens/settings/NavigationFeelContent.kt` — Feel picker
 - `ui/screens/settings/TopBarSettingsContent.kt` — pill order /
   display mode / visibility
+
+---
+
+## Session Rules
+
+At the end of every session — before the final git commit and push —
+automatically update this `CLAUDE.md` file with:
+
+- Any new files created (path + one-line purpose)
+- Architectural decisions made (what + why)
+- Features shipped (user-visible changes)
+- Bugs fixed (root cause + fix)
+- Any pending follow-ups (what was scope-trimmed, what to revisit)
+
+Commit the `CLAUDE.md` update as part of the final push. **Do not ask
+— just do it.**
