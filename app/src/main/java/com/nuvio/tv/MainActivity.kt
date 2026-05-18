@@ -377,7 +377,7 @@ class MainActivity : ComponentActivity() {
                 CompositionLocalProvider(
                     LocalBringIntoViewSpec provides bringIntoViewSpec,
                     LocalFastHorizontalNavigationEnabled provides mainUiPrefs.fastHorizontalNavigationEnabled,
-                    LocalRecompositionHighlighterEnabled provides mainUiPrefs.composeHighlighterEnabled,
+                    LocalRecompositionHighlighterEnabled provides (BuildConfig.IS_DEBUG_BUILD && mainUiPrefs.composeHighlighterEnabled),
                     LocalPosterGlowEnabled provides mainUiPrefs.posterGlowEnabled,
                     LocalCardFocusStyle provides mainUiPrefs.cardFocusStyle,
                     com.nuvio.tv.core.player.LocalTrailerPlayerPool provides trailerPlayerPool
