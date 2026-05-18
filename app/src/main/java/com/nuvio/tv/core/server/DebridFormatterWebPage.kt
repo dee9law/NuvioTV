@@ -1,13 +1,19 @@
 package com.nuvio.tv.core.server
 
+import android.content.Context
+import com.nuvio.tv.R
+
 object DebridFormatterWebPage {
-    fun html(): String = """
-<!doctype html>
+    fun html(context: Context?): String {
+        val appName = context?.getString(R.string.app_name) ?: "NuvioTV"
+        return """
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nuvio Direct Debrid Formatter</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>$appName - Direct Debrid Formatter</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
   * {
     margin: 0;
@@ -112,57 +118,8 @@ object DebridFormatterWebPage {
   textarea:focus {
     border-color: rgba(255, 255, 255, 0.4);
   }
-  input, select {
-    width: 100%;
-    background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 12px;
-    padding: 0.75rem 0.85rem;
-    color: #fff;
-    font-family: inherit;
-    font-size: 0.875rem;
-  }
-  select option {
-    color: #000;
-  }
   #descriptionTemplate {
     min-height: 280px;
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.75rem;
-    margin-bottom: 1.5rem;
-  }
-  .checks {
-    display: grid;
-    gap: 0.5rem;
-    margin-bottom: 1.5rem;
-  }
-  .checks-title {
-    color: rgba(255, 255, 255, 0.65);
-    font-size: 0.82rem;
-    font-weight: 600;
-    margin-bottom: 0.2rem;
-  }
-  .check-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem;
-  }
-  .check {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 999px;
-    padding: 0.45rem 0.65rem;
-    color: rgba(255, 255, 255, 0.68);
-    font-size: 0.78rem;
-  }
-  .check input {
-    width: auto;
-    accent-color: #fff;
   }
   .actions {
     display: flex;
@@ -209,7 +166,6 @@ object DebridFormatterWebPage {
     .page { padding: 0 1rem 5rem; }
     .header { padding: 2rem 0 2rem; }
     .header-logo { height: 32px; }
-    .grid { grid-template-columns: 1fr; }
     .actions { flex-direction: column; }
   }
 </style>
@@ -246,69 +202,12 @@ object DebridFormatterWebPage {
     <textarea id="descriptionTemplate" spellcheck="false"></textarea>
   </div>
 
-  <div class="section-label">Stream rules</div>
-  <div class="grid">
-    <div class="field">
-      <label for="maxResults">Max Results</label>
-      <input id="maxResults" type="number" min="0" max="100" inputmode="numeric">
-    </div>
-    <div class="field">
-      <label for="maxPerResolution">Per Resolution</label>
-      <input id="maxPerResolution" type="number" min="0" max="100" inputmode="numeric">
-    </div>
-    <div class="field">
-      <label for="maxPerQuality">Per Quality</label>
-      <input id="maxPerQuality" type="number" min="0" max="100" inputmode="numeric">
-    </div>
-    <div class="field">
-      <label for="sizeMinGb">Min Size GB</label>
-      <input id="sizeMinGb" type="number" min="0" max="100" inputmode="numeric">
-    </div>
-    <div class="field">
-      <label for="sizeMaxGb">Max Size GB</label>
-      <input id="sizeMaxGb" type="number" min="0" max="100" inputmode="numeric">
-    </div>
-    <div class="field">
-      <label for="sortPreset">Sort</label>
-      <select id="sortPreset">
-        <option value="aio">AIO Default</option>
-        <option value="largest">Largest First</option>
-        <option value="smallest">Smallest First</option>
-        <option value="audio">Best Audio First</option>
-        <option value="language">Language First</option>
-      </select>
-    </div>
-  </div>
-
-  <div id="streamRules"></div>
-
-  <div class="grid">
-    <div class="field">
-      <label for="requiredReleaseGroups">Required Groups</label>
-      <textarea id="requiredReleaseGroups" spellcheck="false"></textarea>
-    </div>
-    <div class="field">
-      <label for="excludedReleaseGroups">Excluded Groups</label>
-      <textarea id="excludedReleaseGroups" spellcheck="false"></textarea>
-    </div>
-  </div>
-
   <div class="actions">
     <button class="btn" id="defaults">Restore Default</button>
     <button class="btn" id="save">Save Formatter</button>
   </div>
   <div class="status" id="status"></div>
 </div>
-<label for="nameTemplate">Name Template</label>
-<textarea id="nameTemplate" spellcheck="false"></textarea>
-<label for="descriptionTemplate">Description Template</label>
-<textarea id="descriptionTemplate" spellcheck="false"></textarea>
-<div class="row">
-<button id="save">Save Formatter</button>
-<button class="secondary" id="defaults">Restore Default</button>
-</div>
-<div class="status" id="status"></div>
-</main>
 <script>
 let defaults = null;
 const nameBox = document.getElementById('nameTemplate');
@@ -410,6 +309,7 @@ async function load(){
 }
 async function save(){
   statusBox.textContent = 'Saving...';
+  statusBox.className = 'status';
   const res = await fetch('/api/settings',{
     method:'POST',
     headers:{'Content-Type':'application/json; charset=utf-8'},
@@ -420,6 +320,7 @@ async function save(){
   }else{
     const body = await res.json().catch(()=>({error:'Could not save'}));
     statusBox.textContent = body.error || 'Could not save';
+    statusBox.className = 'status error';
   }
 }
 document.getElementById('save').addEventListener('click',save);
@@ -429,10 +330,10 @@ document.getElementById('defaults').addEventListener('click',()=>{
   descBox.value = defaults.descriptionTemplate;
   applyPreferences(defaults.streamPreferences);
 });
-renderRules();
 load().catch(()=>{statusBox.textContent='Could not load formatter settings';statusBox.className='status error';});
 </script>
 </body>
 </html>
 """.trimIndent()
+    }
 }
