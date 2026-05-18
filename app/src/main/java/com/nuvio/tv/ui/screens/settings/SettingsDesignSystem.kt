@@ -479,7 +479,6 @@ internal fun SettingsActionRow(
         modifier = modifier
             .padding(top = 2.dp, bottom = 2.dp)
             .fillMaxWidth()
-            .heightIn(min = 62.dp)
             .onFocusChanged { state ->
                 val nowFocused = state.isFocused
                 if (isFocused != nowFocused) {
@@ -503,6 +502,7 @@ internal fun SettingsActionRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 62.dp)
                 .padding(horizontal = 18.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
