@@ -93,6 +93,15 @@ fun NewLayoutSettingsContent(
     var showCollectionPicker by remember { mutableStateOf(false) }
 
     val showLayout = mode != NewLayoutContentMode.ROWS_ONLY
+    // Detail Page no longer exists in the Rows screen — if the user had it
+    // selected from a prior session under the Layout screen, snap back to
+    // Home so the panel doesn't render blank.
+    androidx.compose.runtime.LaunchedEffect(mode, uiState.selectedScope) {
+        if (mode == NewLayoutContentMode.ROWS_ONLY &&
+            uiState.selectedScope == LayoutScreenScope.DETAIL) {
+            viewModel.selectScope(LayoutScreenScope.HOME)
+        }
+    }
     val isDetailScope = uiState.selectedScope == LayoutScreenScope.DETAIL
     val isCollectionsScope = uiState.selectedScope == LayoutScreenScope.COLLECTIONS
     // Detail Page has no per-row config — hide the Rows section entirely there.
@@ -111,6 +120,10 @@ fun NewLayoutSettingsContent(
                 selected = uiState.selectedScope,
                 onSelect = viewModel::selectScope,
                 firstPillFocusRequester = initialFocusRequester,
+                // Detail Page has no row-level config — only the Layout
+                // screen exposes it. Hiding it on the Rows screen avoids
+                // a dead pill that scrolls users into an empty pane.
+                showDetailPage = mode != NewLayoutContentMode.ROWS_ONLY,
             )
         }
         if (showLayout) {
@@ -262,9 +275,17 @@ private fun ScopePills(
     selected: LayoutScreenScope,
     onSelect: (LayoutScreenScope) -> Unit,
     firstPillFocusRequester: FocusRequester?,
+    showDetailPage: Boolean = true,
 ) {
+    val scopes = remember(showDetailPage) {
+        if (showDetailPage) {
+            LayoutScreenScope.entries.toList()
+        } else {
+            LayoutScreenScope.entries.filter { it != LayoutScreenScope.DETAIL }
+        }
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        LayoutScreenScope.entries.forEachIndexed { index, scope ->
+        scopes.forEachIndexed { index, scope ->
             ScopePill(
                 label = scope.displayName,
                 isSelected = scope == selected,

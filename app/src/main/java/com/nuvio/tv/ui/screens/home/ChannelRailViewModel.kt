@@ -73,6 +73,10 @@ class ChannelRailViewModel @Inject constructor(
                         id = CollectionRailViewModel.encodeFolderTabId(collection.id, folder.id),
                         name = folder.title,
                         brandColor = PillBrandColor,
+                        // Always prefer the live JSON value over the cached
+                        // pill snapshot — a user-edited logo URL in
+                        // collections.json should take effect immediately.
+                        titleLogoUrl = folder.titleLogoUrl,
                     )
                 }
             }
@@ -120,6 +124,7 @@ class ChannelRailViewModel @Inject constructor(
                         folderId = f.id,
                         folderTitle = f.title,
                         enabled = true,
+                        titleLogoUrl = f.titleLogoUrl,
                     )
                 }
             }

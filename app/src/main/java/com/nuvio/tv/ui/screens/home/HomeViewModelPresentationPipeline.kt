@@ -308,13 +308,18 @@ internal fun BaseHomeViewModel.observeModernHomePresentationPipeline() {
                     useLandscapePosters = state.modernLandscapePostersEnabled,
                     showCatalogTypeSuffix = state.catalogTypeSuffixEnabled,
                     showFullReleaseDate = state.showFullReleaseDate,
-                    localeTag = localeTag
+                    localeTag = localeTag,
+                    rowConfigLookup = state.rowConfigLookup
                 )
             }
             // Compare by row structure only (keys + item counts), not by
             // item content.  TMDB/meta enrichment changes item fields but
             // not the row structure — the hero section reads enriched data
             // via lastEnrichedPreview instead.
+            // rowConfigLookup is identity-compared (===) because it only
+            // changes when the user edits per-row settings; in that case
+            // we need to rebuild so the new override flows into image-URL
+            // selection and click-target metrics.
             .distinctUntilChanged { old, new ->
                 old.homeRows === new.homeRows
                     && old.continueWatchingItems === new.continueWatchingItems
@@ -323,6 +328,7 @@ internal fun BaseHomeViewModel.observeModernHomePresentationPipeline() {
                     && old.showFullReleaseDate == new.showFullReleaseDate
                     && old.localeTag == new.localeTag
                     && old.catalogRows.size == new.catalogRows.size
+                    && old.rowConfigLookup === new.rowConfigLookup
             }
             .debounce(80)
             .collectLatest { input ->

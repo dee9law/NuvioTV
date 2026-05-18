@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -58,10 +59,11 @@ import com.nuvio.tv.LocalContentFocusRequester
 //
 // Collapsed footprint stays at 48dp so content layout is stable; the visible
 // icons themselves are flush-left within the 8dp inset. Expanded panel slides
-// over content at 220dp without re-flowing anything below it.
+// over content at 168dp (sleeker than the original 220dp) without re-flowing
+// anything below it.
 
 private val CollapsedWidth      = 48.dp
-private val ExpandedWidth       = 220.dp
+private val ExpandedWidth       = 168.dp
 private val CollapsedInset      = 8.dp
 private val IconSizeDp          = 22.dp
 private val ItemHeight          = 44.dp
@@ -84,7 +86,7 @@ private val ExpandDurationMs    = 300
  * subtle white-10% highlight. Mapped from the current nav route in
  * [MainActivity] — no business logic lives in the rail itself.
  */
-enum class SideRailItem { Profile, Search, Home, MyStuff, Settings }
+enum class SideRailItem { Profile, Search, Home, Discover, MyStuff, Settings }
 
 // ── Public composable ─────────────────────────────────────────────────────────
 
@@ -107,11 +109,13 @@ enum class SideRailItem { Profile, Search, Home, MyStuff, Settings }
 fun SideRail(
     onSearchClick: () -> Unit,
     onHomeClick: () -> Unit,
+    onDiscoverClick: () -> Unit,
     onMyStuffClick: () -> Unit,
     onSettingsClick: () -> Unit,
     profileName: String?,
     profileColorHex: String?,
     profileAvatarUrl: String?,
+    showDiscover: Boolean = true,
     onProfileClick: () -> Unit = {},
     firstItemFocusRequester: FocusRequester? = null,
     activeItem: SideRailItem? = null,
@@ -185,6 +189,23 @@ fun SideRail(
             )
         }
 
+        // Resolve which row gets the rail-entry FocusRequester so that
+        // `LocalSideRailController.openSideRail()` lands focus on the user's
+        // current section instead of the Profile header. Falls back to Home
+        // when there's no active match (or when the active route — e.g.
+        // Discover — is gated off below).
+        val focusTarget: SideRailItem = when (activeItem) {
+            SideRailItem.Profile,
+            SideRailItem.Search,
+            SideRailItem.Home,
+            SideRailItem.MyStuff,
+            SideRailItem.Settings -> activeItem
+            SideRailItem.Discover -> if (showDiscover) SideRailItem.Discover else SideRailItem.Home
+            null -> SideRailItem.Home
+        }
+        fun requesterFor(item: SideRailItem): FocusRequester? =
+            if (item == focusTarget) firstItemFocusRequester else null
+
         Column(
             modifier = Modifier
                 .fillMaxHeight()
@@ -201,7 +222,7 @@ fun SideRail(
                 labelAlpha = labelAlpha,
                 isActive = activeItem == SideRailItem.Profile,
                 onClick = onProfileClick,
-                focusRequester = firstItemFocusRequester,
+                focusRequester = requesterFor(SideRailItem.Profile),
             )
             Spacer(modifier = Modifier.size(SectionGap))
             RailItem(
@@ -211,6 +232,7 @@ fun SideRail(
                 labelAlpha = labelAlpha,
                 isActive = activeItem == SideRailItem.Search,
                 onClick = onSearchClick,
+                focusRequester = requesterFor(SideRailItem.Search),
             )
             RailItem(
                 icon = Icons.Default.Home,
@@ -219,7 +241,19 @@ fun SideRail(
                 labelAlpha = labelAlpha,
                 isActive = activeItem == SideRailItem.Home,
                 onClick = onHomeClick,
+                focusRequester = requesterFor(SideRailItem.Home),
             )
+            if (showDiscover) {
+                RailItem(
+                    icon = Icons.Default.Explore,
+                    label = "Discover",
+                    expanded = hasFocus,
+                    labelAlpha = labelAlpha,
+                    isActive = activeItem == SideRailItem.Discover,
+                    onClick = onDiscoverClick,
+                    focusRequester = requesterFor(SideRailItem.Discover),
+                )
+            }
             RailItem(
                 icon = Icons.Default.Bookmark,
                 label = "My Stuff",
@@ -227,6 +261,7 @@ fun SideRail(
                 labelAlpha = labelAlpha,
                 isActive = activeItem == SideRailItem.MyStuff,
                 onClick = onMyStuffClick,
+                focusRequester = requesterFor(SideRailItem.MyStuff),
             )
             RailItem(
                 icon = Icons.Default.Settings,
@@ -235,6 +270,7 @@ fun SideRail(
                 labelAlpha = labelAlpha,
                 isActive = activeItem == SideRailItem.Settings,
                 onClick = onSettingsClick,
+                focusRequester = requesterFor(SideRailItem.Settings),
             )
         }
     }

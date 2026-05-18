@@ -7,6 +7,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
@@ -38,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -56,18 +59,24 @@ import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import com.nuvio.tv.ui.theme.NuvioColors
 
-private val LeftRailWidth = 280.dp
+private val LeftRailWidth = 300.dp
 private val PaneHorizontalPadding = 24.dp
 private val PaneVerticalPadding = 20.dp
-private val LeftRailItemSpacing = 4.dp
-private val SubItemIndent = 24.dp
+private val LeftRailCardSpacing = 10.dp
+private val CategoryCardShape = RoundedCornerShape(SettingsSecondaryCardRadius)
+private val SubItemIndent = 12.dp
 
 /**
- * Two-panel Apple-TV-style Settings hub with a cascade left rail. The left
- * rail shows top-level categories; expanding a category reveals its sub-items
- * indented below it. Selecting a sub-item either renders its content in the
- * right pane (Content type) or invokes a navigation lambda for sub-screens
- * (NavAction type — e.g. Addons, Trakt).
+ * Two-panel Apple-TV-style Settings hub with a multi-expand cascade left
+ * rail. Each top-level category is rendered as its own enclosed card (rounded
+ * border + subtle elevation). Tapping a category toggles its expansion in
+ * place — multiple categories can be open simultaneously, so sub-sections
+ * cascade downward without collapsing the previously opened ones.
+ *
+ * Selecting a sub-item either renders its content in the right pane (Content
+ * type) or invokes a navigation lambda for sub-screens (NavAction type — e.g.
+ * Addons, Trakt). The right pane itself is wrapped in an enclosed workspace
+ * surface so it visually matches the category cards.
  */
 @Composable
 fun SettingsHubScreen(
@@ -81,12 +90,11 @@ fun SettingsHubScreen(
     BackHandler { onBack() }
 
     val categories = remember { settingsCategories() }
-    // Start fully collapsed: no category expanded, no content panel.  The user
-    // taps a category to reveal its sub-items, then taps a sub-item to load
-    // its content in the right pane.  Empty string is the "nothing selected"
-    // sentinel — kept non-nullable so existing equality checks compile
-    // unchanged.
-    var selectedCategoryId by remember { mutableStateOf("") }
+    // Start fully collapsed: no category expanded, no content panel. Users
+    // tap categories to add them to the expanded set; a second tap removes
+    // them. Multi-expand by design — opening Playback should NOT close
+    // Appearance.
+    var expandedCategoryIds by remember { mutableStateOf(setOf<String>()) }
     var selectedContentSubId by remember { mutableStateOf("") }
 
     val backFocusRequester = remember { FocusRequester() }
@@ -98,11 +106,20 @@ fun SettingsHubScreen(
         Row(modifier = Modifier.fillMaxSize()) {
             LeftRail(
                 categories = categories,
-                selectedCategoryId = selectedCategoryId,
+                expandedCategoryIds = expandedCategoryIds,
                 selectedContentSubId = selectedContentSubId,
-                onSelectCategory = { id -> selectedCategoryId = id },
+                onToggleCategory = { id ->
+                    expandedCategoryIds = if (id in expandedCategoryIds) {
+                        expandedCategoryIds - id
+                    } else {
+                        expandedCategoryIds + id
+                    }
+                },
                 onSelectContentSub = { catId, subId ->
-                    selectedCategoryId = catId
+                    // Auto-expand the parent so the visible selection stays
+                    // anchored to its category card even if the user came
+                    // back later with a collapsed rail.
+                    expandedCategoryIds = expandedCategoryIds + catId
                     selectedContentSubId = subId
                 },
                 onNavAction = { action ->
@@ -125,14 +142,14 @@ fun SettingsHubScreen(
     }
 }
 
-// ── Left rail (cascade) ─────────────────────────────────────────────────────
+// ── Left rail (multi-expand cascade, each category is its own card) ─────────
 
 @Composable
 private fun LeftRail(
     categories: List<HubCategory>,
-    selectedCategoryId: String,
+    expandedCategoryIds: Set<String>,
     selectedContentSubId: String,
-    onSelectCategory: (String) -> Unit,
+    onToggleCategory: (String) -> Unit,
     onSelectContentSub: (categoryId: String, subId: String) -> Unit,
     onNavAction: (NavTarget) -> Unit,
     onBack: () -> Unit,
@@ -147,59 +164,81 @@ private fun LeftRail(
     ) {
         LeftRailHeader(onBack = onBack, backFocusRequester = backFocusRequester)
 
-        // Flatten the tree into a single LazyColumn so the LazyColumn's intrinsic
-        // up/down focus traversal handles category↔sub-item D-pad movement.
-        val rows: List<RailRow> = remember(categories, selectedCategoryId) {
-            categories.flatMap { category ->
-                val rows = mutableListOf<RailRow>(RailRow.Category(category))
-                if (category.id == selectedCategoryId) {
-                    category.subItems.forEach { sub ->
-                        rows += RailRow.Sub(category, sub)
-                    }
-                }
-                rows
-            }
-        }
-
+        // One LazyColumn item per category card. Each card holds the
+        // category header row plus, when expanded, the indented sub-items
+        // — so opening multiple categories naturally cascades downward
+        // without collapsing the others.
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(LeftRailItemSpacing),
+            verticalArrangement = Arrangement.spacedBy(LeftRailCardSpacing),
         ) {
-            items(items = rows, key = ::railRowKey) { row ->
-                when (row) {
-                    is RailRow.Category -> CategoryRailRow(
-                        category = row.category,
-                        isSelected = row.category.id == selectedCategoryId,
-                        onSelect = { onSelectCategory(row.category.id) },
-                        upFocus = if (row == rows.first()) backFocusRequester else null,
-                    )
-                    is RailRow.Sub -> SubItemRailRow(
-                        sub = row.sub,
-                        isSelected = when (val s = row.sub) {
-                            is HubSubItem.Content -> s.id == selectedContentSubId
-                            is HubSubItem.NavAction -> false
-                        },
-                        onSelect = {
-                            when (val s = row.sub) {
-                                is HubSubItem.Content -> onSelectContentSub(row.parent.id, s.id)
-                                is HubSubItem.NavAction -> onNavAction(s.target)
-                            }
-                        },
-                    )
-                }
+            items(items = categories, key = { it.id }) { category ->
+                val isExpanded = category.id in expandedCategoryIds
+                CategoryCard(
+                    category = category,
+                    isExpanded = isExpanded,
+                    selectedContentSubId = selectedContentSubId,
+                    onToggleCategory = { onToggleCategory(category.id) },
+                    onSelectSub = { sub ->
+                        when (sub) {
+                            is HubSubItem.Content -> onSelectContentSub(category.id, sub.id)
+                            is HubSubItem.NavAction -> onNavAction(sub.target)
+                        }
+                    },
+                    upFocus = if (category == categories.first()) backFocusRequester else null,
+                )
             }
         }
     }
 }
 
-private fun railRowKey(row: RailRow): String = when (row) {
-    is RailRow.Category -> "cat|${row.category.id}"
-    is RailRow.Sub -> "sub|${row.parent.id}|${row.sub.id}"
-}
-
-private sealed interface RailRow {
-    data class Category(val category: HubCategory) : RailRow
-    data class Sub(val parent: HubCategory, val sub: HubSubItem) : RailRow
+/**
+ * Enclosed card containing one settings category. Renders the category row
+ * always; renders its sub-items below when expanded. The card itself has a
+ * rounded border + elevated background so the rail reads as a stack of
+ * distinct boxes rather than a flat list.
+ */
+@Composable
+private fun CategoryCard(
+    category: HubCategory,
+    isExpanded: Boolean,
+    selectedContentSubId: String,
+    onToggleCategory: () -> Unit,
+    onSelectSub: (HubSubItem) -> Unit,
+    upFocus: FocusRequester?,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CategoryCardShape)
+            .background(NuvioColors.BackgroundCard)
+            .border(
+                width = 1.dp,
+                color = NuvioColors.Border,
+                shape = CategoryCardShape,
+            )
+            .padding(vertical = 6.dp, horizontal = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        CategoryRailRow(
+            category = category,
+            isExpanded = isExpanded,
+            onSelect = onToggleCategory,
+            upFocus = upFocus,
+        )
+        if (isExpanded) {
+            category.subItems.forEach { sub ->
+                SubItemRailRow(
+                    sub = sub,
+                    isSelected = when (sub) {
+                        is HubSubItem.Content -> sub.id == selectedContentSubId
+                        is HubSubItem.NavAction -> false
+                    },
+                    onSelect = { onSelectSub(sub) },
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -262,20 +301,20 @@ private fun BackPill(onClick: () -> Unit, focusRequester: FocusRequester) {
 @Composable
 private fun CategoryRailRow(
     category: HubCategory,
-    isSelected: Boolean,
+    isExpanded: Boolean,
     onSelect: () -> Unit,
     upFocus: FocusRequester?,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val rowShape = RoundedCornerShape(SettingsSecondaryCardRadius)
-    // Focus indicator is text+icon-color only — no background block, no
-    // border.  Per nav spec: "replace [focus block] with text color change
-    // only".  Selection state still tints (so the user can tell at a glance
-    // which category is open) but uses TextPrimary, not the focus ring.
+    val rowShape = RoundedCornerShape(SettingsSecondaryCardRadius - 4.dp)
+    val accent = NuvioColors.Secondary
+    // Expanded category gets the accent tint so the user can scan which
+    // groups are currently revealed. Focus tints with TextPrimary so it
+    // overrides expanded styling and stays visible regardless.
     val textColor by animateColorAsState(
         targetValue = when {
             focused -> NuvioColors.TextPrimary
-            isSelected -> NuvioColors.TextPrimary
+            isExpanded -> accent
             else -> NuvioColors.TextSecondary
         },
         animationSpec = tween(160),
@@ -284,7 +323,7 @@ private fun CategoryRailRow(
     val iconColor by animateColorAsState(
         targetValue = when {
             focused -> NuvioColors.TextPrimary
-            isSelected -> NuvioColors.TextPrimary
+            isExpanded -> accent
             else -> NuvioColors.TextSecondary
         },
         animationSpec = tween(160),
@@ -330,11 +369,13 @@ private fun CategoryRailRow(
                 text = category.label,
                 style = MaterialTheme.typography.bodyLarge,
                 color = textColor,
-                fontWeight = if (focused || isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                fontWeight = if (focused || isExpanded) FontWeight.SemiBold else FontWeight.Medium,
                 modifier = Modifier.weight(1f),
             )
+            // Caret rotates to indicate expansion state — open ↓, closed →
+            val caret = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.ChevronRight
             Icon(
-                imageVector = Icons.Default.ChevronRight,
+                imageVector = caret,
                 contentDescription = null,
                 tint = iconColor,
                 modifier = Modifier.size(18.dp),
@@ -350,21 +391,27 @@ private fun SubItemRailRow(
     onSelect: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val rowShape = RoundedCornerShape(SettingsSecondaryCardRadius)
+    val rowShape = RoundedCornerShape(SettingsSecondaryCardRadius - 6.dp)
+    val accent = NuvioColors.Secondary
     val containerColor by animateColorAsState(
         targetValue = when {
-            isSelected -> NuvioColors.FocusBackground
+            isSelected -> accent.copy(alpha = 0.18f)
             else -> Color.Transparent
         },
         animationSpec = tween(140),
         label = "subItemRowBg",
     )
+    val textColor = when {
+        focused -> NuvioColors.TextPrimary
+        isSelected -> accent
+        else -> NuvioColors.TextSecondary
+    }
 
     Card(
         onClick = onSelect,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = SubItemIndent)
+            .padding(start = SubItemIndent, end = 4.dp)
             .height(40.dp)
             .onFocusChanged { focused = it.isFocused || it.hasFocus },
         shape = CardDefaults.shape(rowShape),
@@ -374,7 +421,7 @@ private fun SubItemRailRow(
         ),
         border = CardDefaults.border(
             border = if (isSelected) Border(
-                border = BorderStroke(1.dp, NuvioColors.FocusRing),
+                border = BorderStroke(1.dp, accent.copy(alpha = 0.6f)),
                 shape = rowShape,
             ) else Border.None,
             focusedBorder = Border(
@@ -394,7 +441,7 @@ private fun SubItemRailRow(
             Text(
                 text = sub.label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = NuvioColors.TextPrimary,
+                color = textColor,
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                 modifier = Modifier.weight(1f),
             )
@@ -431,17 +478,40 @@ private fun RightPane(
     onNavigateToManageProfiles: () -> Unit,
     onNavigateToSupportersContributors: () -> Unit,
 ) {
+    // Workspace surface — gives the right pane the same enclosed-card
+    // treatment as the category cards on the left. Content scrolls inside
+    // this box without leaking past the rounded border.
     Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = PaneHorizontalPadding, vertical = PaneVerticalPadding),
     ) {
-        SubItemContent(
-            contentSubId = contentSubId,
-            onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
-            onNavigateToManageProfiles = onNavigateToManageProfiles,
-            onNavigateToSupportersContributors = onNavigateToSupportersContributors,
-        )
+        // Show the enclosed surface only when there's content to display;
+        // an empty box would draw a confusing empty card.
+        if (contentSubId.isBlank()) {
+            // No category opened yet — leave blank so the left rail draws
+            // the user's attention.
+            return@Box
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CategoryCardShape)
+                .background(NuvioColors.BackgroundCard)
+                .border(
+                    width = 1.dp,
+                    color = NuvioColors.Border,
+                    shape = CategoryCardShape,
+                )
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+        ) {
+            SubItemContent(
+                contentSubId = contentSubId,
+                onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
+                onNavigateToManageProfiles = onNavigateToManageProfiles,
+                onNavigateToSupportersContributors = onNavigateToSupportersContributors,
+            )
+        }
     }
 }
 

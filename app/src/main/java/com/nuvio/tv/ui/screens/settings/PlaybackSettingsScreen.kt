@@ -441,13 +441,10 @@ internal fun ToggleSettingsItem(
             },
         colors = CardDefaults.colors(
             containerColor = NuvioColors.Background,
-            focusedContainerColor = NuvioColors.Background
+            focusedContainerColor = if (enabled) NuvioColors.Secondary else NuvioColors.Background
         ),
         border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, if (enabled) NuvioColors.FocusRing else NuvioColors.FocusRing.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(SettingsPillRadius)
-            )
+            focusedBorder = Border.None
         ),
         shape = CardDefaults.shape(shape = RoundedCornerShape(SettingsPillRadius)),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -461,7 +458,7 @@ internal fun ToggleSettingsItem(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = (if (isFocused && enabled) NuvioColors.Primary else NuvioColors.TextSecondary).copy(alpha = contentAlpha),
+                tint = (if (isFocused && enabled) NuvioColors.OnSecondary else NuvioColors.TextSecondary).copy(alpha = contentAlpha),
                 modifier = Modifier.size(22.dp)
             )
 

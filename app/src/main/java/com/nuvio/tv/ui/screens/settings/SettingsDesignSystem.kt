@@ -378,6 +378,19 @@ internal fun SettingsToggleRow(
     enabled: Boolean = true
 ) {
     val contentAlpha = if (enabled) 1f else 0.4f
+    // ON  → label = accent (matches the toggle pill color).
+    // OFF → label = TextSecondary so the option appears visually muted.
+    val accent = NuvioColors.Secondary
+    val titleColor = when {
+        !enabled -> NuvioColors.TextPrimary.copy(alpha = contentAlpha)
+        checked -> accent
+        else -> NuvioColors.TextSecondary
+    }
+    val subtitleColor = when {
+        !enabled -> NuvioColors.TextSecondary.copy(alpha = contentAlpha)
+        checked -> NuvioColors.TextSecondary
+        else -> NuvioColors.TextSecondary.copy(alpha = 0.6f)
+    }
     var isFocused by remember { mutableStateOf(false) }
 
     Card(
@@ -418,7 +431,7 @@ internal fun SettingsToggleRow(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = NuvioColors.TextPrimary.copy(alpha = contentAlpha),
+                    color = titleColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -427,7 +440,7 @@ internal fun SettingsToggleRow(
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
+                        color = subtitleColor,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )

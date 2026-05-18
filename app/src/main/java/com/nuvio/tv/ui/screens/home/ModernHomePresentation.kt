@@ -7,6 +7,10 @@ import com.nuvio.tv.LocaleCache
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
+import com.nuvio.tv.domain.model.LayoutCardStyle
+import com.nuvio.tv.domain.model.LayoutRowConfig
+import com.nuvio.tv.domain.model.LayoutRowKey
+import com.nuvio.tv.domain.model.resolveLayoutSetting
 import com.nuvio.tv.ui.util.asStable
 import java.util.Locale
 import kotlinx.coroutines.withContext
@@ -19,8 +23,38 @@ internal data class ModernHomePresentationInput(
     val useLandscapePosters: Boolean,
     val showCatalogTypeSuffix: Boolean,
     val showFullReleaseDate: Boolean,
-    val localeTag: String
+    val localeTag: String,
+    /**
+     * Per-row layout overrides keyed by [LayoutRowKey]. Used to resolve the
+     * per-row tier of the card-style hierarchy when picking which image URL
+     * to bake into each [ModernCarouselItem]. Without this, a row that
+     * overrides the global Card Orientation (e.g. row=POSTER, global=LANDSCAPE)
+     * gets the wrong image URL and click-target metrics — the visual shape
+     * follows the override but the data plumbing still reads global.
+     */
+     val rowConfigLookup: Map<String, LayoutRowConfig> = emptyMap()
 )
+
+/**
+ * 3-tier resolution: per-row override → per-screen (not yet exposed) →
+ * global Card Orientation. The presentation layer needs this for image URL
+ * selection (poster vs backdrop), which happens at row build time rather
+ * than at composable render time.
+ */
+private fun rowEffectiveLandscape(
+    row: CatalogRow,
+    lookup: Map<String, LayoutRowConfig>,
+    globalLandscape: Boolean,
+): Boolean {
+    val key = LayoutRowKey.forAddon(row.addonId, row.apiType, row.catalogId)
+    val config = lookup[key]
+    val resolved = resolveLayoutSetting(
+        perRow = config?.cardStyle,
+        perScreen = null,
+        global = if (globalLandscape) LayoutCardStyle.LANDSCAPE else LayoutCardStyle.POSTER,
+    )
+    return resolved == LayoutCardStyle.LANDSCAPE
+}
 
 internal fun buildModernHomePresentation(
     input: ModernHomePresentationInput,
@@ -90,12 +124,20 @@ internal fun buildModernHomePresentation(
                     renderedCatalogRows++
                     val rowKey = catalogRowKey(row)
                     activeCatalogKeys += rowKey
+                    // Per-row override wins; falls through to per-screen
+                    // (null) and ultimately the global Card Orientation
+                    // (input.useLandscapePosters) when no override is set.
+                    val rowLandscape = rowEffectiveLandscape(
+                        row = row,
+                        lookup = input.rowConfigLookup,
+                        globalLandscape = input.useLandscapePosters,
+                    )
                     val cached = cache.catalogRows[rowKey]
                     val currentLocaleTag = LocaleCache.localeTag
                     val canReuseMappedRow =
                         cached != null &&
                             cached.source == row &&
-                            cached.useLandscapePosters == input.useLandscapePosters &&
+                            cached.useLandscapePosters == rowLandscape &&
                             cached.showCatalogTypeSuffix == input.showCatalogTypeSuffix &&
                             cached.localeTag == currentLocaleTag
 
@@ -131,7 +173,7 @@ internal fun buildModernHomePresentation(
                                 val cachedItem = rowItemCache[cacheKey]
                                 if (cachedItem != null &&
                                     cachedItem.source == item &&
-                                    cachedItem.useLandscapePosters == input.useLandscapePosters &&
+                                    cachedItem.useLandscapePosters == rowLandscape &&
                                     cachedItem.showFullReleaseDate == input.showFullReleaseDate
                                 ) {
                                     cachedItem.carouselItem.let { cached ->
@@ -143,7 +185,7 @@ internal fun buildModernHomePresentation(
                                     val built = buildCatalogItem(
                                         item = item,
                                         row = row,
-                                        useLandscapePosters = input.useLandscapePosters,
+                                        useLandscapePosters = rowLandscape,
                                         occurrence = occurrence,
                                         strTypeMovie = strTypeMovie,
                                         strTypeSeries = strTypeSeries,
@@ -152,7 +194,7 @@ internal fun buildModernHomePresentation(
                                     ).copy(key = "${rowKey}_$itemIndex")
                                     rowItemCache[cacheKey] = CachedCarouselItem(
                                         source = item,
-                                        useLandscapePosters = input.useLandscapePosters,
+                                        useLandscapePosters = rowLandscape,
                                         showFullReleaseDate = input.showFullReleaseDate,
                                         carouselItem = built
                                     )
@@ -164,7 +206,7 @@ internal fun buildModernHomePresentation(
 
                     cache.catalogRows[rowKey] = ModernCatalogRowBuildCacheEntry(
                         source = row,
-                        useLandscapePosters = input.useLandscapePosters,
+                        useLandscapePosters = rowLandscape,
                         showCatalogTypeSuffix = input.showCatalogTypeSuffix,
                         localeTag = currentLocaleTag,
                         mappedRow = mappedRow

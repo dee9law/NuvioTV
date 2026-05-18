@@ -16,12 +16,17 @@ import javax.inject.Singleton
  * One pill in the top-bar channel rail. Identifies a folder inside a
  * collection plus the user's on/off preference. The pill text is the folder's
  * title (snapshot — refreshed against current collections at render time).
+ *
+ * [titleLogoUrl] mirrors the folder's `titleLogoUrl` from the collections
+ * JSON. When present, the pill renders the logo image with the title text as
+ * a fallback / caption beneath it.
  */
 data class ChannelRailPill(
     val collectionId: String,
     val folderId: String,
     val folderTitle: String,
     val enabled: Boolean = true,
+    val titleLogoUrl: String? = null,
 )
 
 /**
@@ -80,19 +85,25 @@ class ChannelRailDataStore @Inject constructor(
      * enabled pill at the end. This is the primary write path used by the +
      * dropdown.
      */
-    suspend fun toggle(collectionId: String, folderId: String, folderTitle: String) {
+    suspend fun toggle(
+        collectionId: String,
+        folderId: String,
+        folderTitle: String,
+        titleLogoUrl: String? = null,
+    ) {
         store().edit { prefs ->
             val current = parsePills(prefs[PILLS_KEY]).toMutableList()
             val idx = current.indexOfFirst { it.collectionId == collectionId && it.folderId == folderId }
             if (idx >= 0) {
                 val p = current[idx]
-                current[idx] = p.copy(enabled = !p.enabled)
+                current[idx] = p.copy(enabled = !p.enabled, titleLogoUrl = titleLogoUrl ?: p.titleLogoUrl)
             } else {
                 current += ChannelRailPill(
                     collectionId = collectionId,
                     folderId = folderId,
                     folderTitle = folderTitle,
                     enabled = true,
+                    titleLogoUrl = titleLogoUrl,
                 )
             }
             prefs[PILLS_KEY] = gson.toJson(current.map { it.toSerializable() })
@@ -106,6 +117,7 @@ class ChannelRailDataStore @Inject constructor(
         val folderId: String,
         val folderTitle: String,
         val enabled: Boolean = true,
+        val titleLogoUrl: String? = null,
     )
 
     private fun ChannelRailPill.toSerializable() = SerializablePill(
@@ -113,6 +125,7 @@ class ChannelRailDataStore @Inject constructor(
         folderId = folderId,
         folderTitle = folderTitle,
         enabled = enabled,
+        titleLogoUrl = titleLogoUrl,
     )
 
     private fun SerializablePill.toDomain() = ChannelRailPill(
@@ -120,6 +133,7 @@ class ChannelRailDataStore @Inject constructor(
         folderId = folderId,
         folderTitle = folderTitle,
         enabled = enabled,
+        titleLogoUrl = titleLogoUrl,
     )
 
     private fun parsePills(json: String?): List<ChannelRailPill> {

@@ -297,8 +297,11 @@ internal fun HeroTitleBlock(
 ) {
     val currentPreview = previewProvider()
     val isEnriching = enrichmentActive()
-    
-    var stablePreview by remember { mutableStateOf<HeroPreview?>(null) }
+
+    // Seed with the current preview so the title/logo/meta block renders the
+    // un-enriched addon data immediately on first composition, instead of
+    // early-returning null while waiting for enrichment to arrive.
+    var stablePreview by remember { mutableStateOf<HeroPreview?>(currentPreview) }
 
     LaunchedEffect(Unit) {
         snapshotFlow { Pair(previewProvider(), enrichmentActive()) }.collect { (p, e) ->

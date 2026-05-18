@@ -452,6 +452,8 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    val showDiscoverInRail by layoutPreferenceDataStore.searchDiscoverEnabled
+                        .collectAsState(initial = true)
                     TopNavBarScaffold(
                         navController = navController,
                         startDestination = startDestination,
@@ -465,6 +467,7 @@ class MainActivity : ComponentActivity() {
                         profileName = activeProfile?.name,
                         profileColorHex = activeProfile?.avatarColorHex,
                         profileAvatarUrl = activeProfileAvatarImageUrl,
+                        showDiscoverInRail = showDiscoverInRail,
                     )
 
                     if (AppFeaturePolicy.inAppUpdatesEnabled && !BuildConfig.IS_DEBUG_BUILD) {
@@ -531,6 +534,7 @@ private fun TopNavBarScaffold(
     profileName: String?,
     profileColorHex: String?,
     profileAvatarUrl: String?,
+    showDiscoverInRail: Boolean,
 ) {
     val showTopNav = currentRoute in rootRoutes
     val contentFocusRequester = remember { FocusRequester() }
@@ -577,22 +581,13 @@ private fun TopNavBarScaffold(
         { runCatching { sideRailFr.requestFocus() } }
     }
 
-    // The SideRail surfaces its expansion state so the TopBar can nudge its
-    // left padding away from the overlay when the user opens the rail —
-    // otherwise the rail's panel obscures the leftmost category pill.
-    var sideRailExpanded by remember { mutableStateOf(false) }
-    val topBarLeftPadding by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (sideRailExpanded) 180.dp else 0.dp,
-        animationSpec = androidx.compose.animation.core.tween(
-            durationMillis = 300,
-            easing = androidx.compose.animation.core.FastOutSlowInEasing,
-        ),
-        label = "topBarLeftPadding",
-    )
-
+    // Per Prime Video reference: the SideRail is a true overlay. When the
+    // user expands it, it overlaps the leftmost category pill rather than
+    // pushing the TopNavigationBar rightward. No padding adjustment needed.
     val activeSideRailItem = when (currentRoute) {
         Screen.Home.route -> com.nuvio.tv.ui.components.SideRailItem.Home
         Screen.Search.route -> com.nuvio.tv.ui.components.SideRailItem.Search
+        Screen.Discover.route -> com.nuvio.tv.ui.components.SideRailItem.Discover
         Screen.Library.route -> com.nuvio.tv.ui.components.SideRailItem.MyStuff
         Screen.Settings.route -> com.nuvio.tv.ui.components.SideRailItem.Settings
         else -> null
@@ -631,7 +626,6 @@ private fun TopNavBarScaffold(
             if (showTopNav) {
                 androidx.compose.foundation.layout.Box(
                     modifier = Modifier
-                        .padding(top = 8.dp, start = topBarLeftPadding)
                         .alpha(topBarAlpha)
                 ) {
                 TopNavigationBar(
@@ -691,6 +685,10 @@ private fun TopNavBarScaffold(
                         onNavigate(Screen.Home.route)
                         navigateToTopNavRoute(navController, currentRoute, Screen.Home.route)
                     },
+                    onDiscoverClick = {
+                        onNavigate(Screen.Discover.route)
+                        navigateToTopNavRoute(navController, currentRoute, Screen.Discover.route)
+                    },
                     onMyStuffClick = {
                         // "My Stuff" reuses the Library route (rename only,
                         // no new screen) per the approved decision B.
@@ -707,9 +705,9 @@ private fun TopNavBarScaffold(
                     profileName = profileName,
                     profileColorHex = profileColorHex,
                     profileAvatarUrl = profileAvatarUrl,
+                    showDiscover = showDiscoverInRail,
                     firstItemFocusRequester = sideRailFr,
                     activeItem = activeSideRailItem,
-                    onExpandedChange = { sideRailExpanded = it },
                     modifier = Modifier.align(Alignment.CenterStart),
                 )
             }

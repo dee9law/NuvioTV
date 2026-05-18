@@ -26,6 +26,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Icon
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import coil3.compose.AsyncImage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -47,6 +52,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import com.nuvio.tv.LocalContentFocusRequester
+import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
@@ -60,8 +66,6 @@ import androidx.tv.material3.Text
 
 private val NavBarBg         = Color.Transparent
 private val DividerColor     = Color.White.copy(alpha = 0.30f)
-private val PillSelectedBg   = Color.White
-private val PillSelectedText = Color(0xFF0A1628)
 private val PillFocusedBg    = Color.White.copy(alpha = 0.14f)
 private val PillFocusBorder  = Color.White.copy(alpha = 0.45f)
 private val TextIdle         = Color.White.copy(alpha = 0.75f)
@@ -74,16 +78,21 @@ private val NavBarHeight  = 60.dp
 /**
  * Represents a channel in Zone 2 of [TopNavigationBar].
  *
- * @param id          Stable unique key used as LazyRow item key.
- * @param name        Display label (shown when no [logoResId] is provided).
- * @param logoResId   Optional drawable resource for a white channel logo.
- *                    Pass null to fall back to [name] text.
- * @param brandColor  Pill background color when this channel is selected.
+ * @param id            Stable unique key used as LazyRow item key.
+ * @param name          Display label (always rendered as a caption beneath
+ *                      the logo image, or as the only content when neither
+ *                      [logoResId] nor [titleLogoUrl] are set).
+ * @param logoResId     Optional drawable resource for a white channel logo.
+ * @param titleLogoUrl  Optional remote URL of a transparent title-treatment
+ *                      logo (mirrors the folder's `titleLogoUrl` from
+ *                      collections.json). Loaded via Coil when present.
+ * @param brandColor    Pill background color when this channel is selected.
  */
 data class ChannelTab(
     val id: String,
     val name: String,
     val logoResId: Int? = null,
+    val titleLogoUrl: String? = null,
     val brandColor: Color,
 )
 
@@ -245,22 +254,27 @@ private fun CategoryTabItem(
     // Used to suppress the corresponding KeyUp so Card.onClick doesn't also fire.
     var longPressFired by remember { mutableStateOf(false) }
 
+    // Selected tab is signalled by accent text color only — no background
+    // pill, per the redesign. The focus highlight stays the same (faint
+    // white wash + border) so D-pad position remains visible regardless of
+    // which tab is currently selected.
+    val accentColor = NuvioColors.Secondary
     val bgColor by animateColorAsState(
-        targetValue = when {
-            isSelected -> PillSelectedBg
-            isFocused  -> PillFocusedBg
-            else       -> Color.Transparent
-        },
+        targetValue = if (isFocused) PillFocusedBg else Color.Transparent,
         animationSpec = tween(150),
         label = "catBg",
     )
     val textColor by animateColorAsState(
-        targetValue = if (isSelected) PillSelectedText else Color.White,
+        targetValue = when {
+            isFocused  -> Color.White
+            isSelected -> accentColor
+            else       -> TextIdle
+        },
         animationSpec = tween(150),
         label = "catText",
     )
     val scale by animateFloatAsState(
-        targetValue = if (isFocused && !isSelected) 1.04f else 1f,
+        targetValue = if (isFocused) 1.04f else 1f,
         animationSpec = spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow),
         label = "catScale",
     )
@@ -310,7 +324,7 @@ private fun CategoryTabItem(
         border = CardDefaults.border(
             border = Border.None,
             focusedBorder = Border(
-                border = BorderStroke(1.5.dp, if (isSelected) Color.Transparent else PillFocusBorder),
+                border = BorderStroke(1.5.dp, PillFocusBorder),
                 shape = PillShape,
             ),
         ),
@@ -386,13 +400,39 @@ private fun ChannelTabItem(
         ),
         scale = CardDefaults.scale(focusedScale = 1f),
     ) {
-        Text(
-            text = channel.name,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-            style = MaterialTheme.typography.titleSmall,
-            color = Color.White.copy(alpha = textAlpha),
-            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-        )
+        // Logo above caption when titleLogoUrl is provided; text-only otherwise.
+        // Both children are horizontally centered so an asymmetric logo still
+        // looks balanced inside the pill regardless of caption width.
+        if (!channel.titleLogoUrl.isNullOrBlank()) {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                AsyncImage(
+                    model = channel.titleLogoUrl,
+                    contentDescription = channel.name,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .heightIn(max = 20.dp)
+                        .widthIn(max = 60.dp),
+                )
+                Text(
+                    text = channel.name,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = textAlpha),
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+        } else {
+            Text(
+                text = channel.name,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.White.copy(alpha = textAlpha),
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+            )
+        }
     }
 }
 

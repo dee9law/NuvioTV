@@ -750,7 +750,9 @@ private fun HomePosterOptionsDialog(
                 .focusRequester(primaryFocusRequester),
             colors = ButtonDefaults.colors(
                 containerColor = NuvioColors.BackgroundCard,
-                contentColor = NuvioColors.TextPrimary
+                contentColor = NuvioColors.TextPrimary,
+                focusedContainerColor = NuvioColors.Secondary,
+                focusedContentColor = NuvioColors.OnSecondary
             )
         ) {
             Text(stringResource(R.string.cw_action_go_to_details))
@@ -762,7 +764,9 @@ private fun HomePosterOptionsDialog(
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.colors(
                 containerColor = NuvioColors.BackgroundCard,
-                contentColor = NuvioColors.TextPrimary
+                contentColor = NuvioColors.TextPrimary,
+                focusedContainerColor = NuvioColors.Secondary,
+                focusedContentColor = NuvioColors.OnSecondary
             )
         ) {
             Text(
@@ -873,7 +877,9 @@ private fun HomeLibraryListPickerDialog(
                 enabled = !isPending,
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioColors.BackgroundCard,
-                    contentColor = NuvioColors.TextPrimary
+                    contentColor = NuvioColors.TextPrimary,
+                    focusedContainerColor = NuvioColors.Secondary,
+                    focusedContentColor = NuvioColors.OnSecondary
                 )
             ) {
                 Text(if (isPending) stringResource(R.string.action_saving) else stringResource(R.string.action_save))

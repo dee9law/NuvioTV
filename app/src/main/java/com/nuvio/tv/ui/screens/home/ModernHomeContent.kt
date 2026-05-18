@@ -639,14 +639,14 @@ fun ModernHomeContent(
                         else -> activeCarouselItem?.heroPreview ?: heroItem.value
                     }
                     
-                    // Only use the real enrichmentActive flag from the ViewModel.
-                    // Additionally, if enrichment is enabled but no enriched data exists yet
-                    // for this item, treat as pending to avoid showing un-enriched addon data.
-                    // Exception: if enrichment already failed for this item, show addon data.
-                    val heroEnrichmentEnabled = uiState.heroEnrichmentEnabled
-                    val enrichmentFailed = activeItemId != null && activeItemId in failedEnrichmentIds
-                    val effectiveEnrichmentActive = enrichmentActive ||
-                        (enrichedHero == null && activeItemId != null && heroEnrichmentEnabled && !enrichmentFailed)
+                    // Only treat as actively enriching when a request for THIS item is
+                    // genuinely in flight. The previous version flipped this true whenever
+                    // enrichment was enabled and no cached preview existed, which blanked
+                    // the hero on the very first post-launch highlight (no request had
+                    // started yet → no cache → optimistic flag stayed true). Falling back
+                    // to the un-enriched addon preview lets the title/logo/meta render
+                    // immediately; enriched data swaps in once the network response lands.
+                    val effectiveEnrichmentActive = enrichmentActive
                     
                     val activeRowKeyVal = activeRowKey.value
                     val activeRow = activeRowKeyVal?.let { rowByKey[it] }
