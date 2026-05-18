@@ -15,6 +15,7 @@ import com.nuvio.tv.core.sync.homeCatalogKey
 import com.nuvio.tv.core.sync.homeCollectionKey
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.Collection
+import com.nuvio.tv.domain.model.Feel
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LayoutCardStyle
@@ -89,6 +90,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val fastHorizontalNavigationEnabledKey = booleanPreferencesKey("fast_horizontal_navigation_enabled")
     private val followAddonsOrderKey = booleanPreferencesKey("follow_addons_order")
     private val composeHighlighterEnabledKey = booleanPreferencesKey("compose_highlighter_enabled")
+    private val navigationFeelKey = stringPreferencesKey("navigation_feel")
 
     private fun <T> profileFlow(extract: (prefs: androidx.datastore.preferences.core.Preferences) -> T): Flow<T> =
         profileManager.activeProfileId.flatMapLatest { pid ->
@@ -294,6 +296,20 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val composeHighlighterEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[composeHighlighterEnabledKey] ?: false
+    }
+
+    /**
+     * Selected navigation shell — see [Feel]. Returns [Feel.MODERN] when
+     * unset (fresh installs) or when the persisted value is unrecognized.
+     */
+    val navigationFeel: Flow<Feel> = profileFlow { prefs ->
+        Feel.fromStorageValue(prefs[navigationFeelKey])
+    }
+
+    suspend fun setNavigationFeel(feel: Feel) {
+        store().edit { prefs ->
+            prefs[navigationFeelKey] = feel.storageValue
+        }
     }
 
     suspend fun setMemoryOnlyVerticalScroll(enabled: Boolean) {

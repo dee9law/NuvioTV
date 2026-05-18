@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -524,6 +525,14 @@ private fun SubItemContent(
 ) {
     when (contentSubId) {
         // Appearance
+        "appearance.feel" -> NavigationFeelContent()
+        "appearance.topbar" -> {
+            // Read the current Feel inline so this screen reacts to live
+            // changes without piping yet another prop through SettingsHub.
+            val vm: NavigationFeelViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+            val feel by vm.feel.collectAsStateWithLifecycle()
+            TopBarSettingsContent(feel = feel)
+        }
         "appearance.global" -> GlobalSettingsContent()
         "appearance.layout" -> NewLayoutSettingsContent(mode = NewLayoutContentMode.LAYOUT_ONLY)
         "appearance.rows" -> NewLayoutSettingsContent(mode = NewLayoutContentMode.ROWS_ONLY)
@@ -610,6 +619,8 @@ private fun settingsCategories(): List<HubCategory> = listOf(
         label = "Appearance",
         icon = Icons.Default.Palette,
         subItems = listOf(
+            HubSubItem.Content("appearance.feel", "Feel"),
+            HubSubItem.Content("appearance.topbar", "Top Bar"),
             HubSubItem.Content("appearance.global", "Global"),
             HubSubItem.Content("appearance.layout", "Layout"),
             HubSubItem.Content("appearance.rows", "Rows"),

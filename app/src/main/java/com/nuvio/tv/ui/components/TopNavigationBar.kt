@@ -5,6 +5,9 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -26,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.heightIn
@@ -33,6 +37,7 @@ import androidx.compose.foundation.layout.widthIn
 import coil3.compose.AsyncImage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,8 +56,11 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.ui.theme.NuvioColors
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
@@ -99,15 +107,19 @@ data class ChannelTab(
 // ── Main composable ──────────────────────────────────────────────────────────
 
 /**
- * Amazon-Prime-Video–style top navigation bar with three focus zones:
+ * Amazon-Prime-Video–style top navigation bar with two focus zones:
  *
  *  Zone 1 — fixed category tabs (Home / Movies / TV Shows / Collections)
- *  Zone 2 — horizontally scrollable channel tabs
- *  Zone 3 — fixed "Subscriptions" button
+ *  Zone 2 — horizontally scrollable channel tabs (Pill Channels)
  *
- * Focus moves left/right within a zone, and crosses zone boundaries naturally
- * because all three zones live in the same [Row].  D-pad Down from any item
- * passes focus to whatever is below the bar in the layout.
+ * Pill Channels management (the per-folder visibility dropdown) used to
+ * live as a "+" button at the right edge of the bar — it now lives in
+ * the Profile Overlay (Modern feel) and the SideRail (Legacy feel) so
+ * channel pills can scroll free to the right screen edge.
+ *
+ * Focus moves left/right within a zone, and crosses zone boundaries
+ * naturally because both zones live in the same [Row]. D-pad Down from
+ * any item passes focus to whatever is below the bar in the layout.
  */
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -118,13 +130,75 @@ fun TopNavigationBar(
     selectedChannelIndex: Int?,      // null when a category is the active selection
     onCategorySelected: (Int) -> Unit,
     onChannelSelected: (Int) -> Unit,
-    onNetworksClick: () -> Unit,
     firstTabFocusRequester: FocusRequester? = null,
     onCategoryLongPress: ((Int) -> Unit)? = null,
     collectionContextLabel: String? = null,
+    // ── Modern-feel-only profile slot ────────────────────────────────────
+    // When [isModernFeel] is true the bar renders a focusable profile
+    // avatar at the far left in place of the (removed) SideRail entry.
+    // D-pad Right from the avatar focuses the first category pill; Select
+    // invokes [onProfileClick] (wired to the Profile Overlay in F6).
+    isModernFeel: Boolean = false,
+    profileName: String? = null,
+    profileColorHex: String? = null,
+    profileAvatarUrl: String? = null,
+    onProfileClick: () -> Unit = {},
+    // Parallel list to [categories] — when non-null and the same size,
+    // each pill prepends the matching icon left of its label. Modern feel
+    // sets these; Legacy passes null so its pills stay text-only.
+    categoryIcons: List<ImageVector>? = null,
+    /**
+     * Parallel list to [categories]: when index i is true, that pill
+     * renders only its icon (no label). Off-screen TopBar settings
+     * uses this to let users compact specific pills.
+     */
+    categoryIconsOnly: List<Boolean>? = null,
+    // ── Modern-feel-only Edit Mode (F10) ─────────────────────────────────
+    // When [editMode] is true every category pill renders a static accent
+    // border (the "moveable" cue) and the focused pill is treated as
+    // grabbed: D-pad Left/Right swaps it with its neighbor, D-pad Down
+    // demotes it to the drawer, Back exits edit mode. A Done button is
+    // rendered after the category zone.
+    editMode: Boolean = false,
+    onEditSwap: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
+    onEditDemote: (index: Int) -> Unit = {},
+    onExitEditMode: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val contentFr = LocalContentFocusRequester.current
+    // Internal focus requesters for loop wrap-around (G-C):
+    //   - avatarFr      : the Modern-only profile avatar (leftmost element)
+    //   - firstCategoryFr: first category pill (leftmost in Legacy)
+    val avatarFr = remember { FocusRequester() }
+    val firstCategoryFr = remember { FocusRequester() }
+    val wrapScope = rememberCoroutineScope()
+    // Channel LazyRow plumbing — declared up-front so the wrap helpers
+    // (used by the avatar and first-category-pill) can reference it
+    // without forward declarations.
+    val listState = rememberLazyListState()
+    var lastFocusedChannel by remember { mutableIntStateOf(selectedChannelIndex ?: 0) }
+    val channelFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+    fun channelFr(index: Int) = channelFocusRequesters.getOrPut(index) { FocusRequester() }
+
+    // Wrap right-edge of category zone → leftmost element of channel zone.
+    // Wrap left-edge of channel/category zone → rightmost (last channel pill).
+    val wrapToLastChannel: () -> Unit = {
+        if (channels.isNotEmpty()) {
+            wrapScope.launch {
+                val target = channels.lastIndex
+                listState.scrollToItem(target)
+                // One frame for the LazyRow to compose the now-visible
+                // last item before requesting focus on it.
+                withFrameNanos { }
+                runCatching { channelFr(target).requestFocus() }
+            }
+        }
+    }
+    val wrapToLeftmostBarItem: () -> Unit = {
+        runCatching {
+            if (isModernFeel) avatarFr.requestFocus() else firstCategoryFr.requestFocus()
+        }
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -140,6 +214,21 @@ fun TopNavigationBar(
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // ── Zone 0 (Modern only): Profile avatar ─────────────────────────────
+        if (isModernFeel) {
+            ProfileAvatarButton(
+                name = profileName.orEmpty(),
+                colorHex = profileColorHex ?: "#1E88E5",
+                avatarUrl = profileAvatarUrl,
+                onClick = onProfileClick,
+                focusRequester = avatarFr,
+                // Avatar is leftmost — D-pad Left wraps to the last channel
+                // pill (scroll-into-view first since LazyRow may have it
+                // offscreen).
+                onWrapLeft = if (channels.isNotEmpty()) wrapToLastChannel else null,
+            )
+            Spacer(Modifier.width(12.dp))
+        }
         // ── Zone 1: Category tabs ────────────────────────────────────────────
         // Bind firstTabFocusRequester (= LocalNavBarFocusRequester) to the
         // currently active category tab so that any caller invoking
@@ -153,21 +242,95 @@ fun TopNavigationBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             categories.forEachIndexed { index, label ->
-                val isActiveCategory =
-                    selectedChannelIndex == null && index == selectedCategoryIndex
-                CategoryTabItem(
-                    text = label,
-                    isSelected = isActiveCategory,
-                    onClick = { onCategorySelected(index) },
-                    onLongClick = onCategoryLongPress?.let { fire -> { fire(index) } },
-                    focusRequester = when {
-                        isActiveCategory -> firstTabFocusRequester
-                        // Fallback: if nothing is active, still attach the
-                        // requester to index 0 so navBarFr.requestFocus() works.
-                        noTabIsActive && index == 0 -> firstTabFocusRequester
-                        else -> null
-                    },
-                )
+                // key(label) gives each pill a stable composition identity
+                // across reorders, so Compose moves the existing Card
+                // rather than recreating it. Focus, internal state, and
+                // the per-pill FR all follow the pill to its new position
+                // (G-D smoothness requirement: "focus stays on the grabbed
+                // pill after the swap").
+                key(label) {
+                    val isActiveCategory =
+                        selectedChannelIndex == null && index == selectedCategoryIndex
+                    val isFirstCategory = index == 0
+                    CategoryTabItem(
+                        text = label,
+                        leadingIcon = categoryIcons?.getOrNull(index),
+                        iconsOnly = categoryIconsOnly?.getOrNull(index) == true,
+                        isSelected = isActiveCategory,
+                        onClick = { onCategorySelected(index) },
+                        onLongClick = onCategoryLongPress?.let { fire -> { fire(index) } },
+                        focusRequester = when {
+                            isActiveCategory -> firstTabFocusRequester
+                            // Fallback: if nothing is active, still attach the
+                            // requester to index 0 so navBarFr.requestFocus() works.
+                            noTabIsActive && index == 0 -> firstTabFocusRequester
+                            else -> null
+                        },
+                        // Secondary FR — always attached to the first category
+                        // pill regardless of selection state, so loop wrap-around
+                        // from the right edge has a stable target.
+                        secondaryFocusRequester = if (isFirstCategory) firstCategoryFr else null,
+                        // Modern feel stacks icon over label so the bar holds
+                        // more pills + channel pills in the same width. Legacy
+                        // keeps the original horizontal pill layout.
+                        verticalLayout = isModernFeel,
+                        editMode = editMode,
+                        onEditKey = if (editMode) { keyPressed ->
+                            when (keyPressed) {
+                                Key.DirectionLeft -> {
+                                    // Edit-mode wrap stays inside the category
+                                    // group — never spills into channel pills
+                                    // (per spec G-C wrap-categories-only).
+                                    val target = if (index > 0) index - 1 else categories.lastIndex
+                                    if (target != index) onEditSwap(index, target)
+                                    true
+                                }
+                                Key.DirectionRight -> {
+                                    val target = if (index < categories.lastIndex) index + 1 else 0
+                                    if (target != index) onEditSwap(index, target)
+                                    true
+                                }
+                                Key.DirectionDown -> {
+                                    onEditDemote(index)
+                                    true
+                                }
+                                // Select / OK = "drop" — exits edit mode and
+                                // persists the new order (G-D requirement
+                                // "Select/OK on a grabbed pill drops it in
+                                // place").
+                                Key.DirectionCenter, Key.Enter -> {
+                                    onExitEditMode()
+                                    true
+                                }
+                                Key.Back, Key.Escape -> {
+                                    onExitEditMode()
+                                    true
+                                }
+                                else -> false
+                            }
+                        } else null,
+                        // Loop wrap: first category's D-pad Left goes to the
+                        // last channel pill (Legacy & Modern share this — for
+                        // Modern the avatar sits before the categories so the
+                        // wrap point shifts to the avatar's Left key handler).
+                        onWrapLeft = if (isFirstCategory && !isModernFeel && channels.isNotEmpty()) {
+                            wrapToLastChannel
+                        } else null,
+                    )
+                }
+            }
+            // Done button — only when in edit mode. Sits right after the
+            // last category pill so the user can exit by D-pad Right then
+            // Select instead of fumbling for the Back button.
+            AnimatedVisibility(
+                visible = editMode,
+                enter = fadeIn(tween(140)),
+                exit = fadeOut(tween(140)),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.width(8.dp))
+                    DoneEditPill(onClick = onExitEditMode)
+                }
             }
         }
 
@@ -194,16 +357,6 @@ fun TopNavigationBar(
             )
         }
 
-        val listState = rememberLazyListState()
-
-        // Track the most-recently focused channel index so focusRestorer can
-        // land on it when the user re-enters the zone from left or right.
-        var lastFocusedChannel by remember { mutableIntStateOf(selectedChannelIndex ?: 0) }
-
-        // One FocusRequester per channel, lazily created and stable across recomposition.
-        val channelFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
-        fun channelFr(index: Int) = channelFocusRequesters.getOrPut(index) { FocusRequester() }
-
         LazyRow(
             state = listState,
             modifier = Modifier
@@ -218,6 +371,7 @@ fun TopNavigationBar(
                 key = { _, ch -> ch.id },
             ) { index, channel ->
                 val isActiveChannel = index == selectedChannelIndex
+                val isLastChannel = index == channels.lastIndex
                 ChannelTabItem(
                     channel = channel,
                     isSelected = isActiveChannel,
@@ -225,16 +379,18 @@ fun TopNavigationBar(
                     secondaryFocusRequester = if (isActiveChannel) firstTabFocusRequester else null,
                     onFocused = { lastFocusedChannel = index },
                     onClick = { onChannelSelected(index) },
+                    // Loop wrap: last channel pill's D-pad Right loops back
+                    // to the leftmost bar item (avatar in Modern, first
+                    // category in Legacy).
+                    onWrapRight = if (isLastChannel) wrapToLeftmostBarItem else null,
                 )
             }
         }
 
-        Spacer(Modifier.width(16.dp))
-        NavDivider()
-        Spacer(Modifier.width(16.dp))
-
-        // ── Zone 3: Networks picker ──────────────────────────────────────────
-        NetworksItem(onClick = onNetworksClick)
+        // Networks/Pill-Channels manage button removed (Task G-A) — the
+        // channel-pill LazyRow now extends to the right screen edge.
+        // Pill-channels management now lives in the Profile Overlay
+        // (Modern feel) and SideRail (Legacy feel).
     }
 }
 
@@ -248,6 +404,26 @@ private fun CategoryTabItem(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     focusRequester: FocusRequester? = null,
+    /** Second FR attached unconditionally — used for loop wrap targets. */
+    secondaryFocusRequester: FocusRequester? = null,
+    leadingIcon: ImageVector? = null,
+    /**
+     * `true` → render icon on top, label below in a compact Column
+     * (Modern feel). `false` → side-by-side Row (Legacy). Has no
+     * effect when [leadingIcon] is null.
+     */
+    verticalLayout: Boolean = false,
+    /**
+     * `true` → hide the text label and render only the icon. Only
+     * effective when [leadingIcon] is non-null; otherwise the label
+     * still shows so the pill remains identifiable.
+     */
+    iconsOnly: Boolean = false,
+    editMode: Boolean = false,
+    onEditKey: ((Key) -> Boolean)? = null,
+    /** Loop-wrap handler invoked on D-pad Left when there's nothing
+     *  to the left of this pill. Fires before the default focus search. */
+    onWrapLeft: (() -> Unit)? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     // Tracks whether a long-press has already fired for the current key hold.
@@ -273,11 +449,19 @@ private fun CategoryTabItem(
         animationSpec = tween(150),
         label = "catText",
     )
+    val isGrabbed = editMode && isFocused
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.04f else 1f,
+        targetValue = when {
+            isGrabbed -> 1.12f
+            isFocused -> 1.04f
+            else -> 1f
+        },
         animationSpec = spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow),
         label = "catScale",
     )
+    // Edit-mode "moveable" cue: static accent border on every pill so the
+    // user can see at a glance which surface accepts reorder gestures.
+    val editBorderColor = if (editMode) accentColor.copy(alpha = 0.45f) else PillFocusBorder
 
     Card(
         onClick = onClick,
@@ -287,7 +471,30 @@ private fun CategoryTabItem(
                 if (focusRequester != null) Modifier.focusRequester(focusRequester)
                 else Modifier
             )
+            .then(
+                if (secondaryFocusRequester != null) Modifier.focusRequester(secondaryFocusRequester)
+                else Modifier
+            )
             .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+            // Loop-wrap left handler — fires only when this pill receives
+            // a Left key and no edit-mode handler swallows it first.
+            .then(
+                if (onWrapLeft != null) Modifier.onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft && !editMode) {
+                        onWrapLeft()
+                        true
+                    } else false
+                } else Modifier
+            )
+            // Edit-mode key handler intercepts L/R/Down/Back before the
+            // long-press logic; runs only when this pill is the grabbed
+            // (focused-in-editMode) one.
+            .then(
+                if (onEditKey != null) Modifier.onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    onEditKey(event.key)
+                } else Modifier
+            )
             .then(
                 if (onLongClick != null) Modifier.onPreviewKeyEvent { event ->
                     val isCenter = event.key == Key.DirectionCenter || event.key == Key.Enter
@@ -322,21 +529,74 @@ private fun CategoryTabItem(
             focusedContainerColor = bgColor,
         ),
         border = CardDefaults.border(
-            border = Border.None,
+            border = if (editMode) Border(
+                border = BorderStroke(1.dp, editBorderColor),
+                shape = PillShape,
+            ) else Border.None,
             focusedBorder = Border(
-                border = BorderStroke(1.5.dp, PillFocusBorder),
+                border = BorderStroke(if (isGrabbed) 2.dp else 1.5.dp, if (isGrabbed) accentColor else PillFocusBorder),
                 shape = PillShape,
             ),
         ),
         scale = CardDefaults.scale(focusedScale = 1f),
     ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
-            style = MaterialTheme.typography.titleSmall,
-            color = textColor,
-            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-        )
+        // Icons-only short-circuit: render the leading icon centered in
+        // a square pill, no label. Falls back to the standard layouts if
+        // there's no icon to show (otherwise the pill would be empty).
+        if (iconsOnly && leadingIcon != null) {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = text,
+                    tint = textColor,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        } else if (verticalLayout && leadingIcon != null) {
+            // Compact stacked layout — icon on top, label below — used by
+            // Modern feel so more pills fit in the same bar width.
+            androidx.compose.foundation.layout.Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = null,
+                    tint = textColor,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = textColor,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (leadingIcon != null) 8.dp else 0.dp),
+            ) {
+                if (leadingIcon != null) {
+                    Icon(
+                        imageVector = leadingIcon,
+                        contentDescription = null,
+                        tint = textColor,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = textColor,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                )
+            }
+        }
     }
 }
 
@@ -349,6 +609,8 @@ private fun ChannelTabItem(
     onFocused: () -> Unit,
     onClick: () -> Unit,
     secondaryFocusRequester: FocusRequester? = null,
+    /** Loop-wrap handler for D-pad Right when this is the last channel. */
+    onWrapRight: (() -> Unit)? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
@@ -380,6 +642,14 @@ private fun ChannelTabItem(
             .then(
                 if (secondaryFocusRequester != null) Modifier.focusRequester(secondaryFocusRequester)
                 else Modifier
+            )
+            .then(
+                if (onWrapRight != null) Modifier.onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
+                        onWrapRight()
+                        true
+                    } else false
+                } else Modifier
             )
             .onFocusChanged {
                 val nowFocused = it.isFocused || it.hasFocus
@@ -436,57 +706,99 @@ private fun ChannelTabItem(
     }
 }
 
+/**
+ * Compact "Done" pill rendered after the category zone while Edit Mode
+ * is active. Select → exits edit mode and persists the current order.
+ */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun NetworksItem(onClick: () -> Unit) {
+private fun DoneEditPill(onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
-
-    val bgColor by animateColorAsState(
-        targetValue = if (isFocused) PillFocusedBg else Color.Transparent,
-        animationSpec = tween(150),
-        label = "subsBg",
-    )
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (isFocused) 1f else 0.75f,
-        animationSpec = tween(150),
-        label = "subsAlpha",
-    )
-
+    val accent = NuvioColors.Secondary
     Card(
         onClick = onClick,
         modifier = Modifier.onFocusChanged { isFocused = it.isFocused || it.hasFocus },
         shape = CardDefaults.shape(PillShape),
         colors = CardDefaults.colors(
-            containerColor = bgColor,
-            focusedContainerColor = bgColor,
+            containerColor = if (isFocused) accent else accent.copy(alpha = 0.25f),
+            focusedContainerColor = accent,
+        ),
+        border = CardDefaults.border(
+            border = Border(
+                border = BorderStroke(1.dp, accent),
+                shape = PillShape,
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, Color.White),
+                shape = PillShape,
+            ),
+        ),
+        scale = CardDefaults.scale(focusedScale = 1.04f),
+    ) {
+        Text(
+            text = "Done",
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+            style = MaterialTheme.typography.titleSmall,
+            color = if (isFocused) Color.White else Color.White.copy(alpha = 0.92f),
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+/**
+ * Focusable circular profile avatar at the far left of the Modern TopBar.
+ * Press Select → opens the Profile Overlay (wired in F6 via [onClick]).
+ * Focused state shows an accent ring so D-pad position stays visible.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ProfileAvatarButton(
+    name: String,
+    colorHex: String,
+    avatarUrl: String?,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+    onWrapLeft: (() -> Unit)? = null,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .size(36.dp)
+            .then(
+                if (focusRequester != null) Modifier.focusRequester(focusRequester)
+                else Modifier
+            )
+            .then(
+                if (onWrapLeft != null) Modifier.onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                        onWrapLeft()
+                        true
+                    } else false
+                } else Modifier
+            )
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus },
+        shape = CardDefaults.shape(androidx.compose.foundation.shape.CircleShape),
+        colors = CardDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent,
         ),
         border = CardDefaults.border(
             border = Border.None,
             focusedBorder = Border(
-                border = BorderStroke(1.5.dp, PillFocusBorder),
-                shape = PillShape,
+                border = BorderStroke(2.dp, com.nuvio.tv.ui.theme.NuvioColors.Secondary),
+                shape = androidx.compose.foundation.shape.CircleShape,
             ),
         ),
-        scale = CardDefaults.scale(focusedScale = 1f),
+        scale = CardDefaults.scale(focusedScale = 1.06f),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = contentAlpha),
-                modifier = Modifier.size(15.dp),
-            )
-            Text(
-                text = "Networks",
-                style = MaterialTheme.typography.titleSmall,
-                color = Color.White.copy(alpha = contentAlpha),
-                fontWeight = FontWeight.Medium,
-            )
-        }
+        ProfileAvatarCircle(
+            name = name,
+            colorHex = colorHex,
+            size = 32.dp,
+            avatarImageUrl = avatarUrl,
+            modifier = Modifier.padding(2.dp),
+        )
     }
 }
 

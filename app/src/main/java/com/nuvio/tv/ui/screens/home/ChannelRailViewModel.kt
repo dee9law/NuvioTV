@@ -28,6 +28,10 @@ data class FolderPillOption(
     val folderId: String,
     val folderTitle: String,
     val enabled: Boolean,
+    /** Optional title-treatment logo URL from collections.json. When
+     *  set, the picker row renders it alongside [folderTitle] just like
+     *  the channel pills on the TopBar (Task G-A parity). */
+    val titleLogoUrl: String? = null,
 )
 
 private val PillBrandColor = Color(0xFF4A90D9)
@@ -103,6 +107,7 @@ class ChannelRailViewModel @Inject constructor(
                     folderId = folder.id,
                     folderTitle = folder.title,
                     enabled = saved?.enabled ?: true,
+                    titleLogoUrl = folder.titleLogoUrl,
                 )
             }
         }

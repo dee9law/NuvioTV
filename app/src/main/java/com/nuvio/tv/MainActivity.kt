@@ -57,7 +57,9 @@ import com.nuvio.tv.data.repository.TraktProgressService
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.AuthState
+import com.nuvio.tv.domain.model.CategoryPill
 import com.nuvio.tv.domain.model.ExperienceMode
+import com.nuvio.tv.domain.model.Feel
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.core.sync.ProfileSettingsSyncService
 import com.nuvio.tv.core.sync.ProfileSyncService
@@ -65,9 +67,18 @@ import com.nuvio.tv.core.sync.StartupSyncService
 import com.nuvio.tv.data.remote.supabase.AvatarRepository
 import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Tv
+import com.nuvio.tv.ui.components.CategoryPillsViewModel
 import com.nuvio.tv.ui.components.CollectionsDropdown
 import com.nuvio.tv.ui.components.FolderPillsDropdown
 import com.nuvio.tv.ui.components.NuvioScrollDefaults
+import com.nuvio.tv.ui.components.ProfileOverlay
+import com.nuvio.tv.ui.components.ProfileOverlayDestination
+import com.nuvio.tv.ui.components.ProfileOverlayHiddenItem
 import com.nuvio.tv.ui.components.SideRail
 import com.nuvio.tv.ui.components.TopNavigationBar
 import com.nuvio.tv.ui.screens.home.ChannelRailViewModel
@@ -103,7 +114,8 @@ private data class MainUiPrefs(
     val addonSetupSkipped: Boolean = false,
     val smoothBringIntoViewEnabled: Boolean = true,
     val fastHorizontalNavigationEnabled: Boolean = false,
-    val composeHighlighterEnabled: Boolean = false
+    val composeHighlighterEnabled: Boolean = false,
+    val navigationFeel: Feel = Feel.MODERN,
 )
 
 @AndroidEntryPoint
@@ -271,6 +283,8 @@ class MainActivity : ComponentActivity() {
                     prefs.copy(fastHorizontalNavigationEnabled = fastHorizontalNavigationEnabled)
                 }.combine(layoutPreferenceDataStore.composeHighlighterEnabled) { prefs, composeHighlighterEnabled ->
                     prefs.copy(composeHighlighterEnabled = composeHighlighterEnabled)
+                }.combine(layoutPreferenceDataStore.navigationFeel) { prefs, feel ->
+                    prefs.copy(navigationFeel = feel)
                 }
             }
             val mainUiPrefs by mainUiPrefsFlow.collectAsState(initial = MainUiPrefs(hasChosenLayout = null))
@@ -468,6 +482,7 @@ class MainActivity : ComponentActivity() {
                         profileColorHex = activeProfile?.avatarColorHex,
                         profileAvatarUrl = activeProfileAvatarImageUrl,
                         showDiscoverInRail = showDiscoverInRail,
+                        navigationFeel = mainUiPrefs.navigationFeel,
                     )
 
                     if (AppFeaturePolicy.inAppUpdatesEnabled && !BuildConfig.IS_DEBUG_BUILD) {
@@ -535,7 +550,9 @@ private fun TopNavBarScaffold(
     profileColorHex: String?,
     profileAvatarUrl: String?,
     showDiscoverInRail: Boolean,
+    navigationFeel: Feel,
 ) {
+    val isModernFeel = navigationFeel == Feel.MODERN
     val showTopNav = currentRoute in rootRoutes
     val contentFocusRequester = remember { FocusRequester() }
     val navBarFr              = remember { FocusRequester() }
@@ -545,6 +562,13 @@ private fun TopNavBarScaffold(
     val railPills by channelRailVm.enabledPills.collectAsState()
     val folderPillOptions by channelRailVm.allFolderOptions.collectAsState()
     var showFolderPillsDropdown by remember { mutableStateOf(false) }
+
+    // Modern-feel category pill ordering (F9 + F10). Powers the dynamic
+    // TopBar pill list and the Profile Overlay's Hidden Items section.
+    val pillsVm: CategoryPillsViewModel = hiltViewModel()
+    val topbarPills by pillsVm.topbarPills.collectAsState()
+    val drawerPills by pillsVm.drawerPills.collectAsState()
+    val pillOrderFull by pillsVm.order.collectAsState()
 
     val collectionRailVm: com.nuvio.tv.ui.screens.collection.CollectionRailViewModel = hiltViewModel()
     val allCollections by collectionRailVm.collections.collectAsState()
@@ -561,25 +585,81 @@ private fun TopNavBarScaffold(
     var selectedCategoryIndex by remember { mutableIntStateOf(0) }
     var selectedChannelIndex  by remember { mutableStateOf<Int?>(null) }
 
-    // Keep nav bar visual state in sync with the current screen.
-    LaunchedEffect(currentRoute) {
-        when (currentRoute) {
-            Screen.Home.route            -> { selectedCategoryIndex = 0; selectedChannelIndex = null }
-            Screen.Movies.route          -> { selectedCategoryIndex = 1; selectedChannelIndex = null }
-            Screen.TvShows.route         -> { selectedCategoryIndex = 2; selectedChannelIndex = null }
-            Screen.CollectionsHome.route -> { selectedCategoryIndex = 3; selectedChannelIndex = null }
-            Screen.Discover.route        -> { selectedCategoryIndex = -1; selectedChannelIndex = null }
-            // On non-content screens (Search, Settings, Account) highlight nothing.
-            else                  -> selectedCategoryIndex = -1
+    // ── F10 Edit Mode state ──────────────────────────────────────────────
+    // Modern-feel-only. Long-press on a non-Collections category pill
+    // flips this on; Back / Done flips it off (and persists via the
+    // ViewModel's writes — every swap/demote/promote saves on the spot).
+    var editMode by remember { mutableStateOf(false) }
+    LaunchedEffect(navigationFeel) {
+        // If the user flips back to Legacy mid-edit, drop edit state so
+        // it doesn't reappear unexpectedly the next time they re-enter
+        // Modern.
+        if (!isModernFeel) editMode = false
+    }
+
+    // Route ↔ CategoryPill mapping. Used in Modern feel to drive the
+    // dynamic pill list selection state and to translate index taps
+    // through the live (reorderable) topbarPills list.
+    val pillForRoute: (String?) -> CategoryPill? = remember {
+        { route ->
+            when (route) {
+                Screen.Home.route -> CategoryPill.HOME
+                Screen.Movies.route -> CategoryPill.MOVIES
+                Screen.TvShows.route -> CategoryPill.TV_SHOWS
+                Screen.CollectionsHome.route -> CategoryPill.COLLECTIONS
+                else -> null
+            }
         }
+    }
+    val routeForPill: (CategoryPill) -> String = remember {
+        { pill ->
+            when (pill) {
+                CategoryPill.HOME -> Screen.Home.route
+                CategoryPill.MOVIES -> Screen.Movies.route
+                CategoryPill.TV_SHOWS -> Screen.TvShows.route
+                CategoryPill.COLLECTIONS -> Screen.CollectionsHome.route
+            }
+        }
+    }
+
+    // Keep nav bar visual state in sync with the current screen.
+    // Modern: derived from topbarPills (positions change when the user
+    // reorders or demotes). Legacy: fixed 0..3 mapping as before.
+    LaunchedEffect(currentRoute, topbarPills, isModernFeel) {
+        if (isModernFeel) {
+            val pill = pillForRoute(currentRoute)
+            selectedCategoryIndex = if (pill != null) topbarPills.indexOf(pill) else -1
+            selectedChannelIndex = null
+        } else {
+            when (currentRoute) {
+                Screen.Home.route            -> { selectedCategoryIndex = 0; selectedChannelIndex = null }
+                Screen.Movies.route          -> { selectedCategoryIndex = 1; selectedChannelIndex = null }
+                Screen.TvShows.route         -> { selectedCategoryIndex = 2; selectedChannelIndex = null }
+                Screen.CollectionsHome.route -> { selectedCategoryIndex = 3; selectedChannelIndex = null }
+                Screen.Discover.route        -> { selectedCategoryIndex = -1; selectedChannelIndex = null }
+                // On non-content screens (Search, Settings, Account) highlight nothing.
+                else                  -> selectedCategoryIndex = -1
+            }
+        }
+    }
+
+    // Back during edit mode exits edit mode instead of bubbling to the
+    // app-exit handler below. Composed inside this scaffold so it's
+    // disabled automatically when editMode flips off.
+    BackHandler(enabled = editMode) {
+        editMode = false
     }
 
     BackHandler(enabled = currentRoute in rootRoutes, onBack = onExitApp)
 
-    // D-pad Left at leftmost content item moves focus into the SideRail.
+    // D-pad Left at leftmost content item moves focus into the SideRail
+    // (Legacy) or opens the Profile Overlay (Modern). Same composition
+    // local — different destination based on Feel.
+    var showProfileOverlay by remember { mutableStateOf(false) }
     val openSideRail: () -> Unit = remember(sideRailFr) {
         { runCatching { sideRailFr.requestFocus() } }
     }
+    val openProfileOverlay: () -> Unit = remember { { showProfileOverlay = true } }
 
     // Per Prime Video reference: the SideRail is a true overlay. When the
     // user expands it, it overlaps the leftmost category pill rather than
@@ -596,7 +676,9 @@ private fun TopNavBarScaffold(
     CompositionLocalProvider(
         LocalContentFocusRequester provides contentFocusRequester,
         LocalNavBarFocusRequester  provides navBarFr,
-        LocalSideRailController   provides openSideRail,
+        // Modern feel reuses the SideRail D-pad-Left mechanism to open the
+        // Profile Overlay instead — same trigger, new destination.
+        LocalSideRailController   provides if (isModernFeel) openProfileOverlay else openSideRail,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
 
@@ -628,14 +710,71 @@ private fun TopNavBarScaffold(
                     modifier = Modifier
                         .alpha(topBarAlpha)
                 ) {
+                // Modern feel uses the dynamic reorderable pill list; Legacy
+                // keeps the original fixed Home/Movies/TV/Collections order.
+                val effectiveCategories = if (isModernFeel) {
+                    topbarPills.map { it.displayLabel }
+                } else {
+                    listOf("Home", "Movies", "TV Shows", "Collections")
+                }
+                val effectiveCategoryIcons = if (isModernFeel) {
+                    topbarPills.map { pill ->
+                        when (pill) {
+                            CategoryPill.HOME -> Icons.Default.Home
+                            CategoryPill.MOVIES -> Icons.Default.Movie
+                            CategoryPill.TV_SHOWS -> Icons.Default.Tv
+                            CategoryPill.COLLECTIONS -> Icons.Default.Folder
+                        }
+                    }
+                } else null
+                val effectiveCategoryIconsOnly = if (isModernFeel) {
+                    topbarPills.map { pill ->
+                        pillOrderFull.firstOrNull { it.pill == pill }?.iconsOnly == true
+                    }
+                } else null
                 TopNavigationBar(
+                    categories = effectiveCategories,
                     channels = effectiveChannels,
                     selectedCategoryIndex = selectedCategoryIndex,
                     selectedChannelIndex = selectedChannelIndex,
                     firstTabFocusRequester = navBarFr,
                     collectionContextLabel = selectedCollection?.title,
+                    isModernFeel = isModernFeel,
+                    profileName = profileName,
+                    profileColorHex = profileColorHex,
+                    profileAvatarUrl = profileAvatarUrl,
+                    onProfileClick = { showProfileOverlay = true },
+                    categoryIcons = effectiveCategoryIcons,
+                    categoryIconsOnly = effectiveCategoryIconsOnly,
+                    editMode = editMode && isModernFeel,
+                    onEditSwap = { fromVisible, toVisible ->
+                        // The TopBar speaks in visible-pill indices; the
+                        // ViewModel speaks in full-order indices. Translate.
+                        val fromPill = topbarPills.getOrNull(fromVisible) ?: return@TopNavigationBar
+                        val toPill = topbarPills.getOrNull(toVisible) ?: return@TopNavigationBar
+                        val full = pillsVm.order.value
+                        val a = full.indexOfFirst { it.pill == fromPill }
+                        val b = full.indexOfFirst { it.pill == toPill }
+                        if (a >= 0 && b >= 0) pillsVm.swap(a, b)
+                    },
+                    onEditDemote = { visibleIndex ->
+                        val pill = topbarPills.getOrNull(visibleIndex) ?: return@TopNavigationBar
+                        pillsVm.demote(pill)
+                    },
+                    onExitEditMode = { editMode = false },
                     onCategoryLongPress = { index ->
-                        if (index == 3) showCollectionsDropdown = true
+                        if (isModernFeel) {
+                            val pill = topbarPills.getOrNull(index)
+                            when (pill) {
+                                // Collections preserves its long-press =
+                                // CollectionsDropdown behavior in both feels.
+                                CategoryPill.COLLECTIONS -> showCollectionsDropdown = true
+                                null -> Unit
+                                else -> editMode = true
+                            }
+                        } else {
+                            if (index == 3) showCollectionsDropdown = true
+                        }
                     },
                     onCategorySelected = { index ->
                         selectedCategoryIndex = index
@@ -643,7 +782,10 @@ private fun TopNavBarScaffold(
                         // Reset the rail back to network channels whenever any
                         // category pill is clicked.
                         collectionRailVm.clear()
-                        val route = when (index) {
+                        val route = if (isModernFeel) {
+                            val pill = topbarPills.getOrNull(index) ?: CategoryPill.HOME
+                            routeForPill(pill)
+                        } else when (index) {
                             1    -> Screen.Movies.route
                             2    -> Screen.TvShows.route
                             3    -> Screen.CollectionsHome.route
@@ -667,13 +809,15 @@ private fun TopNavBarScaffold(
                         // (TMDB-networks rail removed in favor of the
                         // user-curated cross-collection folder rail.)
                     },
-                    onNetworksClick = { showFolderPillsDropdown = true },
                 )
                 } // immersion alpha wrapper
             }
 
             // Permanent transparent icon rail, vertically centered on the left edge.
-            if (showTopNav) {
+            // Modern feel skips the rail entirely — content runs edge-to-edge
+            // and the profile/Search/Discover entry points live in the
+            // Profile Overlay opened from the avatar (added in F4–F6).
+            if (showTopNav && !isModernFeel) {
                 SideRail(
                     onSearchClick = {
                         onNavigate(Screen.Search.route)
@@ -699,6 +843,7 @@ private fun TopNavBarScaffold(
                         onNavigate(Screen.Settings.route)
                         navigateToTopNavRoute(navController, currentRoute, Screen.Settings.route)
                     },
+                    onPillChannelsClick = { showFolderPillsDropdown = true },
                     onProfileClick = {
                         navController.navigate(Screen.ManageProfiles.route)
                     },
@@ -744,6 +889,58 @@ private fun TopNavBarScaffold(
                     offset = dropdownOffset,
                     onToggle = { option -> channelRailVm.togglePill(option) },
                     onDismiss = { showFolderPillsDropdown = false },
+                )
+            }
+
+            // Modern-feel-only Profile Overlay. Drawn last so it sits on top
+            // of TopBar + NavHost. Triggered by avatar Select or D-pad Left
+            // at content carousel index 0 (via LocalSideRailController).
+            if (isModernFeel) {
+                ProfileOverlay(
+                    visible = showProfileOverlay,
+                    profileName = profileName,
+                    profileColorHex = profileColorHex,
+                    profileAvatarUrl = profileAvatarUrl,
+                    onDismiss = {
+                        showProfileOverlay = false
+                        runCatching { navBarFr.requestFocus() }
+                    },
+                    onNavigate = { destination ->
+                        showProfileOverlay = false
+                        when (destination) {
+                            ProfileOverlayDestination.PILL_CHANNELS -> {
+                                // Pill Channels is a popup, not a screen —
+                                // close overlay then open the FolderPills
+                                // dropdown over the (now empty) TopBar slot.
+                                showFolderPillsDropdown = true
+                            }
+                            else -> {
+                                val route = when (destination) {
+                                    ProfileOverlayDestination.SEARCH -> Screen.Search.route
+                                    ProfileOverlayDestination.DISCOVER -> Screen.Discover.route
+                                    ProfileOverlayDestination.MY_STUFF -> Screen.Library.route
+                                    ProfileOverlayDestination.SETTINGS -> Screen.Settings.route
+                                    ProfileOverlayDestination.MANAGE_PROFILES -> Screen.ManageProfiles.route
+                                    ProfileOverlayDestination.PILL_CHANNELS -> Screen.Home.route
+                                }
+                                onNavigate(route)
+                                navigateToTopNavRoute(navController, currentRoute, route)
+                            }
+                        }
+                    },
+                    // Demoted category pills surface here. Selecting one
+                    // promotes it back to the TopBar AND navigates to its
+                    // route in one motion — saves a second click.
+                    hiddenItems = drawerPills.map { pill ->
+                        ProfileOverlayHiddenItem(id = pill.storageId, label = pill.displayLabel)
+                    },
+                    onHiddenItemSelected = { item ->
+                        val pill = CategoryPill.fromStorageId(item.id) ?: return@ProfileOverlay
+                        pillsVm.promote(pill)
+                        val route = routeForPill(pill)
+                        onNavigate(route)
+                        navigateToTopNavRoute(navController, currentRoute, route)
+                    },
                 )
             }
         }

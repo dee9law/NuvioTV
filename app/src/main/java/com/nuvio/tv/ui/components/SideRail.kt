@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -86,7 +87,7 @@ private val ExpandDurationMs    = 300
  * subtle white-10% highlight. Mapped from the current nav route in
  * [MainActivity] — no business logic lives in the rail itself.
  */
-enum class SideRailItem { Profile, Search, Home, Discover, MyStuff, Settings }
+enum class SideRailItem { Profile, Search, Home, Discover, MyStuff, PillChannels, Settings }
 
 // ── Public composable ─────────────────────────────────────────────────────────
 
@@ -117,6 +118,7 @@ fun SideRail(
     profileAvatarUrl: String?,
     showDiscover: Boolean = true,
     onProfileClick: () -> Unit = {},
+    onPillChannelsClick: () -> Unit = {},
     firstItemFocusRequester: FocusRequester? = null,
     activeItem: SideRailItem? = null,
     onExpandedChange: (Boolean) -> Unit = {},
@@ -199,6 +201,7 @@ fun SideRail(
             SideRailItem.Search,
             SideRailItem.Home,
             SideRailItem.MyStuff,
+            SideRailItem.PillChannels,
             SideRailItem.Settings -> activeItem
             SideRailItem.Discover -> if (showDiscover) SideRailItem.Discover else SideRailItem.Home
             null -> SideRailItem.Home
@@ -262,6 +265,15 @@ fun SideRail(
                 isActive = activeItem == SideRailItem.MyStuff,
                 onClick = onMyStuffClick,
                 focusRequester = requesterFor(SideRailItem.MyStuff),
+            )
+            RailItem(
+                icon = Icons.Default.Tune,
+                label = "Pill Channels",
+                expanded = hasFocus,
+                labelAlpha = labelAlpha,
+                isActive = activeItem == SideRailItem.PillChannels,
+                onClick = onPillChannelsClick,
+                focusRequester = requesterFor(SideRailItem.PillChannels),
             )
             RailItem(
                 icon = Icons.Default.Settings,

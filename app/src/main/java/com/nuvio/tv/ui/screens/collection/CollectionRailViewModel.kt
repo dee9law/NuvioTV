@@ -71,6 +71,11 @@ class CollectionRailViewModel @Inject constructor(
                     id = encodeFolderTabId(collection.id, folder.id),
                     name = folder.title,
                     brandColor = FolderTabBrandColor,
+                    // Mirror the default-channel-rail behavior (G-A) so
+                    // collection-folder pills also show the JSON
+                    // titleLogoUrl when present, instead of falling back
+                    // to text-only.
+                    titleLogoUrl = folder.titleLogoUrl,
                 )
             } ?: emptyList()
         }

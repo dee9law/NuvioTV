@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -90,6 +94,7 @@ fun FolderPillsDropdown(
         BackHandler(enabled = true) { onDismiss() }
 
         val firstItemFr = remember { FocusRequester() }
+        val lastItemFr = remember { FocusRequester() }
         LaunchedEffect(Unit) {
             repeat(4) { withFrameNanos { } }
             runCatching { firstItemFr.requestFocus() }
@@ -100,6 +105,7 @@ fun FolderPillsDropdown(
         // emits options in collection × folder order already.
         val groupedKeys = options.groupBy { it.collectionId }.keys.toList()
         val firstItemCollectionId = options.firstOrNull()?.collectionId
+        val lastOption = options.lastOrNull()
 
         Box(
             modifier = Modifier
@@ -126,9 +132,15 @@ fun FolderPillsDropdown(
                     ) { row ->
                         val isFirst = collectionId == firstItemCollectionId &&
                             row.folderId == rows.first().folderId
+                        val isLast = lastOption != null &&
+                            row.collectionId == lastOption.collectionId &&
+                            row.folderId == lastOption.folderId
                         FolderRow(
                             option = row,
                             focusRequester = if (isFirst) firstItemFr else null,
+                            secondaryFocusRequester = if (isLast) lastItemFr else null,
+                            wrapUpTo = if (isFirst) lastItemFr else null,
+                            wrapDownTo = if (isLast) firstItemFr else null,
                             onClick = { onToggle(row) },
                         )
                     }
@@ -157,6 +169,9 @@ private fun FolderRow(
     option: FolderPillOption,
     onClick: () -> Unit,
     focusRequester: FocusRequester?,
+    secondaryFocusRequester: FocusRequester? = null,
+    wrapUpTo: FocusRequester? = null,
+    wrapDownTo: FocusRequester? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -183,6 +198,18 @@ private fun FolderRow(
             .then(
                 if (focusRequester != null) Modifier.focusRequester(focusRequester)
                 else Modifier
+            )
+            .then(
+                if (secondaryFocusRequester != null) Modifier.focusRequester(secondaryFocusRequester)
+                else Modifier
+            )
+            .then(
+                if (wrapUpTo != null || wrapDownTo != null) {
+                    Modifier.focusProperties {
+                        if (wrapUpTo != null) up = wrapUpTo
+                        if (wrapDownTo != null) down = wrapDownTo
+                    }
+                } else Modifier
             )
             .onFocusChanged { isFocused = it.isFocused || it.hasFocus },
         shape = ClickableSurfaceDefaults.shape(shape = ItemShape),
@@ -215,6 +242,19 @@ private fun FolderRow(
                         shape = CircleShape,
                     ),
             )
+            // Title logo when the folder JSON provides one — matches the
+            // channel-pill treatment (G-A) so picker rows look like the
+            // pills they govern.
+            if (!option.titleLogoUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = option.titleLogoUrl,
+                    contentDescription = option.folderTitle,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .heightIn(max = 18.dp)
+                        .widthIn(max = 64.dp),
+                )
+            }
             Text(
                 text = option.folderTitle,
                 style = MaterialTheme.typography.bodyMedium,

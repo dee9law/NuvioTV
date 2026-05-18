@@ -22,11 +22,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -80,10 +82,17 @@ fun CollectionsDropdown(
         BackHandler(enabled = true) { onDismiss() }
 
         val firstItemFocusRequester = remember { FocusRequester() }
+        val lastItemFocusRequester = remember { FocusRequester() }
         LaunchedEffect(Unit) {
-            // The popup window needs a couple frames before its decor view is
-            // attached and willing to accept focus.
+            // Wait long enough for the user's long-press D-pad-Center
+            // release to land BEFORE we grab focus — otherwise the
+            // first item gets the KeyUp event and fires its onClick,
+            // closing the dropdown the moment it opens (F1 bug). 280ms
+            // comfortably exceeds the system long-press detect window
+            // (~500ms hold) plus typical release reaction time, while
+            // still feeling snappy for keyboard / explicit re-opens.
             repeat(4) { withFrameNanos { } }
+            delay(280)
             runCatching { firstItemFocusRequester.requestFocus() }
         }
 
@@ -103,9 +112,15 @@ fun CollectionsDropdown(
                     items = collections,
                     key = { _, c -> c.id },
                 ) { index, collection ->
+                    val isFirst = index == 0
+                    val isLast = index == collections.lastIndex
                     DropdownItem(
                         title = collection.title,
-                        focusRequester = if (index == 0) firstItemFocusRequester else null,
+                        focusRequester = if (isFirst) firstItemFocusRequester else null,
+                        secondaryFocusRequester = if (isLast) lastItemFocusRequester else null,
+                        // Wrap: top item's Up → last item; bottom's Down → first.
+                        wrapUpTo = if (isFirst) lastItemFocusRequester else null,
+                        wrapDownTo = if (isLast) firstItemFocusRequester else null,
                         onClick = {
                             onSelect(collection)
                             onDismiss()
@@ -123,6 +138,9 @@ private fun DropdownItem(
     title: String,
     onClick: () -> Unit,
     focusRequester: FocusRequester?,
+    secondaryFocusRequester: FocusRequester? = null,
+    wrapUpTo: FocusRequester? = null,
+    wrapDownTo: FocusRequester? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -143,6 +161,18 @@ private fun DropdownItem(
             .then(
                 if (focusRequester != null) Modifier.focusRequester(focusRequester)
                 else Modifier
+            )
+            .then(
+                if (secondaryFocusRequester != null) Modifier.focusRequester(secondaryFocusRequester)
+                else Modifier
+            )
+            .then(
+                if (wrapUpTo != null || wrapDownTo != null) {
+                    Modifier.focusProperties {
+                        if (wrapUpTo != null) up = wrapUpTo
+                        if (wrapDownTo != null) down = wrapDownTo
+                    }
+                } else Modifier
             )
             .onFocusChanged { isFocused = it.isFocused || it.hasFocus },
         shape = CardDefaults.shape(ItemShape),
