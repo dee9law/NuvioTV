@@ -13,6 +13,11 @@ import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.remote.api.TorboxApi
 import com.nuvio.tv.domain.model.DEBRID_PREPARE_INSTANT_PLAYBACK_DEFAULT_LIMIT
 import com.nuvio.tv.domain.model.DebridSettings
+import com.nuvio.tv.domain.model.DebridStreamCodecFilter
+import com.nuvio.tv.domain.model.DebridStreamFeatureFilter
+import com.nuvio.tv.domain.model.DebridStreamMinimumQuality
+import com.nuvio.tv.domain.model.DebridStreamPreferences
+import com.nuvio.tv.domain.model.DebridStreamSortMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -72,7 +77,8 @@ class DebridSettingsViewModel @Inject constructor(
                 val state = _uiState.value
                 DebridFormatterSettings(
                     nameTemplate = state.streamNameTemplate,
-                    descriptionTemplate = state.streamDescriptionTemplate
+                    descriptionTemplate = state.streamDescriptionTemplate,
+                    streamPreferences = state.streamPreferences
                 )
             },
             onSettingsChanged = { settings ->
@@ -81,6 +87,7 @@ class DebridSettingsViewModel @Inject constructor(
                         nameTemplate = settings.nameTemplate,
                         descriptionTemplate = settings.descriptionTemplate
                     )
+                    dataStore.setStreamPreferences(settings.streamPreferences)
                 }
             }
         )
@@ -126,6 +133,34 @@ class DebridSettingsViewModel @Inject constructor(
 
     fun setInstantPlaybackPreparationLimit(limit: Int) {
         update { dataStore.setInstantPlaybackPreparationLimit(limit) }
+    }
+
+    fun setStreamMaxResults(maxResults: Int) {
+        update { dataStore.setStreamMaxResults(maxResults) }
+    }
+
+    fun setStreamSortMode(mode: DebridStreamSortMode) {
+        update { dataStore.setStreamSortMode(mode) }
+    }
+
+    fun setStreamMinimumQuality(quality: DebridStreamMinimumQuality) {
+        update { dataStore.setStreamMinimumQuality(quality) }
+    }
+
+    fun setStreamDolbyVisionFilter(filter: DebridStreamFeatureFilter) {
+        update { dataStore.setStreamDolbyVisionFilter(filter) }
+    }
+
+    fun setStreamHdrFilter(filter: DebridStreamFeatureFilter) {
+        update { dataStore.setStreamHdrFilter(filter) }
+    }
+
+    fun setStreamCodecFilter(filter: DebridStreamCodecFilter) {
+        update { dataStore.setStreamCodecFilter(filter) }
+    }
+
+    fun setStreamPreferences(preferences: DebridStreamPreferences) {
+        update { dataStore.setStreamPreferences(preferences) }
     }
 
     fun validateAndSaveTorboxApiKey(value: String, onSuccess: () -> Unit) {
@@ -175,6 +210,13 @@ data class DebridSettingsUiState(
     val torboxApiKey: String = "",
     val realDebridApiKey: String = "",
     val instantPlaybackPreparationLimit: Int = 0,
+    val streamMaxResults: Int = 0,
+    val streamSortMode: DebridStreamSortMode = DebridStreamSortMode.DEFAULT,
+    val streamMinimumQuality: DebridStreamMinimumQuality = DebridStreamMinimumQuality.ANY,
+    val streamDolbyVisionFilter: DebridStreamFeatureFilter = DebridStreamFeatureFilter.ANY,
+    val streamHdrFilter: DebridStreamFeatureFilter = DebridStreamFeatureFilter.ANY,
+    val streamCodecFilter: DebridStreamCodecFilter = DebridStreamCodecFilter.ANY,
+    val streamPreferences: DebridStreamPreferences = DebridStreamPreferences(),
     val streamNameTemplate: String = "",
     val streamDescriptionTemplate: String = "",
     val isFormatterQrModeActive: Boolean = false,
@@ -190,6 +232,13 @@ data class DebridSettingsUiState(
         torboxApiKey = settings.torboxApiKey,
         realDebridApiKey = settings.realDebridApiKey,
         instantPlaybackPreparationLimit = settings.instantPlaybackPreparationLimit,
+        streamMaxResults = settings.streamMaxResults,
+        streamSortMode = settings.streamSortMode,
+        streamMinimumQuality = settings.streamMinimumQuality,
+        streamDolbyVisionFilter = settings.streamDolbyVisionFilter,
+        streamHdrFilter = settings.streamHdrFilter,
+        streamCodecFilter = settings.streamCodecFilter,
+        streamPreferences = settings.streamPreferences,
         streamNameTemplate = settings.streamNameTemplate,
         streamDescriptionTemplate = settings.streamDescriptionTemplate
     )
