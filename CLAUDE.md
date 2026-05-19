@@ -337,6 +337,31 @@ For the full app-wide reference, see the global `~/.claude/CLAUDE.md`.
 
 ---
 
+## EOD Protocol
+
+When the user says **EOD**, execute the full End of Day protocol:
+
+1. **Compile check:** If code changed since the last successful compile or
+   `installFullDebug`, run `./gradlew :app:compileFullDebugKotlin`. If no
+   code changed since last green build, skip. **Never push broken code.**
+2. `git add -A && git status`
+3. Unstage any `.idea/` files, `.DS_Store`, or IDE artifacts.
+4. Update this `CLAUDE.md` per **Session Rules** (below).
+5. Commit with descriptive message summarizing today's session.
+6. `git push origin dev`
+7. **Verify:** `git log --oneline -5` and `git status` — confirm clean
+   tree + successful push.
+8. **Print session summary:**
+   - Files changed
+   - Features shipped (mark which were **tested on TV** vs **untested**)
+   - Bugs fixed
+   - Pending follow-ups for next session
+   - Anything promised but not delivered
+   - Last build status
+   - Last APK deployed to TV (yes/no + what was tested)
+
+---
+
 ## Session Rules
 
 At the end of every session — before the final git commit and push —
