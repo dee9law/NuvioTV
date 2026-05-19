@@ -282,6 +282,152 @@ follow-up pass:
 
 ---
 
+## 📅 Session log — 2026-05-19 (Upstream cherry-pick marathon)
+
+### Headline
+
+Cherry-picked **68 upstream commits** across 7 phases from
+`UPSTREAM_RELEASES_AUDIT.md`. 5 session fix-up commits to handle missing
+prerequisites. 23 commits intentionally skipped (conflict on
+Feel-system files or too-complex restructures). 1 EOD-protocol doc
+commit. Total **75 commits pushed** to `origin/dev`. Build green
+throughout. APK built and installed to TV at 192.168.8.116.
+
+### Features shipped (user-visible)
+
+- **Still-Watching prompt** (Phase 3, commits `5455e764` / `e299e980`
+  / `a9a6e08d`) — prompts user after N consecutive auto-played episodes.
+  Settings live in Settings → Playback inline content (auto-rendered
+  via existing `PlaybackAutoPlaySettings`).
+- **Autoplay timeout 15/20/25/30s options** (Phase 4, 12-commit bundle
+  `06fd4dbc` → … → `4199ddac`) — `PlayerSettings`
+  `STREAM_AUTOPLAY_TIMEOUT_VALUES` + migration helper + discrete-value
+  slider UI.
+- **5-profile support** (`13569b08`) — raised cap from 4 → 5.
+- **Debrid integration** (Phase 7, 7-commit bundle `8b77cc5b` → …
+  → `dbfd4038`) — new `core/debrid/` module (Real-Debrid + Torbox
+  direct-debrid resolvers, formatter web UI, sort/filter, precache).
+  Wired into Settings → Extensions → **Debrid** (new sub-item at
+  `SettingsHubScreen.kt:546` content + `:646` list entry).
+- **Mark previous seasons as watched** (`4e38c5f2`) — affordance on
+  series detail EpisodesSection.
+- **More Like This source toggle** (`315a1709`) — Trakt vs TMDB picker
+  in Trakt settings.
+- **Audio amplification with HDMI passthrough** (`d84f704b`, `d3a0a8e3`)
+  — amplification no longer forces PCM, surround formats can still
+  bitstream.
+- **Forced subtitle flag respect** (already in HEAD as `011c7ca1`) plus
+  scoring (`08663af4` — skipped, port pending).
+- **Continue Watching air-date relative labels** ("today/tomorrow/in N
+  days") via `AirDateUtils.kt` — already merged in commit `8a17c5f0`
+  from prior session.
+
+### Critical bugs fixed
+
+- **ExoPlayer resume race** (`91fcb312` / upstream `114fb05f`) — fixes
+  buffering hang / 0:00 resume bug.
+- **Un-pushed local progress wipe** (`bc75a31b` / `74f5ccc0` / `1afde382`
+  — upstream `d9df6242` + `0688ec76` + `2e9fec9b`) — adds
+  `lastSuccessfulPushMs` failsafe so local watched items / progress
+  entries created after the last push are preserved across a fresh
+  pull. **Data-loss prevention** — highest priority of the session.
+- **ProfileSettingsSyncService ClassCastException** (`428d176a`) — wraps
+  bracket access with `runCatching {…}.getOrNull()`.
+- **ExoPlayer teardown order** (`911d4c99` / upstream `4b9350e5` +
+  `d4f3ad73`) — drains renderers before detaching surface;
+  hardens audio fallback.
+- **A/V desync at playback start** (`5351ad3c`) — defers playback
+  until first video frame via `playWhenReady=false` + onRenderedFirstFrame.
+- **Tunneled-playback first-frame bypass** (`2487b75e`) — skips deferral
+  when tunneled decoding is in use.
+
+### New files created
+
+- `app/src/main/java/com/nuvio/tv/core/debrid/` — 14 files
+  (`DirectDebridResolver.kt`, `DirectDebridStreamPreparer.kt`,
+  `RealDebridDirectDebridResolver.kt`, `TorboxDirectDebridResolver.kt`,
+  `DebridFileSelection.kt`, `DebridProvider.kt`, `DebridStreamFormatter.kt`,
+  `DebridStreamFormatterDefaults.kt`, `DebridStreamTemplateEngine.kt`,
+  `DirectDebridConfigEncoder.kt`, `DirectDebridStreamFilter.kt`,
+  `DirectDebridStreamSource.kt`, `RealDebridFileSelector.kt`,
+  `TorboxFileSelector.kt`).
+- `app/src/main/java/com/nuvio/tv/core/server/DebridFormatterConfigServer.kt` +
+  `DebridFormatterWebPage.kt` — in-app web UI for formatter config.
+- `app/src/main/java/com/nuvio/tv/ui/screens/settings/DebridSettingsScreen.kt`
+  + `DebridSettingsViewModel.kt`.
+- `app/src/main/java/com/nuvio/tv/ui/util/AirDateUtils.kt` —
+  `parseEpisodeReleaseDate()` + `computeAirDateBadgeText()`.
+- `app/src/main/java/com/nuvio/tv/ui/screens/player/PostPlayOverlay.kt`,
+  `PlayerAutoplaySessionRules.kt`, `PlayerRuntimeControllerStillWatching.kt`.
+- `app/src/main/java/com/nuvio/tv/data/local/BingeGroupCacheDataStore.kt`.
+- `APP_STATUS_REPORT.md`, `UPSTREAM_REVIEW.md`,
+  `UPSTREAM_RELEASES_AUDIT.md` — planning/audit artifacts at repo root.
+
+### Architectural decisions
+
+- **Settings wiring rule applied:** Debrid settings live under Settings
+  → Extensions (per the user's directive: TMDB/enrichment → Extensions).
+  Still-watching settings auto-render inside Playback's existing
+  `PlaybackAutoPlaySettings.autoPlaySettingsItems` LazyListScope — no
+  new sub-item needed.
+- **Skip rule honored:** No commits picked into `MainActivity.kt`,
+  `SettingsHubScreen.kt` body, `TopNavigationBar.kt`, `SideRail.kt`,
+  `HomeScreen.kt`. Conflicts in those files → abort + skip.
+- **`SettingsPickerOption<T>` data class** ported from upstream
+  `SettingsDesignSystem.kt` to unblock the debrid bundle without
+  pulling in the larger `a78c4bcc` SettingsMultiChoiceDialog refactor.
+- **`StreamRepositoryImpl` plugin helpers** (`ScraperInfo.pluginAddonName`,
+  `LocalScraperResult.toPluginStream`, `Stream.dedupKey`) taken from
+  upstream verbatim — required imports added to bridge to our existing
+  `domain/model/Plugin.kt` types.
+- **Reverted `e12a0592`** (DiscoverLocation cross-profile sync) because
+  the foundational `5ce6f798` (DiscoverLocation enum + DataStore
+  migration) conflicted and was skipped.
+- **Old `SettingsScreen.kt`**: kept it compiling by adding the new
+  `integrationDebridFocusRequester` param wiring. Note: this screen is
+  no longer the canonical settings entry (SettingsHubScreen is).
+  Eventual cleanup candidate.
+
+### Pending follow-ups from this session
+
+1. **Phase 8 — Localization sweep** (~25 commits) — all locale-only
+   `values-*/strings.xml` updates batched per the audit. Plan a single
+   focused day to pick them all together.
+2. **23 skipped upstream commits** — listed by phase in the final
+   cherry-pick report in chat. Highest-value ones to port manually:
+   - `daf4546c` (player exit after CW) — NuvioNavHost + `PlaybackEnded`
+     callback rewire.
+   - `5b2f0819` (next-episode end overlay) — NuvioNavHost + new
+     `NextEpisodeEndPromptOverlay.kt`.
+   - `f8840d57` (Parental Guide setting) — PlayerSettings schema +
+     PlaybackSettingsScreen UI.
+   - `08663af4` + `1dfa38ad` (forced-subtitle scoring) —
+     `PlayerSubtitleUtils.kt` + `PlayerRuntimeControllerTracks.kt`.
+   - DiscoverLocation bundle (`5ce6f798` + `7e3d4953` + `39a23fb2` +
+     `d179b69d` + `99a1b307`) — needs hand-port through our Feel system.
+3. **Debrid TV testing** — APK installed but no smoke test performed.
+   Verify Real-Debrid API key dialog works, sort/filter UI navigates
+   on D-pad, precache fires on stream-list load.
+4. **Still-watching TV testing** — same caveat: untested. Verify
+   "Are you still watching?" prompt fires after threshold episodes
+   auto-play, and that toggling the setting hides it.
+5. **5-profile support TV testing** — verify profile picker exposes
+   the 5th slot.
+
+### Notes for future sessions
+
+- The session added **75 commits** in one push (`fd22bb35..4290ef81`).
+  Future EODs should keep push count down per session to make
+  bisection feasible.
+- The `core/debrid/` module is now in the codebase but its web-UI
+  server (`DebridFormatterConfigServer`) needs a port-binding decision
+  before it can serve formatter config on the LAN.
+- `SettingsScreen.kt` is dual-maintained with `SettingsHubScreen.kt`.
+  When a future setting needs wiring, prefer `SettingsHubScreen.kt`
+  (the canonical hub) per existing rule in this file.
+
+---
+
 ## 🚫 Carry-over rules from global CLAUDE.md
 
 - Compile after every group/step before moving to the next
