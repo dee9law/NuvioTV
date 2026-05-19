@@ -1968,6 +1968,11 @@
     <string name="tmdb_entity_error_load_named">Could not load %1$s</string>
     <string name="tmdb_entity_error_load">Could not load TMDB entity</string>
 
+    <!-- Experience mode labels -->
+    <string name="experience_mode_advanced">Advanced</string>
+    <string name="experience_mode_selection">Experience mode</string>
+    <string name="experience_mode_settings">Experience mode settings</string>
+
     <!-- Still Watching prompt -->
     <string name="still_watching_title">Are you still watching?</string>
     <string name="still_watching_continue">Play</string>
