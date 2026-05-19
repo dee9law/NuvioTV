@@ -268,8 +268,9 @@ class WatchProgressPreferences @Inject constructor(
     /**
      * Merges remote entries into local storage. Newer lastWatched wins per key.
      */
-    suspend fun mergeRemoteEntries(remoteEntries: Map<String, WatchProgress>, lastSuccessfulPushMs: Long = 0L) {
+    suspend fun mergeRemoteEntries(remoteEntries: Map<String, WatchProgress>, lastSuccessfulPushMs: Long = 0L): Boolean {
         Log.d("WatchProgressPrefs", "mergeRemoteEntries: ${remoteEntries.size} remote entries, lastPushMs=$lastSuccessfulPushMs")
+        var preservedLocalEntries = false
         store().edit { preferences ->
             val json = preferences[watchProgressKey] ?: "{}"
             val local = parseProgressMap(json).toMutableMap()
@@ -283,6 +284,7 @@ class WatchProgressPreferences @Inject constructor(
                 removedKeys.forEach { key ->
                     val localEntry = local[key]
                     if (localEntry != null && localEntry.lastWatched > lastSuccessfulPushMs) {
+                        preservedLocalEntries = true
                         Log.d("WatchProgressPrefs", "  preserved key=$key (lastWatched=${localEntry.lastWatched} > lastPush=$lastSuccessfulPushMs)")
                     } else {
                         local.remove(key)
@@ -305,6 +307,7 @@ class WatchProgressPreferences @Inject constructor(
             Log.d("WatchProgressPrefs", "mergeRemoteEntries: ${pruned.size} entries after prune, writing to DataStore")
             preferences[watchProgressKey] = gson.toJson(pruned)
         }
+        return preservedLocalEntries
     }
 
     suspend fun replaceWithRemoteEntries(remoteEntries: Map<String, WatchProgress>) {
