@@ -543,6 +543,7 @@ private fun SubItemContent(
         "extensions.tmdb" -> TmdbSettingsContent()
         "extensions.mdblist" -> MDBListSettingsContent()
         "extensions.animeskip" -> AnimeSkipSettingsContent()
+        "extensions.debrid" -> DebridSettingsContent()
         // Accounts & Sync
         "accounts.account" -> AccountSettingsInline(onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn)
         "accounts.profiles" -> ProfileSettingsContent(onManageProfiles = onNavigateToManageProfiles)
@@ -643,6 +644,7 @@ private fun settingsCategories(): List<HubCategory> = listOf(
             HubSubItem.Content("extensions.tmdb", "TMDB"),
             HubSubItem.Content("extensions.mdblist", "MDBList"),
             HubSubItem.Content("extensions.animeskip", "AnimeSkip"),
+            HubSubItem.Content("extensions.debrid", "Debrid"),
         ),
     ),
     HubCategory(

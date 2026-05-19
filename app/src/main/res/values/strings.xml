@@ -2041,6 +2041,11 @@
     <string name="tmdb_entity_error_load_named">Could not load %1$s</string>
     <string name="tmdb_entity_error_load">Could not load TMDB entity</string>
 
+    <!-- Stream error details -->
+    <string name="stream_quality_unknown">Unknown</string>
+    <string name="stream_error_detail_no_streams_for_id">returned no streams for this id</string>
+    <string name="stream_error_detail_addon_request_failed">the addon request failed</string>
+
     <!-- Experience mode labels -->
     <string name="experience_mode_advanced">Advanced</string>
     <string name="experience_mode_selection">Experience mode</string>
