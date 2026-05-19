@@ -135,7 +135,8 @@ data class SubtitleStyleSettings(
     val backgroundColor: Int = Color.Transparent.toArgb(),
     val outlineEnabled: Boolean = true,
     val outlineColor: Int = Color.Black.toArgb(),
-    val outlineWidth: Int = 2 // 1-5
+    val outlineWidth: Int = 2, // 1-5
+    val useForcedSubtitles: Boolean = true
 )
 
 /**
@@ -200,6 +201,7 @@ data class PlayerSettings(
     val streamAutoPlayRegex: String = "",
     val streamAutoPlayNextEpisodeEnabled: Boolean = false,
     val streamAutoPlayPreferBingeGroupForNextEpisode: Boolean = true,
+    val streamAutoPlayReuseBingeGroup: Boolean = false,
     val streamAutoPlayTimeoutSeconds: Int = 3,
     val nextEpisodeThresholdMode: NextEpisodeThresholdMode = NextEpisodeThresholdMode.PERCENTAGE,
     val nextEpisodeThresholdPercent: Float = 99f,
@@ -349,6 +351,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val streamAutoPlayRegexKey = stringPreferencesKey("stream_auto_play_regex")
     private val streamAutoPlayNextEpisodeEnabledKey = booleanPreferencesKey("stream_auto_play_next_episode_enabled")
     private val streamAutoPlayPreferBingeGroupForNextEpisodeKey = booleanPreferencesKey("stream_auto_play_prefer_bingegroup_next_episode")
+    private val streamAutoPlayReuseBingeGroupKey = booleanPreferencesKey("stream_auto_play_reuse_bingegroup")
     private val streamAutoPlayTimeoutSecondsKey = intPreferencesKey("stream_auto_play_timeout_seconds")
     private val nextEpisodeThresholdModeKey = stringPreferencesKey("next_episode_threshold_mode")
     private val nextEpisodeThresholdPercentLegacyKey = intPreferencesKey("next_episode_threshold_percent")
@@ -375,6 +378,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val subtitleOutlineEnabledKey = booleanPreferencesKey("subtitle_outline_enabled")
     private val subtitleOutlineColorKey = intPreferencesKey("subtitle_outline_color")
     private val subtitleOutlineWidthKey = intPreferencesKey("subtitle_outline_width")
+    private val subtitleUseForcedSubtitlesKey = booleanPreferencesKey("subtitle_use_forced_subtitles")
 
     // Buffer settings keys
     private val minBufferMsKey = intPreferencesKey("min_buffer_ms")
@@ -517,6 +521,8 @@ class PlayerSettingsDataStore @Inject constructor(
                 streamAutoPlayNextEpisodeEnabled = prefs[streamAutoPlayNextEpisodeEnabledKey] ?: false,
                 streamAutoPlayPreferBingeGroupForNextEpisode =
                     prefs[streamAutoPlayPreferBingeGroupForNextEpisodeKey] ?: true,
+                streamAutoPlayReuseBingeGroup =
+                    prefs[streamAutoPlayReuseBingeGroupKey] ?: false,
                 streamAutoPlayTimeoutSeconds = (prefs[streamAutoPlayTimeoutSecondsKey] ?: 3).coerceIn(0, 11),
                 nextEpisodeThresholdMode = prefs[nextEpisodeThresholdModeKey]?.let {
                     runCatching { NextEpisodeThresholdMode.valueOf(it) }.getOrDefault(NextEpisodeThresholdMode.PERCENTAGE)
@@ -554,7 +560,8 @@ class PlayerSettingsDataStore @Inject constructor(
                     backgroundColor = prefs[subtitleBackgroundColorKey] ?: Color.Transparent.toArgb(),
                     outlineEnabled = prefs[subtitleOutlineEnabledKey] ?: true,
                     outlineColor = prefs[subtitleOutlineColorKey] ?: Color.Black.toArgb(),
-                    outlineWidth = prefs[subtitleOutlineWidthKey] ?: 2
+                    outlineWidth = prefs[subtitleOutlineWidthKey] ?: 2,
+                    useForcedSubtitles = prefs[subtitleUseForcedSubtitlesKey] ?: true
                 ),
                 bufferSettings = BufferSettings(
                     minBufferMs = prefs[minBufferMsKey] ?: 50_000,
@@ -776,6 +783,12 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setStreamAutoPlayPreferBingeGroupForNextEpisode(enabled: Boolean) {
         store().edit { prefs ->
             prefs[streamAutoPlayPreferBingeGroupForNextEpisodeKey] = enabled
+        }
+    }
+
+    suspend fun setStreamAutoPlayReuseBingeGroup(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[streamAutoPlayReuseBingeGroupKey] = enabled
         }
     }
 
@@ -1018,6 +1031,12 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setSubtitleOutlineWidth(width: Int) {
         store().edit { prefs ->
             prefs[subtitleOutlineWidthKey] = width.coerceIn(1, 5)
+        }
+    }
+
+    suspend fun setSubtitleUseForcedSubtitles(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[subtitleUseForcedSubtitlesKey] = enabled
         }
     }
 
