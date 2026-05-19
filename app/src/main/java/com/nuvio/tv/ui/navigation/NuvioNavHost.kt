@@ -802,7 +802,7 @@ fun NuvioNavHost(
                         }
                     }
                 },
-                onPlaybackEnded = { nextVideoId, nextSeason, nextEpisode ->
+                onPlaybackEnded = { nextVideoId, nextSeason, nextEpisode, _ ->
                     val args = backStackEntry.arguments
                     val contentType = args?.getString("contentType").orEmpty()
                     val contentId = args?.getString("contentId").orEmpty()

@@ -1947,4 +1947,14 @@
     <string name="tmdb_entity_error_load_named">Could not load %1$s</string>
     <string name="tmdb_entity_error_load">Could not load TMDB entity</string>
 
+    <!-- Still Watching prompt -->
+    <string name="still_watching_title">Are you still watching?</string>
+    <string name="still_watching_continue">Play</string>
+    <string name="still_watching_exit">Exit</string>
+    <string name="still_watching_countdown">Stopping in %1$d</string>
+    <string name="still_watching_setting_title">Are You Still Watching?</string>
+    <string name="still_watching_setting_sub">Prompt after consecutive auto-played episodes.</string>
+    <string name="still_watching_threshold_title">Episode Threshold</string>
+    <string name="still_watching_threshold_sub">Number of auto-played episodes before prompting.</string>
+
 </resources>
