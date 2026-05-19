@@ -1348,13 +1348,14 @@ private fun ColorOption(
     color: Color,
     isSelected: Boolean,
     isTransparent: Boolean = false,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    
+
     Card(
         onClick = onClick,
-        modifier = Modifier
+        modifier = modifier
             .size(48.dp)
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
