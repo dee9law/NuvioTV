@@ -244,7 +244,6 @@ class PlayerRuntimeController(
     internal var hideSubtitleDelayOverlayJob: Job? = null
     internal var subtitleAutoSyncLoadJob: Job? = null
     internal var nextEpisodeAutoPlayJob: Job? = null
-    internal var debridResolveJob: Job? = null
     internal var sourceStreamsJob: Job? = null
     internal var sourceChipErrorDismissJob: Job? = null
     internal var sourceStreamsCacheRequestKey: String? = null

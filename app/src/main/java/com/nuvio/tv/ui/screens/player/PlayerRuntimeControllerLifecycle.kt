@@ -42,8 +42,6 @@ internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) 
     delayMpvResumeSeekUntilVideoTrack = false
     nextEpisodeAutoPlayJob?.cancel()
     nextEpisodeAutoPlayJob = null
-    debridResolveJob?.cancel()
-    debridResolveJob = null
     errorRetryJob?.cancel()
     errorRetryJob = null
     releaseMpvPlayer()
