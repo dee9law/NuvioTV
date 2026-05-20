@@ -283,6 +283,29 @@ fun ContentCard(
         val bgCardColor = NuvioColors.BackgroundCard
         val backgroundPainter = remember(bgCardColor) { androidx.compose.ui.graphics.painter.ColorPainter(bgCardColor) }
 
+        // Focused-card highlight strategy — driven by the user's
+        // Card Focus Style setting. ACCENT keeps the original static
+        // border; GLOW paints a soft coloured shadow behind the card;
+        // BLOOM combines a tight coloured border with an outer
+        // coloured shadow for a defined-edge "luminous" look.
+        val cardFocusStyle = com.nuvio.tv.LocalCardFocusStyle.current
+        val styleAccent = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.ACCENT
+        val glowColor = rememberArtworkBackedGlowColor(
+            imageUrl = item.poster,
+            fallbackSeed = item.id,
+            enabled = !styleAccent && !item.poster.isNullOrBlank(),
+        )
+        val isBloom = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.BLOOM
+        val isGlow = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.GLOW
+        val showShadow = isFocused && !item.poster.isNullOrBlank() && (isGlow || isBloom)
+        val shadowElevation = if (isBloom) 8.dp else 24.dp
+        val shadowColor = if (isBloom) glowColor.copy(alpha = 0.25f) else glowColor
+        val focusedBorderColor = if (isBloom && !item.poster.isNullOrBlank()) glowColor
+            else NuvioColors.FocusRing
+        val focusedBorderWidth = if (isBloom) {
+            (posterCardStyle.focusedBorderWidth.value + 1f).dp
+        } else posterCardStyle.focusedBorderWidth
+
         Card(
             onClick = {
                 if (longPressTriggered) {
@@ -293,6 +316,20 @@ fun ContentCard(
             },
             modifier = Modifier
                 .fillMaxWidth()
+                .then(
+                    // Coloured-shadow halo for Poster Glow / Border
+                    // Bloom. Bloom uses tighter elevation + dimmer alpha
+                    // so the static coloured border carries most of
+                    // the visual weight.
+                    if (showShadow) {
+                        Modifier.shadow(
+                            elevation = shadowElevation,
+                            shape = cardShape,
+                            ambientColor = shadowColor,
+                            spotColor = shadowColor,
+                        )
+                    } else Modifier
+                )
                 .onFocusChanged { state ->
                     val focusedNow = state.isFocused
                     if (needsFocusState) {
@@ -359,7 +396,7 @@ fun ContentCard(
             ),
             border = CardDefaults.border(
                 focusedBorder = Border(
-                    border = BorderStroke(posterCardStyle.focusedBorderWidth, NuvioColors.FocusRing),
+                    border = BorderStroke(focusedBorderWidth, focusedBorderColor),
                     shape = cardShape
                 )
             ),

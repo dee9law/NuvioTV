@@ -587,7 +587,10 @@ fun ModernHomeContent(
 
     Box(modifier = Modifier.fillMaxSize()) {
             val posterCardCornerRadius = remember(uiState.posterCardCornerRadiusDp) { uiState.posterCardCornerRadiusDp.dp }
-            val rowHorizontalPadding = 52.dp
+            // Modern feel: 16dp left inset matches the TopBar/row buffer
+            // for a consistent visual rhythm across the screen. Legacy
+            // keeps the 52dp clearance for SideRail-era alignment.
+            val rowHorizontalPadding = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 52.dp
 
             val activeCarouselItemState = remember(carouselRows, rowByKey) {
                 derivedStateOf {
@@ -869,6 +872,10 @@ fun ModernHomeContent(
                     }
                 }.collect { backdrop ->
                     HeroBackdropState.update(backdrop)
+                    // Push the same URL into the TopBar's backdrop slot
+                    // so the glassmorphism bar can render a real blurred
+                    // copy of the hero image as its frosted-glass layer.
+                    com.nuvio.tv.ui.components.TopBarImmersionState.setBackdropUrl(backdrop)
                 }
             }
 

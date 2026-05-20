@@ -215,7 +215,11 @@ private fun MetaHeroSkeleton(shimmerBrush: Brush) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 48.dp, end = 48.dp, bottom = 16.dp),
+                .padding(
+                    start = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 48.dp,
+                    end = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 48.dp,
+                    bottom = 16.dp,
+                ),
             verticalArrangement = Arrangement.Bottom
         ) {
             SkeletonBar(

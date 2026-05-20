@@ -284,8 +284,10 @@ fun GridHomeContent(
                 .dpadUpToTopNav()
                 .dpadRepeatThrottle(),
             contentPadding = PaddingValues(
-                start = 48.dp,
-                end = 24.dp,
+                // Modern feel: 16dp left buffer matches the TopBar/row
+                // inset. Legacy keeps the historical 48dp.
+                start = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 48.dp,
+                end = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 24.dp,
                 top = topPadding,
                 bottom = 32.dp
             ),
@@ -629,7 +631,14 @@ private fun StickyCategoryHeader(
         modifier = modifier
             .fillMaxWidth()
             .background(headerGradient)
-            .padding(horizontal = 48.dp, vertical = 12.dp)
+            // Modern feel: 16dp section-header inset matches the row /
+            // TopBar buffer. Legacy keeps the historical 48dp.
+            .padding(
+                start = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 48.dp,
+                end = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 48.dp,
+                top = 12.dp,
+                bottom = 12.dp,
+            )
     ) {
         Text(
             text = sectionName,

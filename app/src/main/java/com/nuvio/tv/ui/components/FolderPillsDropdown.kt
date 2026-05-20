@@ -80,6 +80,16 @@ fun FolderPillsDropdown(
     onToggle: (FolderPillOption) -> Unit,
     onDismiss: () -> Unit,
     offset: IntOffset = IntOffset.Zero,
+    /**
+     * Group select/deselect. Invoked when the user taps the focusable
+     * header chip. Caller receives every row in that group plus a flag
+     * indicating the desired terminal state — `true` to enable all,
+     * `false` to disable all — derived from the group's current state
+     * (all-on → toggle off; otherwise → enable all).
+     */
+    onToggleGroup: (rows: List<FolderPillOption>, enableAll: Boolean) -> Unit = { rows, enable ->
+        rows.forEach { row -> if (row.enabled != enable) onToggle(row) }
+    },
 ) {
     if (options.isEmpty()) {
         LaunchedEffect(Unit) { onDismiss() }
@@ -123,8 +133,25 @@ fun FolderPillsDropdown(
                 groupedKeys.forEach { collectionId ->
                     val rows = options.filter { it.collectionId == collectionId }
                     val collectionTitle = rows.first().collectionTitle
+                    val groupAllOn = rows.all { it.enabled }
+                    val groupAllOff = rows.none { it.enabled }
+                    val groupState = when {
+                        groupAllOn -> GroupToggleState.ALL_ON
+                        groupAllOff -> GroupToggleState.ALL_OFF
+                        else -> GroupToggleState.MIXED
+                    }
                     item(key = "header_$collectionId") {
-                        SectionHeader(text = collectionTitle)
+                        SectionHeader(
+                            text = collectionTitle,
+                            groupState = groupState,
+                            onClick = {
+                                // All-on → flip everything off; otherwise
+                                // (mixed / all-off) → enable all. Matches
+                                // the spec's "ON shows as on; OFF/mixed
+                                // shows as off; tap toggles all".
+                                onToggleGroup(rows, !groupAllOn)
+                            },
+                        )
                     }
                     items(
                         items = rows,
@@ -150,17 +177,90 @@ fun FolderPillsDropdown(
     }
 }
 
+private enum class GroupToggleState { ALL_ON, ALL_OFF, MIXED }
+
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelMedium,
-        color = Color.White.copy(alpha = 0.55f),
-        fontWeight = FontWeight.SemiBold,
+private fun SectionHeader(
+    text: String,
+    groupState: GroupToggleState,
+    onClick: () -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val bg by animateColorAsState(
+        targetValue = if (isFocused) FocusedItemBg else Color.Transparent,
+        animationSpec = tween(140),
+        label = "groupHeaderBg",
+    )
+    Surface(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 4.dp),
-    )
+            .padding(top = 10.dp, bottom = 4.dp)
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus },
+        shape = ClickableSurfaceDefaults.shape(shape = ItemShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = bg,
+            focusedContainerColor = bg,
+            pressedContainerColor = bg,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border.None,
+            focusedBorder = Border(
+                border = BorderStroke(1.5.dp, FocusBorder),
+                shape = ItemShape,
+            ),
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White.copy(alpha = if (isFocused) 0.92f else 0.55f),
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            // Group select/deselect indicator — solid when all rows are on,
+            // outlined-mixed when partial, empty outlined when all off.
+            val tintColor = when (groupState) {
+                GroupToggleState.ALL_ON -> EnabledTint
+                GroupToggleState.MIXED -> EnabledTint.copy(alpha = 0.55f)
+                GroupToggleState.ALL_OFF -> Color.White.copy(alpha = 0.30f)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = when (groupState) {
+                        GroupToggleState.ALL_ON -> "Deselect all"
+                        else -> "Select all"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tintColor,
+                    fontWeight = FontWeight.Medium,
+                )
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(
+                            color = when (groupState) {
+                                GroupToggleState.ALL_ON -> EnabledTint
+                                GroupToggleState.MIXED -> EnabledTint.copy(alpha = 0.45f)
+                                GroupToggleState.ALL_OFF -> Color.White.copy(alpha = 0.10f)
+                            },
+                            shape = CircleShape,
+                        ),
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)

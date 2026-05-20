@@ -21,6 +21,8 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,7 +34,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import coil3.request.crossfade
+import coil3.request.transformations
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -68,9 +76,14 @@ import com.nuvio.tv.data.remote.supabase.AvatarRepository
 import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Tv
 import com.nuvio.tv.ui.components.CategoryPillsViewModel
 import com.nuvio.tv.ui.components.CollectionsDropdown
@@ -102,6 +115,46 @@ import androidx.compose.runtime.mutableIntStateOf
 val LocalContentFocusRequester = compositionLocalOf { FocusRequester.Default }
 val LocalNavBarFocusRequester  = compositionLocalOf { FocusRequester.Default }
 val LocalSideRailController   = compositionLocalOf<(() -> Unit)?> { null }
+/**
+ * `true` when the current screen sits inside the Feel.MODERN navigation
+ * shell — i.e. there is no SideRail consuming left-edge space. Content
+ * composables read this to drop the left buffer that otherwise reserves
+ * SideRail clearance, going truly edge-to-edge.
+ *
+ * Default is `false` so any code path that forgets to provide the value
+ * keeps the existing (Legacy-safe) padding. MainActivity provides the
+ * real value once the active Feel resolves.
+ */
+val LocalIsModernFeel = compositionLocalOf { false }
+
+/**
+ * Top inset (in dp) that hero text/info Columns should apply so their
+ * content doesn't slip behind the TopBar overlay. Non-zero only when
+ * the glassmorphism Modern Top Bar is enabled AND a top nav is showing
+ * — the hero's *image* still runs to y=0 in that mode, but text needs
+ * to start below the bar. Default 0.dp keeps every other layout
+ * untouched.
+ */
+val LocalTopBarOverlayHeight: androidx.compose.runtime.ProvidableCompositionLocal<androidx.compose.ui.unit.Dp> =
+    compositionLocalOf { 0.dp }
+
+/**
+ * Legacy CompositionLocal kept for any old callers — derives from
+ * [LocalCardFocusStyle]. `true` when the active style is anything other
+ * than ACCENT (i.e. GLOW or BLOOM). Prefer reading
+ * [LocalCardFocusStyle] directly for new code.
+ */
+val LocalPosterGlowEnabled = compositionLocalOf { true }
+
+/**
+ * Card focus style the user has selected — `ACCENT` is the safe
+ * static-border default. Content cards and channel pills with logos
+ * read this and switch between Accent / Poster Glow / Border Bloom
+ * focus treatments accordingly.
+ */
+val LocalCardFocusStyle = compositionLocalOf {
+    com.nuvio.tv.domain.model.CardFocusStyle.ACCENT
+}
 
 private data class MainUiPrefs(
     val theme: AppTheme = AppTheme.WHITE,
@@ -116,6 +169,10 @@ private data class MainUiPrefs(
     val fastHorizontalNavigationEnabled: Boolean = false,
     val composeHighlighterEnabled: Boolean = false,
     val navigationFeel: Feel = Feel.MODERN,
+    val modernTopBarEnabled: Boolean = false,
+    val posterGlowEnabled: Boolean = true,
+    val cardFocusStyle: com.nuvio.tv.domain.model.CardFocusStyle =
+        com.nuvio.tv.domain.model.CardFocusStyle.ACCENT,
 )
 
 @AndroidEntryPoint
@@ -285,6 +342,12 @@ class MainActivity : ComponentActivity() {
                     prefs.copy(composeHighlighterEnabled = composeHighlighterEnabled)
                 }.combine(layoutPreferenceDataStore.navigationFeel) { prefs, feel ->
                     prefs.copy(navigationFeel = feel)
+                }.combine(layoutPreferenceDataStore.modernTopBarEnabled) { prefs, modernTopBar ->
+                    prefs.copy(modernTopBarEnabled = modernTopBar)
+                }.combine(layoutPreferenceDataStore.posterGlowEnabled) { prefs, posterGlow ->
+                    prefs.copy(posterGlowEnabled = posterGlow)
+                }.combine(layoutPreferenceDataStore.cardFocusStyle) { prefs, style ->
+                    prefs.copy(cardFocusStyle = style)
                 }
             }
             val mainUiPrefs by mainUiPrefsFlow.collectAsState(initial = MainUiPrefs(hasChosenLayout = null))
@@ -308,6 +371,9 @@ class MainActivity : ComponentActivity() {
                     LocalBringIntoViewSpec provides bringIntoViewSpec,
                     LocalFastHorizontalNavigationEnabled provides mainUiPrefs.fastHorizontalNavigationEnabled,
                     LocalRecompositionHighlighterEnabled provides mainUiPrefs.composeHighlighterEnabled,
+                    LocalPosterGlowEnabled provides (mainUiPrefs.cardFocusStyle !=
+                        com.nuvio.tv.domain.model.CardFocusStyle.ACCENT),
+                    LocalCardFocusStyle provides mainUiPrefs.cardFocusStyle,
                     com.nuvio.tv.core.player.LocalTrailerPlayerPool provides trailerPlayerPool
                 ) {
                 Surface(
@@ -483,6 +549,7 @@ class MainActivity : ComponentActivity() {
                         profileAvatarUrl = activeProfileAvatarImageUrl,
                         showDiscoverInRail = showDiscoverInRail,
                         navigationFeel = mainUiPrefs.navigationFeel,
+                        modernTopBarEnabled = mainUiPrefs.modernTopBarEnabled,
                     )
 
                     if (AppFeaturePolicy.inAppUpdatesEnabled && !BuildConfig.IS_DEBUG_BUILD) {
@@ -551,6 +618,7 @@ private fun TopNavBarScaffold(
     profileAvatarUrl: String?,
     showDiscoverInRail: Boolean,
     navigationFeel: Feel,
+    modernTopBarEnabled: Boolean,
 ) {
     val isModernFeel = navigationFeel == Feel.MODERN
     val showTopNav = currentRoute in rootRoutes
@@ -565,10 +633,17 @@ private fun TopNavBarScaffold(
 
     // Modern-feel category pill ordering (F9 + F10). Powers the dynamic
     // TopBar pill list and the Profile Overlay's Hidden Items section.
+    //
+    // `pillOrderFull` is nullable — null while the persisted layout is
+    // still being read from disk on cold start. Treat as "not yet
+    // loaded" and skip rendering pills until the first real emission
+    // lands; the seed-default flash would otherwise overwrite the
+    // user's saved layout if any mutation fires in the same window.
     val pillsVm: CategoryPillsViewModel = hiltViewModel()
     val topbarPills by pillsVm.topbarPills.collectAsState()
     val drawerPills by pillsVm.drawerPills.collectAsState()
     val pillOrderFull by pillsVm.order.collectAsState()
+    val pillsLoaded by pillsVm.isLoaded.collectAsState()
 
     val collectionRailVm: com.nuvio.tv.ui.screens.collection.CollectionRailViewModel = hiltViewModel()
     val allCollections by collectionRailVm.collections.collectAsState()
@@ -600,6 +675,12 @@ private fun TopNavBarScaffold(
     // Route ↔ CategoryPill mapping. Used in Modern feel to drive the
     // dynamic pill list selection state and to translate index taps
     // through the live (reorderable) topbarPills list.
+    //
+    // CHANNELS has no dedicated route — when promoted to the TopBar it
+    // governs the channel-pill rail's visibility instead of acting as
+    // a navigation pill. We fall it back to Home.route so the mapping
+    // stays total, but the rendering path filters CHANNELS out of the
+    // pill list so the route is never invoked.
     val pillForRoute: (String?) -> CategoryPill? = remember {
         { route ->
             when (route) {
@@ -607,6 +688,10 @@ private fun TopNavBarScaffold(
                 Screen.Movies.route -> CategoryPill.MOVIES
                 Screen.TvShows.route -> CategoryPill.TV_SHOWS
                 Screen.CollectionsHome.route -> CategoryPill.COLLECTIONS
+                Screen.Search.route -> CategoryPill.SEARCH
+                Screen.Discover.route -> CategoryPill.DISCOVER
+                Screen.Library.route -> CategoryPill.MY_STUFF
+                Screen.Settings.route -> CategoryPill.SETTINGS
                 else -> null
             }
         }
@@ -618,29 +703,53 @@ private fun TopNavBarScaffold(
                 CategoryPill.MOVIES -> Screen.Movies.route
                 CategoryPill.TV_SHOWS -> Screen.TvShows.route
                 CategoryPill.COLLECTIONS -> Screen.CollectionsHome.route
+                CategoryPill.SEARCH -> Screen.Search.route
+                CategoryPill.DISCOVER -> Screen.Discover.route
+                CategoryPill.MY_STUFF -> Screen.Library.route
+                CategoryPill.SETTINGS -> Screen.Settings.route
+                CategoryPill.CHANNELS -> Screen.Home.route
+            }
+        }
+    }
+    val iconForPill: (CategoryPill) -> androidx.compose.ui.graphics.vector.ImageVector = remember {
+        { pill ->
+            when (pill) {
+                CategoryPill.HOME -> Icons.Default.Home
+                CategoryPill.MOVIES -> Icons.Default.Movie
+                CategoryPill.TV_SHOWS -> Icons.Default.Tv
+                CategoryPill.COLLECTIONS -> Icons.Default.Folder
+                CategoryPill.SEARCH -> Icons.Default.Search
+                CategoryPill.DISCOVER -> Icons.Default.Explore
+                CategoryPill.MY_STUFF -> Icons.Default.Bookmark
+                CategoryPill.SETTINGS -> Icons.Default.Settings
+                CategoryPill.CHANNELS -> Icons.Default.Tune
             }
         }
     }
 
-    // Keep nav bar visual state in sync with the current screen.
-    // Modern: derived from topbarPills (positions change when the user
-    // reorders or demotes). Legacy: fixed 0..3 mapping as before.
+    // Keep nav bar visual state in sync with the current screen. Both
+    // feels now derive the selected index from the live topbarPills list
+    // (filtered to the category-pill subset that actually renders on the
+    // bar — CHANNELS is virtual, SideRail items don't render in Legacy)
+    // so user-reordered pills track the active route correctly.
+    val legacyAllowedPillsForIndex = remember {
+        setOf(
+            CategoryPill.HOME,
+            CategoryPill.MOVIES,
+            CategoryPill.TV_SHOWS,
+            CategoryPill.COLLECTIONS,
+            CategoryPill.CHANNELS,
+        )
+    }
     LaunchedEffect(currentRoute, topbarPills, isModernFeel) {
-        if (isModernFeel) {
-            val pill = pillForRoute(currentRoute)
-            selectedCategoryIndex = if (pill != null) topbarPills.indexOf(pill) else -1
-            selectedChannelIndex = null
+        val pill = pillForRoute(currentRoute)
+        val rendered = if (isModernFeel) {
+            topbarPills.filter { it != CategoryPill.CHANNELS }
         } else {
-            when (currentRoute) {
-                Screen.Home.route            -> { selectedCategoryIndex = 0; selectedChannelIndex = null }
-                Screen.Movies.route          -> { selectedCategoryIndex = 1; selectedChannelIndex = null }
-                Screen.TvShows.route         -> { selectedCategoryIndex = 2; selectedChannelIndex = null }
-                Screen.CollectionsHome.route -> { selectedCategoryIndex = 3; selectedChannelIndex = null }
-                Screen.Discover.route        -> { selectedCategoryIndex = -1; selectedChannelIndex = null }
-                // On non-content screens (Search, Settings, Account) highlight nothing.
-                else                  -> selectedCategoryIndex = -1
-            }
+            topbarPills.filter { it in legacyAllowedPillsForIndex && it != CategoryPill.CHANNELS }
         }
+        selectedCategoryIndex = if (pill != null) rendered.indexOf(pill) else -1
+        selectedChannelIndex = null
     }
 
     // Back during edit mode exits edit mode instead of bubbling to the
@@ -679,10 +788,24 @@ private fun TopNavBarScaffold(
         // Modern feel reuses the SideRail D-pad-Left mechanism to open the
         // Profile Overlay instead — same trigger, new destination.
         LocalSideRailController   provides if (isModernFeel) openProfileOverlay else openSideRail,
+        // Modern feel has no SideRail; content composables drop their
+        // left buffer when they see this. Legacy keeps the existing
+        // padding because the SideRail needs that clearance.
+        LocalIsModernFeel         provides isModernFeel,
+        // Hero text inset — non-zero only when the glassmorphism
+        // TopBar is overlaying the hero image (Modern Top Bar toggle
+        // ON + a top-nav root screen). 64dp = TopBar 60dp + 4dp
+        // breathing room so titles don't kiss the bar's bottom edge.
+        LocalTopBarOverlayHeight  provides if (modernTopBarEnabled && showTopNav) 64.dp else 0.dp,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
 
-            // Full-screen content — hero extends to the very top behind the nav bar.
+            // Hero backdrop runs full-bleed to y=0 in every mode so the
+            // glassmorphism TopBar has actual image content to blur and
+            // pick up colors from. The per-screen hero text/info Columns
+            // apply their own top inset (via LocalTopBarOverlayHeight) so
+            // text doesn't sit behind the TopBar — see ModernHomeContent /
+            // ClassicHomeContent / GridHomeContent.
             NuvioNavHost(
                 navController = navController,
                 startDestination = startDestination,
@@ -706,32 +829,130 @@ private fun TopNavBarScaffold(
                 label = "topBarImmersionAlpha",
             )
             if (showTopNav) {
+                // Backdrop selection:
+                //  - Modern Top Bar ON  → real frosted-glass: render the
+                //    same hero backdrop URL the home screens pushed into
+                //    TopBarImmersionState, but through Coil's
+                //    BlurTransformation (radius = 25). Coil caches the
+                //    blurred bitmap so subsequent loads are instant. A
+                //    Color.Black @ 0.3 overlay sits on top for text
+                //    readability, and the bottom 12dp fades to
+                //    transparent so the bar melts into the hero below.
+                //    Works on every API level — no GPU RenderEffect
+                //    dependency.
+                //  - Modern Top Bar OFF → the original opaque-ish vertical
+                //    gradient (0.55 alpha solid → transparent), unchanged
+                //    so flipping the toggle off returns to the previous
+                //    behaviour verbatim.
+                androidx.compose.runtime.LaunchedEffect(modernTopBarEnabled) {
+                    android.util.Log.d(
+                        "NuvioTopBar",
+                        "modernTopBarEnabled=$modernTopBarEnabled sdkInt=" +
+                            "${android.os.Build.VERSION.SDK_INT}"
+                    )
+                }
+                val topBarBackdropUrl by com.nuvio.tv.ui.components.TopBarImmersionState
+                    .backdropUrl.collectAsState()
                 androidx.compose.foundation.layout.Box(
                     modifier = Modifier
                         .alpha(topBarAlpha)
+                        .fillMaxWidth()
                 ) {
-                // Modern feel uses the dynamic reorderable pill list; Legacy
-                // keeps the original fixed Home/Movies/TV/Collections order.
-                val effectiveCategories = if (isModernFeel) {
-                    topbarPills.map { it.displayLabel }
-                } else {
-                    listOf("Home", "Movies", "TV Shows", "Collections")
-                }
-                val effectiveCategoryIcons = if (isModernFeel) {
-                    topbarPills.map { pill ->
-                        when (pill) {
-                            CategoryPill.HOME -> Icons.Default.Home
-                            CategoryPill.MOVIES -> Icons.Default.Movie
-                            CategoryPill.TV_SHOWS -> Icons.Default.Tv
-                            CategoryPill.COLLECTIONS -> Icons.Default.Folder
+                    if (modernTopBarEnabled) {
+                        if (!topBarBackdropUrl.isNullOrBlank()) {
+                            val ctx = androidx.compose.ui.platform.LocalContext.current
+                            val blurredRequest = remember(ctx, topBarBackdropUrl) {
+                                coil3.request.ImageRequest.Builder(ctx)
+                                    .data(topBarBackdropUrl)
+                                    .crossfade(false)
+                                    .transformations(
+                                        com.nuvio.tv.ui.util.BlurTransformation(radius = 25)
+                                    )
+                                    .build()
+                            }
+                            coil3.compose.AsyncImage(
+                                model = blurredRequest,
+                                contentDescription = null,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                modifier = Modifier.matchParentSize(),
+                            )
                         }
+                        // Readability tint + 12dp bottom gradient fade.
+                        // Drawn over the blurred image (or alone, on
+                        // non-home screens where backdrop URL is null).
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        colorStops = arrayOf(
+                                            0.0f to Color.Black.copy(alpha = 0.3f),
+                                            0.80f to Color.Black.copy(alpha = 0.3f),
+                                            1.0f to Color.Transparent,
+                                        )
+                                    )
+                                )
+                        )
+                    } else {
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Black.copy(alpha = 0.55f),
+                                            Color.Black.copy(alpha = 0.55f),
+                                            Color.Transparent,
+                                        )
+                                    )
+                                )
+                        )
                     }
-                } else null
-                val effectiveCategoryIconsOnly = if (isModernFeel) {
-                    topbarPills.map { pill ->
-                        pillOrderFull.firstOrNull { it.pill == pill }?.iconsOnly == true
-                    }
-                } else null
+                // Both feels honour the user's saved TopBar configuration —
+                // pill order, display mode, and visibility all flow from
+                // CategoryPillsViewModel. Legacy additionally filters out the
+                // overlay-only pills (SEARCH / DISCOVER / MY_STUFF / SETTINGS)
+                // since those live on the SideRail in Legacy and are never
+                // configurable from the TopBar.
+                //
+                // CHANNELS is a virtual pill — when in TOPBAR it governs the
+                // channel-pill rail's visibility rather than rendering as a
+                // category pill, so filter it out of the renderable list.
+                val orderSnapshot = pillOrderFull.orEmpty()
+                val legacyAllowedPills = setOf(
+                    CategoryPill.HOME,
+                    CategoryPill.MOVIES,
+                    CategoryPill.TV_SHOWS,
+                    CategoryPill.COLLECTIONS,
+                    CategoryPill.CHANNELS,
+                )
+                val effectiveTopbarPills = if (isModernFeel) {
+                    topbarPills
+                } else {
+                    // Legacy: filter SideRail items out — they're never on
+                    // the Legacy TopBar regardless of user settings.
+                    topbarPills.filter { it in legacyAllowedPills }
+                }
+                val renderablePills = effectiveTopbarPills.filter { it != CategoryPill.CHANNELS }
+                val effectiveCategories = renderablePills.map { it.displayLabel }
+                val effectiveCategoryIcons = renderablePills.map { pill -> iconForPill(pill) }
+                val effectiveCategoryIconsOnly = renderablePills.map { pill ->
+                    orderSnapshot.firstOrNull { it.pill == pill }?.displayMode ==
+                        com.nuvio.tv.domain.model.CategoryPillDisplayMode.ICON_ONLY
+                }
+                val effectiveCategoryTextOnly = renderablePills.map { pill ->
+                    orderSnapshot.firstOrNull { it.pill == pill }?.displayMode ==
+                        com.nuvio.tv.domain.model.CategoryPillDisplayMode.TEXT_ONLY
+                }
+                // Channel rail is gated by the CHANNELS pill's visibility in
+                // BOTH feels now — Legacy respects the user's TopBar settings
+                // too (Task C: "Channel pills visibility and display mode
+                // should also be respected in Legacy").
+                val channelRailVisible = effectiveTopbarPills.contains(CategoryPill.CHANNELS)
+                val channelDisplayMode = orderSnapshot
+                    .firstOrNull { it.pill == CategoryPill.CHANNELS }
+                    ?.displayMode
+                    ?: com.nuvio.tv.domain.model.CategoryPillDisplayMode.ICON_AND_TEXT
                 TopNavigationBar(
                     categories = effectiveCategories,
                     channels = effectiveChannels,
@@ -746,34 +967,37 @@ private fun TopNavBarScaffold(
                     onProfileClick = { showProfileOverlay = true },
                     categoryIcons = effectiveCategoryIcons,
                     categoryIconsOnly = effectiveCategoryIconsOnly,
+                    categoryTextOnly = effectiveCategoryTextOnly,
+                    channelRailVisible = channelRailVisible,
+                    channelDisplayMode = channelDisplayMode,
                     editMode = editMode && isModernFeel,
                     onEditSwap = { fromVisible, toVisible ->
-                        // The TopBar speaks in visible-pill indices; the
-                        // ViewModel speaks in full-order indices. Translate.
-                        val fromPill = topbarPills.getOrNull(fromVisible) ?: return@TopNavigationBar
-                        val toPill = topbarPills.getOrNull(toVisible) ?: return@TopNavigationBar
-                        val full = pillsVm.order.value
+                        // The TopBar speaks in visible-pill indices over the
+                        // rendered (CHANNELS-filtered) list; the ViewModel
+                        // speaks in full-order indices. Translate.
+                        val fromPill = renderablePills.getOrNull(fromVisible) ?: return@TopNavigationBar
+                        val toPill = renderablePills.getOrNull(toVisible) ?: return@TopNavigationBar
+                        val full = pillsVm.order.value ?: return@TopNavigationBar
                         val a = full.indexOfFirst { it.pill == fromPill }
                         val b = full.indexOfFirst { it.pill == toPill }
                         if (a >= 0 && b >= 0) pillsVm.swap(a, b)
                     },
                     onEditDemote = { visibleIndex ->
-                        val pill = topbarPills.getOrNull(visibleIndex) ?: return@TopNavigationBar
+                        val pill = renderablePills.getOrNull(visibleIndex) ?: return@TopNavigationBar
                         pillsVm.demote(pill)
                     },
                     onExitEditMode = { editMode = false },
                     onCategoryLongPress = { index ->
-                        if (isModernFeel) {
-                            val pill = topbarPills.getOrNull(index)
-                            when (pill) {
-                                // Collections preserves its long-press =
-                                // CollectionsDropdown behavior in both feels.
-                                CategoryPill.COLLECTIONS -> showCollectionsDropdown = true
-                                null -> Unit
-                                else -> editMode = true
-                            }
-                        } else {
-                            if (index == 3) showCollectionsDropdown = true
+                        // Both feels: long-press a Collections pill opens the
+                        // dropdown; any other pill enters Edit Mode (Modern
+                        // only — Legacy still uses the original UX which
+                        // limits long-press to Collections).
+                        val pill = renderablePills.getOrNull(index)
+                        when {
+                            pill == CategoryPill.COLLECTIONS -> showCollectionsDropdown = true
+                            pill == null -> Unit
+                            isModernFeel -> editMode = true
+                            else -> Unit
                         }
                     },
                     onCategorySelected = { index ->
@@ -782,15 +1006,10 @@ private fun TopNavBarScaffold(
                         // Reset the rail back to network channels whenever any
                         // category pill is clicked.
                         collectionRailVm.clear()
-                        val route = if (isModernFeel) {
-                            val pill = topbarPills.getOrNull(index) ?: CategoryPill.HOME
-                            routeForPill(pill)
-                        } else when (index) {
-                            1    -> Screen.Movies.route
-                            2    -> Screen.TvShows.route
-                            3    -> Screen.CollectionsHome.route
-                            else -> Screen.Home.route
-                        }
+                        // Both feels: translate the visible index through the
+                        // live renderable-pill list, then map to its route.
+                        val pill = renderablePills.getOrNull(index) ?: CategoryPill.HOME
+                        val route = routeForPill(pill)
                         onNavigate(route)
                         navigateToTopNavRoute(navController, currentRoute, route)
                     },
@@ -810,6 +1029,9 @@ private fun TopNavBarScaffold(
                         // user-curated cross-collection folder rail.)
                     },
                 )
+                // No hairline in Modern Top Bar mode — the bottom-8dp
+                // gradient fade replaces it as the soft separator. Legacy/
+                // off mode never had a hairline.
                 } // immersion alpha wrapper
             }
 
@@ -928,18 +1150,67 @@ private fun TopNavBarScaffold(
                             }
                         }
                     },
-                    // Demoted category pills surface here. Selecting one
-                    // promotes it back to the TopBar AND navigates to its
-                    // route in one motion — saves a second click.
-                    hiddenItems = drawerPills.map { pill ->
-                        ProfileOverlayHiddenItem(id = pill.storageId, label = pill.displayLabel)
-                    },
+                    // Default-DRAWER pills (Search / Discover / My Stuff /
+                    // Settings / Channels) render as built-in rows above.
+                    // The Hidden Items section is reserved for user-demoted
+                    // category pills — surfacing them with a `+` icon and
+                    // promoting on tap (the original Edit Mode flow).
+                    hiddenItems = drawerPills
+                        .filter { it.defaultVisibility == com.nuvio.tv.domain.model.PillVisibility.TOPBAR }
+                        .map { pill ->
+                            ProfileOverlayHiddenItem(id = pill.storageId, label = pill.displayLabel)
+                        },
                     onHiddenItemSelected = { item ->
                         val pill = CategoryPill.fromStorageId(item.id) ?: return@ProfileOverlay
                         pillsVm.promote(pill)
                         val route = routeForPill(pill)
                         onNavigate(route)
                         navigateToTopNavRoute(navController, currentRoute, route)
+                    },
+                    // Each built-in row is gated on its pill currently being
+                    // in DRAWER — if the user promotes (e.g.) Search to the
+                    // TopBar, the overlay row hides so it doesn't double up
+                    // with the pill.
+                    showSearch = drawerPills.contains(CategoryPill.SEARCH),
+                    showDiscover = drawerPills.contains(CategoryPill.DISCOVER),
+                    showMyStuff = drawerPills.contains(CategoryPill.MY_STUFF),
+                    showSettings = drawerPills.contains(CategoryPill.SETTINGS),
+                    // "Pill Channels" is the management entry point for the
+                    // channel-rail folder list. Always-on in the overlay so
+                    // users can configure the rail regardless of whether
+                    // the CHANNELS pill itself is currently promoted to the
+                    // TopBar — the rail's visibility and its contents are
+                    // separately-managed concepts.
+                    showPillChannels = true,
+                    // D3: Long-press on a built-in overlay row promotes its
+                    // pill to the TopBar (mirror of "+ Hidden Item" tap).
+                    // Map ProfileOverlayDestination → CategoryPill and run
+                    // the existing promote() flow.
+                    onPromoteBuiltin = { dest ->
+                        val pill = when (dest) {
+                            ProfileOverlayDestination.SEARCH -> CategoryPill.SEARCH
+                            ProfileOverlayDestination.DISCOVER -> CategoryPill.DISCOVER
+                            ProfileOverlayDestination.MY_STUFF -> CategoryPill.MY_STUFF
+                            ProfileOverlayDestination.SETTINGS -> CategoryPill.SETTINGS
+                            ProfileOverlayDestination.PILL_CHANNELS -> CategoryPill.CHANNELS
+                            ProfileOverlayDestination.MANAGE_PROFILES -> null
+                        }
+                        if (pill != null) {
+                            pillsVm.promote(pill)
+                            showProfileOverlay = false
+                            runCatching { navBarFr.requestFocus() }
+                        }
+                    },
+                    // D3: Long-press on a hidden category pill promotes it
+                    // (same as tapping the "+" icon — both surface a single
+                    // promote action).
+                    onPromoteHiddenItem = { item ->
+                        val pill = CategoryPill.fromStorageId(item.id)
+                        if (pill != null) {
+                            pillsVm.promote(pill)
+                            showProfileOverlay = false
+                            runCatching { navBarFr.requestFocus() }
+                        }
                     },
                 )
             }

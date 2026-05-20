@@ -91,6 +91,9 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val followAddonsOrderKey = booleanPreferencesKey("follow_addons_order")
     private val composeHighlighterEnabledKey = booleanPreferencesKey("compose_highlighter_enabled")
     private val navigationFeelKey = stringPreferencesKey("navigation_feel")
+    private val modernTopBarEnabledKey = booleanPreferencesKey("modern_top_bar_enabled")
+    private val posterGlowEnabledKey = booleanPreferencesKey("poster_glow_enabled")
+    private val cardFocusStyleKey = stringPreferencesKey("card_focus_style")
 
     private fun <T> profileFlow(extract: (prefs: androidx.datastore.preferences.core.Preferences) -> T): Flow<T> =
         profileManager.activeProfileId.flatMapLatest { pid ->
@@ -309,6 +312,58 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setNavigationFeel(feel: Feel) {
         store().edit { prefs ->
             prefs[navigationFeelKey] = feel.storageValue
+        }
+    }
+
+    /**
+     * Glassmorphism TopBar opt-in. When `false` (the default) the bar
+     * keeps the existing opaque rendering and the hero respects the
+     * normal top inset. When `true`, MainActivity composes the bar as a
+     * frosted-glass overlay (semi-transparent + RenderEffect blur on
+     * API 31+) sitting on top of a hero that runs to y=0.
+     */
+    val modernTopBarEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[modernTopBarEnabledKey] ?: false
+    }
+
+    suspend fun setModernTopBarEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[modernTopBarEnabledKey] = enabled
+        }
+    }
+
+    /**
+     * Poster Glow opt-in. When `true` (the default) focus on content
+     * cards and channel-pill logos triggers a soft glow whose colour is
+     * sampled from the artwork itself. When `false` callers fall back
+     * to the existing static accent-colour focus highlight.
+     */
+    val posterGlowEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[posterGlowEnabledKey] ?: true
+    }
+
+    suspend fun setPosterGlowEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[posterGlowEnabledKey] = enabled
+        }
+    }
+
+    /**
+     * Card Focus Style — `accent` / `glow` / `bloom`. Replaces the
+     * boolean [posterGlowEnabled] toggle. When unset, returns
+     * [com.nuvio.tv.domain.model.CardFocusStyle.ACCENT] (the safe
+     * default). The boolean key is kept around as legacy ballast —
+     * a future cleanup could migrate `poster_glow_enabled = true`
+     * to `card_focus_style = "glow"`.
+     */
+    val cardFocusStyle: kotlinx.coroutines.flow.Flow<com.nuvio.tv.domain.model.CardFocusStyle> =
+        profileFlow { prefs ->
+            com.nuvio.tv.domain.model.CardFocusStyle.fromStorageValue(prefs[cardFocusStyleKey])
+        }
+
+    suspend fun setCardFocusStyle(style: com.nuvio.tv.domain.model.CardFocusStyle) {
+        store().edit { prefs ->
+            prefs[cardFocusStyleKey] = style.storageValue
         }
     }
 

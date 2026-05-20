@@ -134,11 +134,18 @@ fun ContinueWatchingSection(
         }
     }
 
+    // Modern feel: consistent 16dp buffer on both edges so the CW rail
+    // visually aligns with the TopBar and content rows. Legacy keeps the
+    // historical 48dp.
+    val isModern = com.nuvio.tv.LocalIsModernFeel.current
+    val leftEdgeInset = if (isModern) 16.dp else 48.dp
+    val rightEdgeInset = if (isModern) 16.dp else 48.dp
+    val titleStartInset = if (isModern) 16.dp else 48.dp
     Column(modifier = modifier) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 48.dp, end = 48.dp, bottom = 16.dp),
+                .padding(start = titleStartInset, end = 48.dp, bottom = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -157,8 +164,8 @@ fun ContinueWatchingSection(
 
         val density = LocalDensity.current
         val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
-        val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec) {
-            val startPx = with(density) { 48.dp.roundToPx() }
+        val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec, leftEdgeInset) {
+            val startPx = with(density) { leftEdgeInset.roundToPx() }
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
             object : BringIntoViewSpec {
                 override val scrollAnimationSpec: AnimationSpec<Float> =
@@ -179,7 +186,14 @@ fun ContinueWatchingSection(
                 .fillMaxWidth()
                 .focusRestorer(restoreFocusRequester)
                 .focusGroup(),
-            contentPadding = PaddingValues(horizontal = 48.dp),
+            // Vertical contentPadding gives focused-card glow shadows
+            // breathing room outside the card's bounds.
+            contentPadding = PaddingValues(
+                start = leftEdgeInset,
+                end = rightEdgeInset,
+                top = 16.dp,
+                bottom = 16.dp,
+            ),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             state = listState
         ) {

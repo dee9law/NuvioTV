@@ -215,6 +215,15 @@ private fun HeroCarouselSlide(
             .size(width = requestWidthPx, height = requestHeightPx)
             .build()
     }
+    // Push the currently-displayed backdrop URL into TopBarImmersionState
+    // so the glassmorphism TopBar can render a real blurred copy of the
+    // same image as its frosted-glass layer. Cleared on dispose.
+    androidx.compose.runtime.LaunchedEffect(backdropUrl) {
+        com.nuvio.tv.ui.components.TopBarImmersionState.setBackdropUrl(backdropUrl)
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { com.nuvio.tv.ui.components.TopBarImmersionState.setBackdropUrl(null) }
+    }
     val logoModel = remember(context, item.logo, requestWidthPx, logoRequestHeightPx) {
         item.logo?.let {
             ImageRequest.Builder(context)
@@ -276,11 +285,17 @@ private fun HeroCarouselSlide(
                 }
         )
 
-        // Content overlay
+        // Content overlay — Modern feel uses 16dp leading inset matching
+        // the rest of the home screen's edge buffer. Legacy keeps the
+        // historical 48dp clearance.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 48.dp, bottom = 48.dp, end = 48.dp)
+                .padding(
+                    start = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 48.dp,
+                    bottom = 48.dp,
+                    end = 48.dp,
+                )
                 .fillMaxWidth(0.5f)
         ) {
             // Title logo or text title

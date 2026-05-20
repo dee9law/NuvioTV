@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.data.local.CategoryPillOrderDataStore
 import com.nuvio.tv.domain.model.CategoryPill
+import com.nuvio.tv.domain.model.CategoryPillDisplayMode
 import com.nuvio.tv.domain.model.CategoryPillOrderEntry
 import com.nuvio.tv.domain.model.PillVisibility
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,41 +24,71 @@ import javax.inject.Inject
  *  - [CategoryPill.HOME] is never demoted (silently rejected).
  *  - At least two pills must remain on the TopBar at all times — if a
  *    demotion would drop the topbar count to 1, the demotion is rejected.
+ *
+ * **Loading semantics:** [order] is nullable and emits `null` until the
+ * first read from [CategoryPillOrderDataStore] completes. Consumers must
+ * treat `null` as "not yet loaded" and skip rendering pill UI / writing
+ * back. This prevents a cold-start race where the StateFlow seed defaults
+ * would be observed and persisted, clobbering the user's saved layout.
  */
 @HiltViewModel
 class CategoryPillsViewModel @Inject constructor(
     private val store: CategoryPillOrderDataStore,
 ) : ViewModel() {
 
-    /** Full ordered list — every [CategoryPill] exactly once, in user order. */
-    val order: StateFlow<List<CategoryPillOrderEntry>> = store.order
+    /**
+     * Full ordered list — every [CategoryPill] exactly once, in user
+     * order. `null` until the first DataStore emission lands; consumers
+     * should render pill UI only after this becomes non-null.
+     */
+    val order: StateFlow<List<CategoryPillOrderEntry>?> = store.order
         .stateIn(
             viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            CategoryPillOrderEntry.defaultOrder(),
+            SharingStarted.Eagerly,
+            null,
         )
 
-    /** Just the pills currently shown on the TopBar, in user order. */
-    val topbarPills: StateFlow<List<CategoryPill>> = store.order
-        .map { entries -> entries.filter { it.visibility == PillVisibility.TOPBAR }.map { it.pill } }
+    /** True once the persisted order has been read at least once. */
+    val isLoaded: StateFlow<Boolean> = order
+        .map { it != null }
         .stateIn(
             viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            CategoryPill.entries.toList(),
+            SharingStarted.Eagerly,
+            false,
+        )
+
+    /**
+     * Pills currently shown on the TopBar, in user order. Empty list
+     * during the loading window — TopBar should render no pills until
+     * [isLoaded] flips true rather than show defaults that may be
+     * overwritten.
+     */
+    val topbarPills: StateFlow<List<CategoryPill>> = order
+        .map { entries ->
+            entries?.filter { it.visibility == PillVisibility.TOPBAR }?.map { it.pill }
+                ?: emptyList()
+        }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            emptyList(),
         )
 
     /** Just the demoted pills, in user order. Populates the overlay drawer. */
-    val drawerPills: StateFlow<List<CategoryPill>> = store.order
-        .map { entries -> entries.filter { it.visibility == PillVisibility.DRAWER }.map { it.pill } }
+    val drawerPills: StateFlow<List<CategoryPill>> = order
+        .map { entries ->
+            entries?.filter { it.visibility == PillVisibility.DRAWER }?.map { it.pill }
+                ?: emptyList()
+        }
         .stateIn(
             viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
+            SharingStarted.Eagerly,
             emptyList(),
         )
 
     /** Swap two pills at the given indices in the persisted full ordering. */
     fun swap(indexA: Int, indexB: Int) = viewModelScope.launch {
-        val current = order.value.toMutableList()
+        val current = (order.value ?: return@launch).toMutableList()
         if (indexA !in current.indices || indexB !in current.indices) return@launch
         val tmp = current[indexA]
         current[indexA] = current[indexB]
@@ -72,7 +103,7 @@ class CategoryPillsViewModel @Inject constructor(
      */
     fun demote(pill: CategoryPill) = viewModelScope.launch {
         if (pill == CategoryPill.HOME) return@launch
-        val current = order.value
+        val current = order.value ?: return@launch
         val topbarCount = current.count { it.visibility == PillVisibility.TOPBAR }
         if (topbarCount <= 2) return@launch
         store.save(current.map {
@@ -82,7 +113,7 @@ class CategoryPillsViewModel @Inject constructor(
 
     /** Promote [pill] back to the TopBar at the rightmost category position. */
     fun promote(pill: CategoryPill) = viewModelScope.launch {
-        val current = order.value.toMutableList()
+        val current = (order.value ?: return@launch).toMutableList()
         val idx = current.indexOfFirst { it.pill == pill }
         if (idx < 0) return@launch
         // Move to the end of the topbar group (just before the first drawer
@@ -95,21 +126,30 @@ class CategoryPillsViewModel @Inject constructor(
     }
 
     /**
-     * Toggle the icons-only display mode for [pill]. Affects how the
-     * Modern TopBar renders this specific pill — true hides the text
-     * label and shows only the leading icon.
+     * Cycle [pill] to the next display mode in the rotation
+     * (Icon + Text → Icon Only → Text Only → Icon + Text). The Modern
+     * TopBar uses the per-pill mode to decide what to render.
      */
-    fun setIconsOnly(pill: CategoryPill, iconsOnly: Boolean) = viewModelScope.launch {
-        val current = order.value
+    fun cycleDisplayMode(pill: CategoryPill) = viewModelScope.launch {
+        val current = order.value ?: return@launch
         if (current.none { it.pill == pill }) return@launch
         store.save(current.map {
-            if (it.pill == pill) it.copy(iconsOnly = iconsOnly) else it
+            if (it.pill == pill) it.copy(displayMode = it.displayMode.next()) else it
+        })
+    }
+
+    /** Set an explicit display mode for [pill]. */
+    fun setDisplayMode(pill: CategoryPill, mode: CategoryPillDisplayMode) = viewModelScope.launch {
+        val current = order.value ?: return@launch
+        if (current.none { it.pill == pill }) return@launch
+        store.save(current.map {
+            if (it.pill == pill) it.copy(displayMode = mode) else it
         })
     }
 
     /** Move [pill] one position toward the front of the full ordering. */
     fun moveUp(pill: CategoryPill) = viewModelScope.launch {
-        val current = order.value
+        val current = order.value ?: return@launch
         val idx = current.indexOfFirst { it.pill == pill }
         if (idx <= 0) return@launch
         swap(idx, idx - 1)
@@ -117,7 +157,7 @@ class CategoryPillsViewModel @Inject constructor(
 
     /** Move [pill] one position toward the end of the full ordering. */
     fun moveDown(pill: CategoryPill) = viewModelScope.launch {
-        val current = order.value
+        val current = order.value ?: return@launch
         val idx = current.indexOfFirst { it.pill == pill }
         if (idx < 0 || idx >= current.lastIndex) return@launch
         swap(idx, idx + 1)

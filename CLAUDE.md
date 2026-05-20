@@ -428,6 +428,246 @@ throughout. APK built and installed to TV at 192.168.8.116.
 
 ---
 
+## 📅 Session log — 2026-05-20 (TopBar / Modern Feel polish marathon)
+
+### Headline
+
+Visual-polish sprint focused on the Modern Top Bar, content-card focus
+treatment, and a handful of layout regressions from the 05-19 cherry-pick
+session. Twelve sub-fixes shipped across nine batched task lists. One new
+domain enum (`CardFocusStyle`), three new CompositionLocals
+(`LocalIsModernFeel`, `LocalTopBarOverlayHeight`, `LocalPosterGlowEnabled`,
+`LocalCardFocusStyle`), three new DataStore keys
+(`modern_top_bar_enabled`, `poster_glow_enabled`, `card_focus_style`), and
+a real-blur glassmorphism path for the TopBar via the existing
+`BlurTransformation` Coil pipeline.
+
+### Features shipped (user-visible)
+
+**Settings ▸ Appearance ▸ Top Bar**
+- New **Modern Top Bar** toggle (default OFF). When ON, the TopBar
+  renders as a frosted-glass overlay over the hero — pulls the
+  currently-displayed hero backdrop URL from `TopBarImmersionState`,
+  runs it through Coil's `BlurTransformation(radius = 25)`, draws it
+  at `matchParentSize()` with `ContentScale.Crop`, then overlays
+  `Color.Black @ 0.3f` (top) → transparent (bottom 20%) for the soft
+  melt and text readability. Works on every API level — no GPU
+  `RenderEffect` dependency. Coil caches the blurred bitmap so
+  subsequent hero changes are instant.
+- **Top Bar Settings** unified to 9 items (Home / Movies / TV Shows /
+  Collections / Channels + Search / Discover / My Stuff / Settings)
+  driven by `CategoryPillOrderEntry` + `PillVisibility` + 3-state
+  `CategoryPillDisplayMode` (Icon + Text / Icon Only / Text Only).
+  Legacy filters out the SideRail-only entries.
+
+**Settings ▸ Appearance ▸ Global**
+- New **Card Focus Style** cycle row. Three modes:
+  - **Accent** (default) — static `NuvioColors.FocusRing` border, no
+    colour extraction.
+  - **Poster Glow** — `Modifier.shadow` (elevation 24dp on cards,
+    8dp on channel pills) with the artwork's dominant colour.
+  - **Border Bloom** — tight coloured border (extracted colour, +1dp
+    width) PLUS softer outer shadow (elevation 8dp / 6dp, alpha
+    0.25f). STRMR-style luminous edge.
+- Sampling reuses the existing `CollectionCardGlow.kt` artwork-→-colour
+  pipeline. Coil cache makes subsequent focuses on the same poster
+  instant.
+
+**Settings ▸ Appearance ▸ Feel** (existing, polished)
+- Modern feel now goes truly edge-to-edge: 16dp consistent buffer on
+  both screen edges (TopBar pills, row titles, card content, hero
+  metadata, skeletons). Legacy keeps its historical 48dp SideRail
+  clearance.
+
+**TopBar UX**
+- Two-step Back from the channel-pill carousel: first Back scrolls
+  the LazyRow to index 0 and lands focus on the first pill; second
+  Back collapses the carousel takeover and restores focus to the
+  active category pill.
+- Carousel takeover animation (300ms slide + fade) when focus enters
+  the channel pills — Main Section (avatar + category pills + divider)
+  slides off-screen so the LazyRow can run edge-to-edge.
+- Replaced the cluttered solid-pill selection background with a tiny
+  6dp circular dot indicator under the resting "selected" pill
+  (`SelectionDashIndicator`). Hidden when focused.
+- Channel-pill logo fallback: when `titleLogoUrl` is null / blank /
+  fails to load (Coil's `onState = State.Error`), the pill
+  gracefully degrades to a text-only render.
+- Per-pill display mode (Icon + Text / Icon Only / Text Only) honoured
+  on the bar.
+
+**Profile Overlay (Modern feel)**
+- Panel height bumped from 60% → 85% of screen + `verticalScroll`
+  wrapping the menu Column so every row reaches the user.
+- Long-press on a built-in overlay row promotes the corresponding
+  pill back to the TopBar (mirror of "+ Hidden Item" click flow).
+- "Pill Channels" management entry now always visible regardless of
+  CHANNELS pill TopBar/Drawer state.
+- Loop scroll preserved at the panel boundaries via
+  `focusProperties { up / down }`.
+
+**Folder picker (Pill Channels dropdown)**
+- Section headers are now focusable / clickable with a "Select all" /
+  "Deselect all" toggle indicator. `GroupToggleState` (ALL_ON / MIXED
+  / ALL_OFF) drives the label and indicator-dot colour. Tap toggles
+  every row in the group at once.
+
+**Collections home screen**
+- Wrapped `CollectionsHomeScreen` in `NuvioNavHost` with a
+  `DisposableEffect` resetting `TopBarImmersionState`, a
+  `Box.onFocusChanged` tracking `contentHasFocus`, and a `BackHandler`
+  that levels-up from content to the TopBar — `CollectionsHome` now
+  behaves like every other root screen (TopBar visible, Back routes
+  via the standard Level-Up hierarchy).
+- `CollectionRowSection.kt` honoured the new edge-to-edge buffer
+  (Modern start = 16dp; Legacy keeps 12dp).
+
+**Settings Hub left rail**
+- Focus highlight repaired — accent fill on focused row, white text on
+  fill. Single-expand accordion (was multi-expand); opening one
+  category collapses any other open category.
+
+### New files created
+
+- `app/src/main/java/com/nuvio/tv/domain/model/CardFocusStyle.kt` —
+  three-mode focus style enum + `next()` cycle + `displayLabel` +
+  `fromStorageValue`.
+- `app/src/main/java/com/nuvio/tv/domain/model/CategoryPill.kt`
+  *(extended, not new)* — `CategoryPillDisplayMode` enum and
+  expanded 9-entry `CategoryPill` enum with per-pill
+  `defaultVisibility`.
+
+### New CompositionLocals (MainActivity)
+
+| Local | Default | Purpose |
+|---|---|---|
+| `LocalIsModernFeel` | `false` | Lets deep components drop SideRail-era left padding without prop-drilling. |
+| `LocalTopBarOverlayHeight` | `0.dp` | Reserve hero text inset when the glass TopBar overlays the hero (currently unused — hero metadata is at `BottomStart` in all home variants). |
+| `LocalPosterGlowEnabled` | `true` | Derived from `LocalCardFocusStyle != ACCENT` for backwards-compat. |
+| `LocalCardFocusStyle` | `ACCENT` | Active focus style — read by `ContentCard`, `GridContentCard`, `ChannelTabItem`. |
+
+### New DataStore keys (`LayoutPreferenceDataStore`)
+
+| Key | Default | Purpose |
+|---|---|---|
+| `modern_top_bar_enabled` | `false` | Glassmorphism TopBar opt-in. |
+| `poster_glow_enabled` | `true` | Legacy boolean. Superseded by `card_focus_style` but kept for forward compat. |
+| `card_focus_style` | `"accent"` | Card Focus Style enum (`accent` / `glow` / `bloom`). |
+| `category_pill_order` *(via `CategoryPillOrderDataStore`)* | per-pill defaults | Persists pill order, visibility, and 3-state display mode. |
+
+### Architectural decisions
+
+- **Real glass via Coil bitmap blur, not GPU RenderEffect.** The
+  Skyworth box's GPU silently no-ops `RenderEffect.createBlurEffect`,
+  so the TopBar now feeds the hero backdrop URL through
+  `BlurTransformation` (existing stack-blur Coil transform used by
+  `ContinueWatchingSection` and `EpisodesSection`). Result is a real
+  frosted-glass effect that works on every API level. Coil caches by
+  `"stack_blur_$radius"` key.
+- **Per-screen backdrop URL plumbing via `TopBarImmersionState`.**
+  Added `backdropUrl: StateFlow<String?>` + `setBackdropUrl(url)` /
+  `reset()` on the existing immersion state holder.
+  `ModernHomeContent`'s snapshotFlow now pushes both
+  `HeroBackdropState` and `TopBarImmersionState` in lockstep.
+  `HeroCarousel` (used by Classic / Grid) wires it via
+  `LaunchedEffect` + `DisposableEffect` clear.
+- **Vertical contentPadding on every horizontal LazyRow.**
+  `CatalogRowSection`, `CollectionRowSection`, `ContinueWatchingSection`,
+  `ModernHomeRows` all set `top = 16.dp, bottom = 16.dp` so
+  `Modifier.shadow` glow on focused cards isn't clipped by the parent
+  LazyColumn row slot.
+- **Dot indicator instead of full-width dash.** First selection-indicator
+  attempt used `fillMaxWidth(0.6f)` which scaled to the parent Row's
+  width; replaced with absolute `size(6.dp)` + `CircleShape` so the
+  indicator is scoped to its own Column (one pill).
+- **Two CompositionLocals, not one nested rendering.** Considered
+  having `LocalCardFocusStyle` derive everything (alpha, elevation,
+  border colour) but the per-callsite tuning (poster cards = 24dp /
+  channel pills = 6dp) made centralising it awkward. Kept the enum
+  pure and computed numbers at each call site.
+
+### Bugs fixed
+
+- **Cold-start TopBar layout reset.** `CategoryPillsViewModel`'s
+  `order` StateFlow was seeded with `defaultOrder()`, which meant any
+  user mutation that read `order.value` BEFORE the DataStore first
+  emission would persist the seed defaults. Switched the seed to
+  `null` (`StateFlow<List<...>?>`), changed `Eagerly` start, and
+  made all mutations early-return when value is `null`. Consumers
+  (`MainActivity`, `TopBarSettingsContent`) read it as nullable.
+- **`CollectionsHomeScreen` was isolated.** No `BackHandler`, no
+  immersion reset — Back exited the app and the TopBar fade was
+  whatever the previous screen had left it as. Wired into
+  `NuvioNavHost` (the screen file itself is exempt from edits per the
+  project rule).
+- **Pill Channels missing from Profile Overlay in default state.**
+  Gated on `drawerPills.contains(CHANNELS)`, but CHANNELS defaults
+  to TOPBAR — so the management entry was invisible by default.
+  Changed to `showPillChannels = true` unconditionally; the rail's
+  visibility and its contents are now separately-managed concepts.
+- **Focus invisible on Settings Hub left rail.** `CategoryRailRow`
+  used `Color.Transparent` for `focusedContainerColor` and
+  `Border.None` for `focusedBorder` — focused row was indistinguishable
+  from a non-focused row on white background. Now uses solid accent
+  fill + white text/icons on focus.
+- **Channel-pill logo failures left blank pills.** No fallback when
+  `titleLogoUrl` 404'd. Now tracks `logoLoadFailed` via Coil's
+  `onState` callback and degrades to text-only.
+- **`combine` overload not found for 6+ Boolean sources.**
+  `GlobalSettingsContent` ViewModel needed a 6-arg `combine` of
+  booleans; switched to the vararg `combine(vararg flows) { args -> }`
+  form because Kotlin's typed-Triple capacity stops at 5.
+
+### Pending follow-ups from this session
+
+1. **Test glassmorphism on TV.** APK installed but visual verification
+   needed for: (a) blurred hero image actually showing through the
+   TopBar in Modern mode, (b) bottom-12dp fade melting into hero,
+   (c) text legibility against the worst-case bright hero.
+2. **Card Focus Style on TV.** Verify Accent → Glow → Bloom cycles
+   correctly in Global settings, and that each mode renders
+   distinctly on focused cards in Home / Movies / TV / Discover /
+   My Stuff / channel pills.
+3. **`HeroBackdropState` ↔ `TopBarImmersionState.backdropUrl` sync.**
+   They're maintained in parallel. Future cleanup: consolidate into
+   one holder.
+4. **`SettingsScreen.kt` (Old)** — still dual-maintained with
+   `SettingsHubScreen.kt`. Cleanup candidate when next-touched.
+5. **Phase 8 Localization sweep (~25 commits)** — carried over from
+   05-19 session, untouched today.
+6. **23 skipped upstream commits** — full list in 05-19 session log.
+   Highest-value ones still pending:
+   `daf4546c` (player exit after CW), `5b2f0819` (next-episode end
+   overlay), `f8840d57` (Parental Guide), `08663af4`+`1dfa38ad`
+   (forced-subtitle scoring), DiscoverLocation bundle (5-commit).
+7. **Hero text inset CompositionLocal unused.**
+   `LocalTopBarOverlayHeight` was added speculatively for hero TEXT
+   that overlapped the TopBar — but hero text is `BottomStart`
+   aligned in all current home variants. Keep the Local around for
+   when a future hero design pushes text near the top.
+8. **`SidebarNavigation.kt` stub** + the orphaned DataStore keys
+   (`modern_sidebar_enabled`, `legacyModernSidebarEnabledKey =
+   "glass_sidepanel_enabled"`, `modern_sidebar_blur_enabled`) — dead
+   wiring from a previous design iteration. Leave for now; cleanup
+   when next-touched.
+
+### Notes for future sessions
+
+- **One push, many small fixes.** Today's session was nine task-list
+  rounds with a compile + install after each, plus one EOD push.
+  Easier to bisect than the 05-19 75-commit firehose.
+- **The user's TV is a Skyworth Android 12 box.** `RenderEffect`
+  silently does nothing on its GPU. Stack-blur Coil transform is
+  the established fallback pattern (`BlurTransformation.kt`).
+- **`LocalCardFocusStyle` is the canonical reading site.**
+  `LocalPosterGlowEnabled` is kept only because three earlier
+  call sites reference it; new code should prefer the enum directly.
+- **The "Modern Top Bar" toggle is OFF by default.** Anyone testing
+  needs to flip it in Settings → Appearance → Top Bar → Modern Top
+  Bar before the glassmorphism path activates.
+
+---
+
 ## 🚫 Carry-over rules from global CLAUDE.md
 
 - Compile after every group/step before moving to the next

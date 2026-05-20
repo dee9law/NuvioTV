@@ -23,10 +23,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,33 +56,45 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Switch
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.CategoryPill
+import com.nuvio.tv.domain.model.CategoryPillDisplayMode
 import com.nuvio.tv.domain.model.CategoryPillOrderEntry
 import com.nuvio.tv.domain.model.Feel
 import com.nuvio.tv.domain.model.PillVisibility
+import com.nuvio.tv.ui.components.AccentToggleRow
 import com.nuvio.tv.ui.components.CategoryPillsViewModel
 import com.nuvio.tv.ui.theme.NuvioColors
 
 /**
- * Top Bar settings screen — lets the user reorder category pills,
- * toggle their display mode (icons + text vs icons only), and remove
- * them from the bar (which moves them into the Profile Overlay's
- * Hidden Items section in Modern feel).
+ * Unified Top Bar settings screen — lets the user reorder every
+ * navigation surface that can live on the Modern TopBar, cycle its
+ * display mode (Icon + Text → Icon Only → Text Only), and toggle
+ * visibility on/off.
  *
- * Currently lists the four category pills (Home / Movies / TV Shows /
- * Collections) for both feels. The spec also calls for Modern to surface
- * Search / Discover / My Stuff / Settings here as toggleable TopBar
- * pills, but that requires extending the [CategoryPill] enum and the
- * overlay's static menu to a data-driven list — a follow-up.
+ * Modern feel surfaces all nine items (the four category pills, the
+ * four overlay surfaces — Search / Discover / My Stuff / Settings —
+ * and the Channels rail). Legacy feel surfaces only the five items
+ * actually configurable from the TopBar there (the four category
+ * pills and Channels); SideRail items live on the rail in Legacy and
+ * are managed elsewhere.
  *
- * Reorder writes go to the same [CategoryPillsViewModel] used by Edit
- * Mode, so the two stay in sync.
+ * Reorder writes go to the same [CategoryPillsViewModel] used by
+ * Edit Mode, so the two stay in sync.
  */
 @Composable
 fun TopBarSettingsContent(
     feel: Feel,
     viewModel: CategoryPillsViewModel = hiltViewModel(),
+    feelViewModel: NavigationFeelViewModel = hiltViewModel(),
 ) {
-    val order by viewModel.order.collectAsStateWithLifecycle()
+    val orderState by viewModel.order.collectAsStateWithLifecycle()
+    val fullOrder = orderState.orEmpty()
+    val modernTopBarEnabled by feelViewModel.modernTopBarEnabled.collectAsStateWithLifecycle()
+    // Legacy hides the four overlay surfaces — they have no presence on
+    // the Legacy TopBar so configuring them here would be meaningless.
+    val visibleEntries = when (feel) {
+        Feel.MODERN -> fullOrder
+        Feel.LEGACY -> fullOrder.filter { it.pill in LEGACY_PILLS }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -88,25 +105,45 @@ fun TopBarSettingsContent(
             SettingsDetailHeader(
                 title = "Top Bar",
                 subtitle = when (feel) {
-                    Feel.MODERN -> "Reorder pills, compact them to icons-only, or move them into the Profile menu."
-                    Feel.LEGACY -> "Reorder pills, compact them to icons-only, or remove them from the bar."
+                    Feel.MODERN -> "Reorder pills, cycle their display mode, or move them into the Profile menu."
+                    Feel.LEGACY -> "Reorder pills, cycle their display mode, or remove them from the bar."
                 },
             )
         }
-        items(items = order, key = { it.pill.storageId }) { entry ->
+        item(key = "modern_top_bar_toggle") {
+            // Glassmorphism opt-in. Anchored at the top of the list so it's
+            // the first thing the user lands on when entering Top Bar
+            // settings — flipping this changes how every other TopBar
+            // setting visually presents.
+            AccentToggleRow(
+                title = "Modern Top Bar",
+                subtitle = "Glassmorphism top bar with hero bleed-through",
+                checked = modernTopBarEnabled,
+                onCheckedChange = { feelViewModel.setModernTopBarEnabled(it) },
+            )
+        }
+        items(items = visibleEntries, key = { it.pill.storageId }) { entry ->
             PillRow(
                 entry = entry,
-                topbarCount = order.count { it.visibility == PillVisibility.TOPBAR },
-                canMoveUp = order.indexOf(entry) > 0,
-                canMoveDown = order.indexOf(entry) < order.lastIndex,
+                topbarCount = fullOrder.count { it.visibility == PillVisibility.TOPBAR },
+                canMoveUp = visibleEntries.indexOf(entry) > 0,
+                canMoveDown = visibleEntries.indexOf(entry) < visibleEntries.lastIndex,
                 onMoveUp = { viewModel.moveUp(entry.pill) },
                 onMoveDown = { viewModel.moveDown(entry.pill) },
-                onToggleIconsOnly = { viewModel.setIconsOnly(entry.pill, !entry.iconsOnly) },
+                onCycleDisplayMode = { viewModel.cycleDisplayMode(entry.pill) },
                 onToggleVisible = { visible -> viewModel.setVisible(entry.pill, visible) },
             )
         }
     }
 }
+
+private val LEGACY_PILLS = setOf(
+    CategoryPill.HOME,
+    CategoryPill.MOVIES,
+    CategoryPill.TV_SHOWS,
+    CategoryPill.COLLECTIONS,
+    CategoryPill.CHANNELS,
+)
 
 // ── Row ─────────────────────────────────────────────────────────────────────
 
@@ -118,7 +155,7 @@ private fun PillRow(
     canMoveDown: Boolean,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
-    onToggleIconsOnly: () -> Unit,
+    onCycleDisplayMode: () -> Unit,
     onToggleVisible: (Boolean) -> Unit,
 ) {
     val accent = NuvioColors.Secondary
@@ -167,12 +204,12 @@ private fun PillRow(
             enabled = canMoveDown,
             onClick = onMoveDown,
         )
-        // Single-button display-mode toggle. Outlined when icons-only,
-        // filled when icon+text. Matches the spec's "single button press
-        // toggles, not a dropdown".
+        // Single-button display-mode toggle. Cycles Icon + Text →
+        // Icon Only → Text Only → … on each Select press. Matches the
+        // spec's "single button press cycles, not a dropdown".
         DisplayModePill(
-            iconsOnly = entry.iconsOnly,
-            onClick = onToggleIconsOnly,
+            mode = entry.displayMode,
+            onClick = onCycleDisplayMode,
             accent = accent,
         )
         Switch(
@@ -185,14 +222,15 @@ private fun PillRow(
 
 @Composable
 private fun DisplayModePill(
-    iconsOnly: Boolean,
+    mode: CategoryPillDisplayMode,
     onClick: () -> Unit,
     accent: Color,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val isCustomMode = mode != CategoryPillDisplayMode.ICON_AND_TEXT
     val containerColor = when {
         focused -> accent.copy(alpha = 0.35f)
-        iconsOnly -> accent.copy(alpha = 0.18f)
+        isCustomMode -> accent.copy(alpha = 0.18f)
         else -> Color.White.copy(alpha = 0.06f)
     }
     Card(
@@ -206,7 +244,7 @@ private fun DisplayModePill(
             focusedContainerColor = containerColor,
         ),
         border = CardDefaults.border(
-            border = if (iconsOnly) Border(
+            border = if (isCustomMode) Border(
                 border = BorderStroke(1.dp, accent),
                 shape = RoundedCornerShape(17.dp),
             ) else Border.None,
@@ -225,11 +263,15 @@ private fun DisplayModePill(
             Icon(
                 imageVector = Icons.Default.TextFields,
                 contentDescription = null,
-                tint = if (iconsOnly) accent else NuvioColors.TextPrimary,
+                tint = if (isCustomMode) accent else NuvioColors.TextPrimary,
                 modifier = Modifier.size(14.dp),
             )
             Text(
-                text = if (iconsOnly) "Icon only" else "Icon + text",
+                text = when (mode) {
+                    CategoryPillDisplayMode.ICON_AND_TEXT -> "Icon + text"
+                    CategoryPillDisplayMode.ICON_ONLY -> "Icon only"
+                    CategoryPillDisplayMode.TEXT_ONLY -> "Text only"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = NuvioColors.TextPrimary,
                 fontWeight = FontWeight.Medium,
@@ -287,4 +329,9 @@ private fun iconFor(pill: CategoryPill): ImageVector = when (pill) {
     CategoryPill.MOVIES -> Icons.Default.Movie
     CategoryPill.TV_SHOWS -> Icons.Default.Tv
     CategoryPill.COLLECTIONS -> Icons.Default.Folder
+    CategoryPill.SEARCH -> Icons.Default.Search
+    CategoryPill.DISCOVER -> Icons.Default.Explore
+    CategoryPill.MY_STUFF -> Icons.Default.Bookmark
+    CategoryPill.SETTINGS -> Icons.Default.Settings
+    CategoryPill.CHANNELS -> Icons.Default.Tune
 }

@@ -8,6 +8,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -46,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
@@ -59,6 +63,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
 import com.nuvio.tv.LocalContentFocusRequester
+import com.nuvio.tv.domain.model.CategoryPillDisplayMode
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
@@ -153,6 +158,25 @@ fun TopNavigationBar(
      * uses this to let users compact specific pills.
      */
     categoryIconsOnly: List<Boolean>? = null,
+    /**
+     * Parallel list to [categories]: when index i is true, that pill
+     * renders only its label (no icon). Mutually exclusive with the
+     * same-index entry of [categoryIconsOnly] — when both are true
+     * for the same pill, icons-only wins.
+     */
+    categoryTextOnly: List<Boolean>? = null,
+    /**
+     * `true` → render the channel-pill rail (default). `false` →
+     * suppress the rail entirely (Modern feel hides the rail when the
+     * user has demoted the CHANNELS pill to the Profile Overlay).
+     */
+    channelRailVisible: Boolean = true,
+    /**
+     * Display mode for each channel pill in the rail — controlled by
+     * the CHANNELS pill's setting in TopBar settings. Defaults to
+     * icon + text (logo + caption) which is the original behavior.
+     */
+    channelDisplayMode: CategoryPillDisplayMode = CategoryPillDisplayMode.ICON_AND_TEXT,
     // ── Modern-feel-only Edit Mode (F10) ─────────────────────────────────
     // When [editMode] is true every category pill renders a static accent
     // border (the "moveable" cue) and the focused pill is treated as
@@ -199,12 +223,47 @@ fun TopNavigationBar(
             if (isModernFeel) avatarFr.requestFocus() else firstCategoryFr.requestFocus()
         }
     }
+    // ── Carousel takeover (Task B1/B2) ──────────────────────────────────────
+    // When focus is inside the channel-pill LazyRow, slide the Main Section
+    // (avatar + category pills + divider) off-screen and let the carousel
+    // expand to fill the bar's full width.
+    //
+    // Back behaviour is two-step:
+    //  1. If focus is deeper than the first channel pill (lastFocusedChannel
+    //     != 0) → scroll the LazyRow to index 0 and request focus there.
+    //  2. From index 0 (or already there) → snap back to the Main Section
+    //     and land on the previously-active category pill.
+    var focusInCarousel by remember { mutableStateOf(false) }
+    BackHandler(enabled = focusInCarousel) {
+        if (lastFocusedChannel > 0 && channels.isNotEmpty()) {
+            wrapScope.launch {
+                listState.scrollToItem(0)
+                withFrameNanos { }
+                runCatching { channelFr(0).requestFocus() }
+                lastFocusedChannel = 0
+            }
+        } else {
+            focusInCarousel = false
+            wrapScope.launch {
+                repeat(3) { withFrameNanos { } }
+                runCatching { firstTabFocusRequester?.requestFocus() }
+            }
+        }
+    }
+    // Modern feel: minimal 16dp buffer on both edges so pills don't
+    // kiss the TV bezel and the focus highlight has room to render
+    // without clipping. Legacy keeps the original 36dp leading clearance
+    // for SideRail-era alignment, no trailing pad (channels run to
+    // the right edge of the screen).
+    val isModernFeelForTopBar = com.nuvio.tv.LocalIsModernFeel.current
+    val topBarLeading = if (isModernFeelForTopBar) 16.dp else 36.dp
+    val topBarTrailing = if (isModernFeelForTopBar) 16.dp else 0.dp
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(NavBarHeight)
             .background(NavBarBg)
-            .padding(horizontal = 36.dp)
+            .padding(start = topBarLeading, end = topBarTrailing)
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
                     runCatching { contentFr.requestFocus() }.isSuccess
@@ -214,6 +273,22 @@ fun TopNavigationBar(
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // ── Main Section (avatar + categories + divider) ────────────────────
+        // Wrapped in AnimatedVisibility so the whole zone slides + fades out
+        // when the user is deep in the carousel, letting the LazyRow's
+        // weight(1f) inherit the freed layout space and span edge-to-edge.
+        AnimatedVisibility(
+            visible = !focusInCarousel,
+            enter = slideInHorizontally(
+                animationSpec = tween(300),
+                initialOffsetX = { -it / 2 },
+            ) + fadeIn(tween(300)),
+            exit = slideOutHorizontally(
+                animationSpec = tween(300),
+                targetOffsetX = { -it / 2 },
+            ) + fadeOut(tween(300)),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
         // ── Zone 0 (Modern only): Profile avatar ─────────────────────────────
         if (isModernFeel) {
             ProfileAvatarButton(
@@ -256,6 +331,7 @@ fun TopNavigationBar(
                         text = label,
                         leadingIcon = categoryIcons?.getOrNull(index),
                         iconsOnly = categoryIconsOnly?.getOrNull(index) == true,
+                        textOnly = categoryTextOnly?.getOrNull(index) == true,
                         isSelected = isActiveCategory,
                         onClick = { onCategorySelected(index) },
                         onLongClick = onCategoryLongPress?.let { fire -> { fire(index) } },
@@ -333,57 +409,87 @@ fun TopNavigationBar(
                 }
             }
         }
+            } // end of Main Section inner Row
+        } // end of AnimatedVisibility (Main Section)
 
-        Spacer(Modifier.width(16.dp))
-        NavDivider()
-        Spacer(Modifier.width(16.dp))
+        if (channelRailVisible) {
+            // Spacer + divider hide alongside the Main Section so the LazyRow
+            // can run truly edge-to-edge during a carousel takeover.
+            AnimatedVisibility(
+                visible = !focusInCarousel,
+                enter = fadeIn(tween(300)),
+                exit = fadeOut(tween(300)),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.width(16.dp))
+                    NavDivider()
+                    Spacer(Modifier.width(16.dp))
+                }
+            }
 
-        // ── Zone 2: Channel tabs (scrollable) ────────────────────────────────
-        // When a collection is active, prefix the rail with the collection name
-        // so the user knows which collection's folders they're browsing.
-        if (collectionContextLabel != null) {
-            Text(
-                text = collectionContextLabel,
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.85f),
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(end = 4.dp),
-            )
-            Text(
-                text = "›",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White.copy(alpha = 0.55f),
-                modifier = Modifier.padding(end = 10.dp),
-            )
-        }
-
-        LazyRow(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .focusRestorer { channelFr(lastFocusedChannel) }
-                .focusGroup(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            contentPadding = PaddingValues(horizontal = 2.dp),
-        ) {
-            itemsIndexed(
-                items = channels,
-                key = { _, ch -> ch.id },
-            ) { index, channel ->
-                val isActiveChannel = index == selectedChannelIndex
-                val isLastChannel = index == channels.lastIndex
-                ChannelTabItem(
-                    channel = channel,
-                    isSelected = isActiveChannel,
-                    focusRequester = channelFr(index),
-                    secondaryFocusRequester = if (isActiveChannel) firstTabFocusRequester else null,
-                    onFocused = { lastFocusedChannel = index },
-                    onClick = { onChannelSelected(index) },
-                    // Loop wrap: last channel pill's D-pad Right loops back
-                    // to the leftmost bar item (avatar in Modern, first
-                    // category in Legacy).
-                    onWrapRight = if (isLastChannel) wrapToLeftmostBarItem else null,
+            // ── Zone 2: Channel tabs (scrollable) ────────────────────────────
+            // When a collection is active, prefix the rail with the collection
+            // name so the user knows which collection's folders they're
+            // browsing.
+            if (collectionContextLabel != null) {
+                Text(
+                    text = collectionContextLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(end = 4.dp),
                 )
+                Text(
+                    text = "›",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White.copy(alpha = 0.55f),
+                    modifier = Modifier.padding(end = 10.dp),
+                )
+            }
+
+            LazyRow(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRestorer { channelFr(lastFocusedChannel) }
+                    .focusGroup()
+                    // Drive the carousel takeover: whenever any channel pill
+                    // takes focus, flip the Main Section out so the rail
+                    // expands. When focus leaves naturally (navigation,
+                    // wrap, Back redirect), the Main Section slides back.
+                    .onFocusChanged { focusInCarousel = it.hasFocus },
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                // Modern feel: the outer Row already pads 16dp on both
+                // edges, so the LazyRow itself needs no buffer. Legacy:
+                // outer Row has no trailing pad, so the LazyRow keeps
+                // a 12dp end inset so the last pill doesn't kiss the
+                // screen bezel.
+                contentPadding = if (isModernFeelForTopBar) {
+                    PaddingValues(start = 0.dp, end = 0.dp)
+                } else {
+                    PaddingValues(start = 2.dp, end = 12.dp)
+                },
+            ) {
+                itemsIndexed(
+                    items = channels,
+                    key = { _, ch -> ch.id },
+                ) { index, channel ->
+                    val isActiveChannel = index == selectedChannelIndex
+                    val isLastChannel = index == channels.lastIndex
+                    ChannelTabItem(
+                        channel = channel,
+                        displayMode = channelDisplayMode,
+                        isSelected = isActiveChannel,
+                        focusRequester = channelFr(index),
+                        secondaryFocusRequester = if (isActiveChannel) firstTabFocusRequester else null,
+                        onFocused = { lastFocusedChannel = index },
+                        onClick = { onChannelSelected(index) },
+                        // Loop wrap: last channel pill's D-pad Right loops back
+                        // to the leftmost bar item (avatar in Modern, first
+                        // category in Legacy).
+                        onWrapRight = if (isLastChannel) wrapToLeftmostBarItem else null,
+                    )
+                }
             }
         }
 
@@ -419,6 +525,13 @@ private fun CategoryTabItem(
      * still shows so the pill remains identifiable.
      */
     iconsOnly: Boolean = false,
+    /**
+     * `true` → hide the leading icon and render only the text label.
+     * Takes precedence over [verticalLayout]. If both [iconsOnly] and
+     * this are set the icons-only path wins (renderer falls through
+     * to the icon-only branch first).
+     */
+    textOnly: Boolean = false,
     editMode: Boolean = false,
     onEditKey: ((Key) -> Boolean)? = null,
     /** Loop-wrap handler invoked on D-pad Left when there's nothing
@@ -463,6 +576,7 @@ private fun CategoryTabItem(
     // user can see at a glance which surface accepts reorder gestures.
     val editBorderColor = if (editMode) accentColor.copy(alpha = 0.45f) else PillFocusBorder
 
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
     Card(
         onClick = onClick,
         modifier = Modifier
@@ -554,6 +668,17 @@ private fun CategoryTabItem(
                     modifier = Modifier.size(20.dp),
                 )
             }
+        } else if (textOnly) {
+            // Text-only: render the label centered in the pill, no icon.
+            // Falls back to the standard horizontal/vertical layouts when
+            // there's no label to show.
+            Text(
+                text = text,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
+                style = MaterialTheme.typography.titleSmall,
+                color = textColor,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+            )
         } else if (verticalLayout && leadingIcon != null) {
             // Compact stacked layout — icon on top, label below — used by
             // Modern feel so more pills fit in the same bar width.
@@ -597,7 +722,12 @@ private fun CategoryTabItem(
                 )
             }
         }
-    }
+    } // Card
+    // Resting selected indicator — hidden in edit mode (where the
+    // accent border already signals the grabbed pill) and while
+    // focused (focus highlight already obvious).
+    SelectionDashIndicator(visible = isSelected && !isFocused && !editMode)
+    } // Column
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -611,15 +741,26 @@ private fun ChannelTabItem(
     secondaryFocusRequester: FocusRequester? = null,
     /** Loop-wrap handler for D-pad Right when this is the last channel. */
     onWrapRight: (() -> Unit)? = null,
+    /**
+     * Per-channel display mode driven by the CHANNELS pill's setting in
+     * TopBar settings. ICON_AND_TEXT shows logo + caption (default);
+     * ICON_ONLY hides the caption when a logo is present; TEXT_ONLY
+     * hides the logo. Falls back to text when there's no logo to show.
+     */
+    displayMode: CategoryPillDisplayMode = CategoryPillDisplayMode.ICON_AND_TEXT,
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    // Track logo load outcome so a 404 / broken URL gracefully degrades
+    // to a text-only pill instead of leaving a blank or broken-image
+    // gap. Resets whenever the URL itself changes.
+    var logoLoadFailed by remember(channel.titleLogoUrl) { mutableStateOf(false) }
 
+    // Resting "selected" state uses a thin underline dash (rendered as a
+    // sibling Box below the Card) instead of the previous solid brand-
+    // colour pill — far less visually cluttering. Focus still tints the
+    // background so the D-pad position stays obvious.
     val bgColor by animateColorAsState(
-        targetValue = when {
-            isSelected -> channel.brandColor
-            isFocused  -> PillFocusedBg
-            else       -> Color.Transparent
-        },
+        targetValue = if (isFocused) PillFocusedBg else Color.Transparent,
         animationSpec = tween(160),
         label = "channelBg",
     )
@@ -633,11 +774,43 @@ private fun ChannelTabItem(
         animationSpec = spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow),
         label = "channelScale",
     )
+    val hasLogoUrl = !channel.titleLogoUrl.isNullOrBlank() && !logoLoadFailed
+    // Channel pill focus treatment mirrors the Card Focus Style enum
+    // used by content cards (so users get one consistent setting). The
+    // numbers are tuned smaller than poster cards — pills are tiny, so
+    // a 6dp shadow + 0.25 alpha colour reads as a subtle halo rather
+    // than overpowering fuzz.
+    val pillFocusStyle = com.nuvio.tv.LocalCardFocusStyle.current
+    val pillStyleAccent = pillFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.ACCENT
+    val glowColor = rememberArtworkBackedGlowColor(
+        imageUrl = channel.titleLogoUrl,
+        fallbackSeed = channel.id,
+        enabled = !pillStyleAccent && hasLogoUrl,
+    )
+    val pillIsBloom = pillFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.BLOOM
+    val pillIsGlow = pillFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.GLOW
+    val showPillGlow = hasLogoUrl && isFocused && (pillIsGlow || pillIsBloom)
+    val pillShadowElevation = if (pillIsBloom) 6.dp else 8.dp
+    val pillShadowColor = glowColor.copy(alpha = 0.25f)
+    val pillFocusedBorderColor = if (pillIsBloom && hasLogoUrl) glowColor
+        else PillFocusBorder
+    val pillFocusedBorderWidth = if (pillIsBloom) 2.dp else 1.5.dp
 
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
     Card(
         onClick = onClick,
         modifier = Modifier
             .scale(scale)
+            .then(
+                if (showPillGlow) {
+                    Modifier.shadow(
+                        elevation = pillShadowElevation,
+                        shape = PillShape,
+                        ambientColor = pillShadowColor,
+                        spotColor = pillShadowColor,
+                    )
+                } else Modifier
+            )
             .focusRequester(focusRequester)
             .then(
                 if (secondaryFocusRequester != null) Modifier.focusRequester(secondaryFocusRequester)
@@ -664,16 +837,15 @@ private fun ChannelTabItem(
         border = CardDefaults.border(
             border = Border.None,
             focusedBorder = Border(
-                border = BorderStroke(1.5.dp, PillFocusBorder),
+                border = BorderStroke(pillFocusedBorderWidth, pillFocusedBorderColor),
                 shape = PillShape,
             ),
         ),
         scale = CardDefaults.scale(focusedScale = 1f),
     ) {
-        // Logo above caption when titleLogoUrl is provided; text-only otherwise.
-        // Both children are horizontally centered so an asymmetric logo still
-        // looks balanced inside the pill regardless of caption width.
-        if (!channel.titleLogoUrl.isNullOrBlank()) {
+        val showLogo = hasLogoUrl && displayMode != CategoryPillDisplayMode.TEXT_ONLY
+        val showText = !(hasLogoUrl && displayMode == CategoryPillDisplayMode.ICON_ONLY)
+        if (showLogo && showText) {
             Column(
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -683,6 +855,11 @@ private fun ChannelTabItem(
                     model = channel.titleLogoUrl,
                     contentDescription = channel.name,
                     contentScale = ContentScale.Fit,
+                    onState = { state ->
+                        if (state is coil3.compose.AsyncImagePainter.State.Error) {
+                            logoLoadFailed = true
+                        }
+                    },
                     modifier = Modifier
                         .heightIn(max = 20.dp)
                         .widthIn(max = 60.dp),
@@ -694,6 +871,27 @@ private fun ChannelTabItem(
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                 )
             }
+        } else if (showLogo) {
+            // Icon-only: logo alone in a slightly taller pill to match the
+            // icon-and-text variant's vertical rhythm.
+            Box(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                AsyncImage(
+                    model = channel.titleLogoUrl,
+                    contentDescription = channel.name,
+                    contentScale = ContentScale.Fit,
+                    onState = { state ->
+                        if (state is coil3.compose.AsyncImagePainter.State.Error) {
+                            logoLoadFailed = true
+                        }
+                    },
+                    modifier = Modifier
+                        .heightIn(max = 24.dp)
+                        .widthIn(max = 72.dp),
+                )
+            }
         } else {
             Text(
                 text = channel.name,
@@ -703,7 +901,35 @@ private fun ChannelTabItem(
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
             )
         }
-    }
+    } // Card
+    SelectionDashIndicator(visible = isSelected && !isFocused)
+    } // Column
+}
+
+/**
+ * Tiny circular indicator dot that sits directly below a pill to mark
+ * the resting "selected" state. Sized in absolute dp so it's scoped to
+ * its parent Column (one pill) — not the bar — and renders even when
+ * the pill's own width is wider than the dot. Hidden when focused so
+ * the focus highlight isn't muddled, and not painted at all when off
+ * (an empty `Spacer` so layout doesn't shift).
+ */
+@Composable
+private fun SelectionDashIndicator(visible: Boolean) {
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 0.8f else 0f,
+        animationSpec = tween(160),
+        label = "selectionDashAlpha",
+    )
+    Box(
+        modifier = Modifier
+            .padding(top = 2.dp)
+            .size(6.dp)
+            .background(
+                color = Color.White.copy(alpha = alpha),
+                shape = androidx.compose.foundation.shape.CircleShape,
+            ),
+    )
 }
 
 /**

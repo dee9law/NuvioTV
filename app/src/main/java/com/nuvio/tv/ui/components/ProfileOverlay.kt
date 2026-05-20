@@ -11,6 +11,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -113,6 +115,23 @@ fun ProfileOverlay(
     onNavigate: (ProfileOverlayDestination) -> Unit,
     hiddenItems: List<ProfileOverlayHiddenItem> = emptyList(),
     onHiddenItemSelected: (ProfileOverlayHiddenItem) -> Unit = {},
+    // D3: Long-press on a built-in row promotes that destination's pill
+    // back to the TopBar (mirror of the "+ Hidden Items" click flow).
+    // MainActivity routes this through CategoryPillsViewModel.promote.
+    onPromoteBuiltin: (ProfileOverlayDestination) -> Unit = {},
+    // D3: Long-press on a hidden item also promotes — same destination
+    // as the click-promote flow but discoverable from any pill in the
+    // section.
+    onPromoteHiddenItem: (ProfileOverlayHiddenItem) -> Unit = {},
+    // Gate flags wire each built-in destination row to whether the
+    // corresponding [CategoryPill] is currently demoted to the drawer.
+    // When a pill is promoted to the TopBar its overlay row hides — the
+    // user reaches it via the pill instead.
+    showSearch: Boolean = true,
+    showDiscover: Boolean = true,
+    showMyStuff: Boolean = true,
+    showSettings: Boolean = true,
+    showPillChannels: Boolean = true,
 ) {
     // BackHandler is composition-scoped, so it must mount/unmount with the
     // overlay rather than living above AnimatedVisibility.
@@ -161,6 +180,13 @@ fun ProfileOverlay(
                 onNavigate = onNavigate,
                 hiddenItems = hiddenItems,
                 onHiddenItemSelected = onHiddenItemSelected,
+                onPromoteBuiltin = onPromoteBuiltin,
+                onPromoteHiddenItem = onPromoteHiddenItem,
+                showSearch = showSearch,
+                showDiscover = showDiscover,
+                showMyStuff = showMyStuff,
+                showSettings = showSettings,
+                showPillChannels = showPillChannels,
             )
         }
     }
@@ -187,6 +213,13 @@ private fun ProfileOverlayPanel(
     onNavigate: (ProfileOverlayDestination) -> Unit,
     hiddenItems: List<ProfileOverlayHiddenItem>,
     onHiddenItemSelected: (ProfileOverlayHiddenItem) -> Unit,
+    onPromoteBuiltin: (ProfileOverlayDestination) -> Unit,
+    onPromoteHiddenItem: (ProfileOverlayHiddenItem) -> Unit,
+    showSearch: Boolean,
+    showDiscover: Boolean,
+    showMyStuff: Boolean,
+    showSettings: Boolean,
+    showPillChannels: Boolean,
 ) {
     val firstRowFocus = remember { FocusRequester() }
     // Loop-wrap focus requesters — `wrapTopFr` is the very first focusable
@@ -196,6 +229,7 @@ private fun ProfileOverlayPanel(
     // so D-pad Down on last → first and Up on first → last.
     val wrapTopFr = remember { FocusRequester() }
     val wrapBottomFr = remember { FocusRequester() }
+    val scrollState = rememberScrollState()
     // Auto-focus the first menu row when the overlay first appears so D-pad
     // navigation has a clear starting point.
     LaunchedEffect(Unit) {
@@ -206,7 +240,12 @@ private fun ProfileOverlayPanel(
         modifier = Modifier
             .widthIn(max = OverlayWidth)
             .width(OverlayWidth)
-            .fillMaxHeight(0.6f)
+            // 85% of screen height + a vertical scroll lets every overlay
+            // row reach the user even when all four overlay-default pills
+            // (Search / Discover / My Stuff / Settings) PLUS Pill Channels
+            // PLUS a few demoted category pills are present — without this
+            // the panel cut off the lower half of the list.
+            .fillMaxHeight(0.85f)
             .clip(PanelShape)
             .background(PanelBackground)
             .border(width = 1.dp, color = PanelBorderColor, shape = PanelShape)
@@ -220,6 +259,7 @@ private fun ProfileOverlayPanel(
                     false
                 }
             }
+            .verticalScroll(scrollState)
             .padding(vertical = 16.dp, horizontal = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -237,35 +277,37 @@ private fun ProfileOverlayPanel(
             wrapUpTo = wrapBottomFr,
         )
         HorizontalDivider()
-        OverlayMenuRow(
-            icon = Icons.Default.Search,
-            label = "Search",
-            focusRequester = firstRowFocus,
-            onClick = { onNavigate(ProfileOverlayDestination.SEARCH) },
+        // Build the visible-row list up front so we can attach focus
+        // wrappers (first-row autofocus, last-row wrap-down) without
+        // hardcoding which builtin sits at each end. Promoted pills
+        // (e.g. user moved SEARCH to the TopBar) hide their overlay row.
+        data class BuiltinRow(
+            val key: String,
+            val icon: ImageVector,
+            val label: String,
+            val destination: ProfileOverlayDestination,
         )
-        OverlayMenuRow(
-            icon = Icons.Default.Explore,
-            label = "Discover",
-            onClick = { onNavigate(ProfileOverlayDestination.DISCOVER) },
-        )
-        OverlayMenuRow(
-            icon = Icons.Default.Bookmark,
-            label = "My Stuff",
-            onClick = { onNavigate(ProfileOverlayDestination.MY_STUFF) },
-        )
-        OverlayMenuRow(
-            icon = Icons.Default.Settings,
-            label = "Settings",
-            onClick = { onNavigate(ProfileOverlayDestination.SETTINGS) },
-        )
-        val isPillChannelsLast = hiddenItems.isEmpty()
-        OverlayMenuRow(
-            icon = Icons.Default.Tune,
-            label = "Pill Channels",
-            onClick = { onNavigate(ProfileOverlayDestination.PILL_CHANNELS) },
-            wrapBottomFr = if (isPillChannelsLast) wrapBottomFr else null,
-            wrapDownTo = if (isPillChannelsLast) wrapTopFr else null,
-        )
+        val builtins = buildList {
+            if (showSearch) add(BuiltinRow("search", Icons.Default.Search, "Search", ProfileOverlayDestination.SEARCH))
+            if (showDiscover) add(BuiltinRow("discover", Icons.Default.Explore, "Discover", ProfileOverlayDestination.DISCOVER))
+            if (showMyStuff) add(BuiltinRow("my_stuff", Icons.Default.Bookmark, "My Stuff", ProfileOverlayDestination.MY_STUFF))
+            if (showSettings) add(BuiltinRow("settings", Icons.Default.Settings, "Settings", ProfileOverlayDestination.SETTINGS))
+            if (showPillChannels) add(BuiltinRow("pill_channels", Icons.Default.Tune, "Pill Channels", ProfileOverlayDestination.PILL_CHANNELS))
+        }
+        val lastBuiltinIsTail = hiddenItems.isEmpty()
+        builtins.forEachIndexed { index, row ->
+            val isFirst = index == 0
+            val isLastVisibleOverall = lastBuiltinIsTail && index == builtins.lastIndex
+            OverlayMenuRow(
+                icon = row.icon,
+                label = row.label,
+                focusRequester = if (isFirst) firstRowFocus else null,
+                onClick = { onNavigate(row.destination) },
+                onLongClick = { onPromoteBuiltin(row.destination) },
+                wrapBottomFr = if (isLastVisibleOverall) wrapBottomFr else null,
+                wrapDownTo = if (isLastVisibleOverall) wrapTopFr else null,
+            )
+        }
         if (hiddenItems.isNotEmpty()) {
             HorizontalDivider()
             Text(
@@ -279,6 +321,7 @@ private fun ProfileOverlayPanel(
                 OverlayHiddenItemRow(
                     item = item,
                     onClick = { onHiddenItemSelected(item) },
+                    onLongClick = { onPromoteHiddenItem(item) },
                     wrapBottomFr = if (isLast) wrapBottomFr else null,
                     wrapDownTo = if (isLast) wrapTopFr else null,
                 )
@@ -361,12 +404,14 @@ private fun OverlayMenuRow(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     focusRequester: FocusRequester? = null,
     wrapBottomFr: FocusRequester? = null,
     wrapDownTo: FocusRequester? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     var focused by remember { mutableStateOf(false) }
+    var longPressFired by remember { mutableStateOf(false) }
     val backgroundColor = if (focused) NuvioColors.Secondary.copy(alpha = 0.28f) else Color.Transparent
     Row(
         modifier = Modifier
@@ -385,6 +430,30 @@ private fun OverlayMenuRow(
             .then(
                 if (wrapDownTo != null) Modifier.focusProperties { down = wrapDownTo }
                 else Modifier
+            )
+            // D-pad Center hold ≥ ~500ms fires onLongClick (promote-to-
+            // TopBar). Mirrors the long-press detection on
+            // CategoryTabItem so the overlay → bar flow feels symmetric.
+            .then(
+                if (onLongClick != null) Modifier.onPreviewKeyEvent { event ->
+                    val isCenter = event.key == Key.DirectionCenter || event.key == Key.Enter
+                    if (!isCenter) return@onPreviewKeyEvent false
+                    when (event.type) {
+                        KeyEventType.KeyDown -> {
+                            if (!longPressFired && event.nativeKeyEvent.repeatCount == 1) {
+                                longPressFired = true
+                                onLongClick()
+                            }
+                            longPressFired
+                        }
+                        KeyEventType.KeyUp -> {
+                            val wasLong = longPressFired
+                            longPressFired = false
+                            wasLong
+                        }
+                        else -> false
+                    }
+                } else Modifier
             )
             .clickable(
                 interactionSource = interactionSource,
@@ -415,11 +484,13 @@ private fun OverlayMenuRow(
 private fun OverlayHiddenItemRow(
     item: ProfileOverlayHiddenItem,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     wrapBottomFr: FocusRequester? = null,
     wrapDownTo: FocusRequester? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     var focused by remember { mutableStateOf(false) }
+    var longPressFired by remember { mutableStateOf(false) }
     val backgroundColor = if (focused) NuvioColors.Secondary.copy(alpha = 0.28f) else Color.Transparent
     Row(
         modifier = Modifier
@@ -434,6 +505,27 @@ private fun OverlayHiddenItemRow(
             .then(
                 if (wrapDownTo != null) Modifier.focusProperties { down = wrapDownTo }
                 else Modifier
+            )
+            .then(
+                if (onLongClick != null) Modifier.onPreviewKeyEvent { event ->
+                    val isCenter = event.key == Key.DirectionCenter || event.key == Key.Enter
+                    if (!isCenter) return@onPreviewKeyEvent false
+                    when (event.type) {
+                        KeyEventType.KeyDown -> {
+                            if (!longPressFired && event.nativeKeyEvent.repeatCount == 1) {
+                                longPressFired = true
+                                onLongClick()
+                            }
+                            longPressFired
+                        }
+                        KeyEventType.KeyUp -> {
+                            val wasLong = longPressFired
+                            longPressFired = false
+                            wasLong
+                        }
+                        else -> false
+                    }
+                } else Modifier
             )
             .clickable(
                 interactionSource = interactionSource,

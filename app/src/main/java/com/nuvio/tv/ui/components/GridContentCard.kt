@@ -83,6 +83,24 @@ fun GridContentCard(
     var longPressTriggered by remember { mutableStateOf(false) }
 
 
+    // Focused-card highlight strategy — driven by the user's Card
+    // Focus Style setting. See ContentCard for the matching logic.
+    val cardFocusStyle = com.nuvio.tv.LocalCardFocusStyle.current
+    val styleAccent = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.ACCENT
+    val glowColor = rememberArtworkBackedGlowColor(
+        imageUrl = item.poster,
+        fallbackSeed = item.id,
+        enabled = !styleAccent && !item.poster.isNullOrBlank(),
+    )
+    val isBloom = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.BLOOM
+    val isGlow = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.GLOW
+    val shadowElevation = if (isBloom) 8.dp else 24.dp
+    val shadowColor = if (isBloom) glowColor.copy(alpha = 0.25f) else glowColor
+    val focusedBorderColor = if (isBloom && !item.poster.isNullOrBlank()) glowColor
+        else NuvioColors.FocusRing
+    val focusedBorderWidth = if (isBloom) {
+        (posterCardStyle.focusedBorderWidth.value + 1f).dp
+    } else posterCardStyle.focusedBorderWidth
     Column(
         modifier = modifier
             .width(posterCardStyle.width)
@@ -99,6 +117,19 @@ fun GridContentCard(
             modifier = Modifier
                 .width(posterCardStyle.width)
                 .height(posterCardStyle.height)
+                .then(
+                    // Coloured-shadow halo for Poster Glow / Border
+                    // Bloom focus styles. ACCENT keeps the static
+                    // FocusRing border the codebase has always had.
+                    if (isFocused && !item.poster.isNullOrBlank() && (isGlow || isBloom)) {
+                        Modifier.shadow(
+                            elevation = shadowElevation,
+                            shape = cardShape,
+                            ambientColor = shadowColor,
+                            spotColor = shadowColor,
+                        )
+                    } else Modifier
+                )
                 .then(
                     if (focusRequester != null) Modifier.focusRequester(focusRequester)
                     else Modifier
@@ -152,7 +183,7 @@ fun GridContentCard(
             ),
             border = CardDefaults.border(
                 focusedBorder = Border(
-                    border = BorderStroke(posterCardStyle.focusedBorderWidth, NuvioColors.FocusRing),
+                    border = BorderStroke(focusedBorderWidth, focusedBorderColor),
                     shape = cardShape
                 )
             ),

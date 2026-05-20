@@ -120,11 +120,18 @@ fun CollectionRowSection(
         }
     }
 
+    // Modern feel: consistent 16dp buffer on both edges so titles and
+    // cards line up vertically with the TopBar and other rows. Legacy
+    // keeps the historical 48dp title clearance and 12dp card start.
+    val isModern = com.nuvio.tv.LocalIsModernFeel.current
+    val titleStartInset = if (isModern) 16.dp else 48.dp
+    val rowStartPadding = if (isModern) 16.dp else 12.dp
+    val rowEndPadding = if (isModern) 16.dp else 200.dp
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 48.dp, end = 48.dp, bottom = 12.dp),
+                .padding(start = titleStartInset, end = 48.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -139,8 +146,8 @@ fun CollectionRowSection(
 
         val density = LocalDensity.current
         val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
-        val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec) {
-            val startPx = with(density) { 48.dp.roundToPx() }
+        val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec, rowStartPadding) {
+            val startPx = with(density) { rowStartPadding.roundToPx() }
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
             object : BringIntoViewSpec {
                 override val scrollAnimationSpec: AnimationSpec<Float> =
@@ -169,7 +176,14 @@ fun CollectionRowSection(
                     .focusRequester(rowFocusRequester)
                     .focusRestorer(restoreFocusRequester)
                     .focusGroup(),
-                contentPadding = PaddingValues(start = 48.dp, end = 200.dp),
+                // Vertical contentPadding gives focused-card glow shadows
+                // breathing room outside the card's bounds.
+                contentPadding = PaddingValues(
+                    start = rowStartPadding,
+                    end = rowEndPadding,
+                    top = 16.dp,
+                    bottom = 16.dp,
+                ),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 itemsIndexed(

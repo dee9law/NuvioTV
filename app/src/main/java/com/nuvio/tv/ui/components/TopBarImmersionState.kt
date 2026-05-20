@@ -28,12 +28,29 @@ object TopBarImmersionState {
     private val _visible = MutableStateFlow(true)
     val visible: StateFlow<Boolean> = _visible.asStateFlow()
 
+    /**
+     * URL of the hero backdrop image currently showing beneath the
+     * TopBar. The glassmorphism TopBar reads this and renders a
+     * pre-blurred copy via Coil's [BlurTransformation] as its backdrop,
+     * giving a real frosted-glass look without depending on the
+     * device GPU's [android.graphics.RenderEffect]. Null when no hero
+     * is visible (non-home screens).
+     */
+    private val _backdropUrl = MutableStateFlow<String?>(null)
+    val backdropUrl: StateFlow<String?> = _backdropUrl.asStateFlow()
+
     fun setVisible(value: Boolean) {
         if (_visible.value != value) _visible.value = value
+    }
+
+    /** Push the current hero backdrop URL (or null to clear). */
+    fun setBackdropUrl(url: String?) {
+        if (_backdropUrl.value != url) _backdropUrl.value = url
     }
 
     /** Force-reset to visible. Call on screen dispose. */
     fun reset() {
         _visible.value = true
+        _backdropUrl.value = null
     }
 }

@@ -69,6 +69,9 @@ data class GlobalSettingsUiState(
     val catalogTypeSuffixEnabled: Boolean = true,
     val hideUnreleasedContent: Boolean = false,
     val searchDiscoverEnabled: Boolean = true,
+    val posterGlowEnabled: Boolean = true,
+    val cardFocusStyle: com.nuvio.tv.domain.model.CardFocusStyle =
+        com.nuvio.tv.domain.model.CardFocusStyle.ACCENT,
     // Focused-poster expand (formerly under Layout's Focused Poster section)
     val focusedPosterExpandEnabled: Boolean = true,
     val focusedPosterExpandDelaySeconds: Int = 3,
@@ -95,15 +98,19 @@ class GlobalSettingsViewModel @Inject constructor(
             prefs.catalogTypeSuffixEnabled,
             prefs.hideUnreleasedContent,
             prefs.searchDiscoverEnabled,
-        ) { labels, addonName, suffix, hideUnreleased, discover ->
-            booleanArrayOf(labels, addonName, suffix, hideUnreleased, discover)
+            prefs.posterGlowEnabled,
+        ) { args ->
+            // `combine` with > 5 sources returns Array<Boolean>; unpack
+            // by index. Order must match the producer list above.
+            booleanArrayOf(args[0], args[1], args[2], args[3], args[4], args[5])
         },
         combine(
             prefs.focusedPosterBackdropExpandEnabled,
             prefs.focusedPosterBackdropExpandDelaySeconds,
             prefs.focusedPosterBackdropTrailerMuted,
-        ) { expandEnabled, expandDelay, muted ->
-            Triple(expandEnabled, expandDelay, muted)
+            prefs.cardFocusStyle,
+        ) { expandEnabled, expandDelay, muted, focusStyle ->
+            arrayOf<Any?>(expandEnabled, expandDelay, muted, focusStyle)
         },
     ) { core, display, focusedExpand ->
         GlobalSettingsUiState(
@@ -116,9 +123,11 @@ class GlobalSettingsViewModel @Inject constructor(
             catalogTypeSuffixEnabled = display[2],
             hideUnreleasedContent = display[3],
             searchDiscoverEnabled = display[4],
-            focusedPosterExpandEnabled = focusedExpand.first,
-            focusedPosterExpandDelaySeconds = focusedExpand.second,
-            focusedPosterTrailerMuted = focusedExpand.third,
+            posterGlowEnabled = display[5],
+            focusedPosterExpandEnabled = focusedExpand[0] as Boolean,
+            focusedPosterExpandDelaySeconds = focusedExpand[1] as Int,
+            focusedPosterTrailerMuted = focusedExpand[2] as Boolean,
+            cardFocusStyle = focusedExpand[3] as com.nuvio.tv.domain.model.CardFocusStyle,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GlobalSettingsUiState())
 
@@ -145,6 +154,12 @@ class GlobalSettingsViewModel @Inject constructor(
     }
     fun setSearchDiscoverEnabled(enabled: Boolean) = viewModelScope.launch {
         prefs.setSearchDiscoverEnabled(enabled)
+    }
+    fun setPosterGlowEnabled(enabled: Boolean) = viewModelScope.launch {
+        prefs.setPosterGlowEnabled(enabled)
+    }
+    fun cycleCardFocusStyle() = viewModelScope.launch {
+        prefs.setCardFocusStyle(uiState.value.cardFocusStyle.next())
     }
     // Focused poster expand
     fun setFocusedPosterExpandEnabled(enabled: Boolean) = viewModelScope.launch {
@@ -231,6 +246,13 @@ fun GlobalSettingsContent(viewModel: GlobalSettingsViewModel = hiltViewModel()) 
                         subtitle = "Surface the Discover side rail entry.",
                         checked = state.searchDiscoverEnabled,
                         onCheckedChange = viewModel::setSearchDiscoverEnabled,
+                    )
+                    com.nuvio.tv.ui.components.AccentActionRow(
+                        title = "Card Focus Style",
+                        subtitle = "Choose how focused cards are highlighted. " +
+                            "Current: ${state.cardFocusStyle.displayLabel}. " +
+                            "Tap to cycle: Accent → Poster Glow → Border Bloom.",
+                        onClick = { viewModel.cycleCardFocusStyle() },
                     )
                 }
             }

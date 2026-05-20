@@ -198,6 +198,15 @@ fun CatalogRowSection(
         if (showCatalogTypeSuffix && typeLabel.isNotEmpty()) "$formattedName - $typeLabel" else formattedName
     }
 
+    // Modern feel: a consistent 16dp buffer on both edges (matches the
+    // TopBar's leading/trailing inset so titles and pills align). Legacy
+    // keeps the historical 48dp leading clearance for SideRail-era
+    // alignment with a 200dp trailing space for the focus-into-view
+    // overscroll.
+    val isModern = com.nuvio.tv.LocalIsModernFeel.current
+    val leftEdgeInset = if (isModern) 16.dp else 48.dp
+    val rightEdgeInset = if (isModern) 16.dp else 200.dp
+    val titleStartInset = if (isModern) 16.dp else 48.dp
     Column(modifier = modifier.fillMaxWidth().then(
         if (blockingFocusExit.value) {
             Modifier.focusProperties {
@@ -209,7 +218,7 @@ fun CatalogRowSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 48.dp, end = 48.dp, bottom = 12.dp),
+                .padding(start = titleStartInset, end = 48.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -233,8 +242,8 @@ fun CatalogRowSection(
 
         val density = LocalDensity.current
         val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
-        val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec) {
-            val startPx = with(density) { 48.dp.roundToPx() }
+        val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec, leftEdgeInset) {
+            val startPx = with(density) { leftEdgeInset.roundToPx() }
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
             object : BringIntoViewSpec {
                 override val scrollAnimationSpec: AnimationSpec<Float> =
@@ -278,7 +287,16 @@ fun CatalogRowSection(
                     }
                 )
                 .focusGroup(),
-            contentPadding = PaddingValues(start = 48.dp, end = 200.dp),
+            // Vertical contentPadding gives Modifier.shadow on focused
+            // ContentCards room to render outside the card's bounds —
+            // without it the parent LazyColumn clips the soft glow
+            // because the row's slot height matches the card height.
+            contentPadding = PaddingValues(
+                start = leftEdgeInset,
+                end = rightEdgeInset,
+                top = 16.dp,
+                bottom = 16.dp,
+            ),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             itemsIndexed(

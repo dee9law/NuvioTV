@@ -488,8 +488,11 @@ internal fun ModernRowSection(
         }
         val rowTitle = row.title
         val textColor = remember { NuvioColors.TextPrimary }
-        val textModifier = remember(rowTitleBottom) {
-            Modifier.padding(start = 52.dp, bottom = rowTitleBottom)
+        // Modern feel: 16dp title inset matches the row / TopBar buffer.
+        // Legacy: 52dp historical clearance.
+        val rowTitleStartInset = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 52.dp
+        val textModifier = remember(rowTitleBottom, rowTitleStartInset) {
+            Modifier.padding(start = rowTitleStartInset, bottom = rowTitleBottom)
         }
         Text(
             text = rowTitle,
@@ -590,7 +593,9 @@ internal fun ModernRowSection(
         }
 
         val density = LocalDensity.current
-        val rowStartPadding = 52.dp
+        // Modern feel: 16dp row inset matches the TopBar / title buffer.
+        // Legacy: 52dp historical clearance for SideRail alignment.
+        val rowStartPadding = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 52.dp
         val context = LocalContext.current
         val imageLoader = context.imageLoader
 
@@ -800,7 +805,15 @@ internal fun ModernRowSection(
                             true
                         } else false
                     },
-                contentPadding = PaddingValues(horizontal = rowStartPadding),
+                // Vertical contentPadding gives Modifier.shadow on focused
+                // cards room to render outside the card's bounds — the
+                // parent LazyColumn otherwise clips the soft glow.
+                contentPadding = PaddingValues(
+                    start = rowStartPadding,
+                    end = rowStartPadding,
+                    top = 16.dp,
+                    bottom = 16.dp,
+                ),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 itemsIndexed(

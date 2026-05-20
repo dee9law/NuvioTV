@@ -35,6 +35,34 @@ fun rememberArtworkBackedCardGlow(
 ): CardGlow {
     val noGlow = remember { CardDefaults.glow(focusedGlow = Glow.None) }
     if (!enabled) return noGlow
+    val color = rememberArtworkBackedGlowColor(imageUrl, fallbackSeed, enabled, fallbackColor)
+    return remember(color) {
+        CardDefaults.glow(
+            focusedGlow = Glow(
+                elevationColor = color,
+                elevation = 28.dp
+            )
+        )
+    }
+}
+
+/**
+ * Returns the dominant colour sampled from [imageUrl] (or a seeded
+ * fallback derived from [fallbackSeed]) wrapped in a stable
+ * [Color]. Intended for cases where the caller wants to apply the
+ * colour via [Modifier.shadow] / [Modifier.drawBehind] rather than
+ * TV Material 3's [androidx.tv.material3.CardGlow] — the latter
+ * doesn't render coloured shadows on every Android TV GPU. Returns
+ * [fallbackColor] verbatim when [enabled] is false.
+ */
+@Composable
+fun rememberArtworkBackedGlowColor(
+    imageUrl: String?,
+    fallbackSeed: String,
+    enabled: Boolean,
+    fallbackColor: Color = NuvioColors.FocusBackground,
+): Color {
+    if (!enabled) return fallbackColor
 
     val context = LocalContext.current
     var glowColor by remember(imageUrl, fallbackSeed, fallbackColor) {
@@ -42,17 +70,11 @@ fun rememberArtworkBackedCardGlow(
     }
 
     LaunchedEffect(context, imageUrl, fallbackSeed, fallbackColor, enabled) {
-        if (!enabled) {
-            glowColor = deriveFallbackGlowColor(fallbackSeed, fallbackColor)
-            return@LaunchedEffect
-        }
-
         val fallback = deriveFallbackGlowColor(fallbackSeed, fallbackColor)
         if (imageUrl.isNullOrBlank()) {
             glowColor = fallback
             return@LaunchedEffect
         }
-
         glowColor = withContext(Dispatchers.IO) {
             val request = ImageRequest.Builder(context)
                 .data(imageUrl)
@@ -62,19 +84,11 @@ fun rememberArtworkBackedCardGlow(
             val result = context.imageLoader.execute(request)
             val image = (result as? SuccessResult)?.image ?: return@withContext fallback
             val bitmap = (image as? coil3.BitmapImage)?.bitmap ?: return@withContext fallback
-            sampledGlowColor(bitmap)
-                ?: fallback
+            sampledGlowColor(bitmap) ?: fallback
         }
     }
 
-    return remember(glowColor) {
-        CardDefaults.glow(
-            focusedGlow = Glow(
-                elevationColor = glowColor,
-                elevation = 28.dp
-            )
-        )
-    }
+    return glowColor
 }
 
 private fun sampledGlowColor(bitmap: Bitmap): Color? {

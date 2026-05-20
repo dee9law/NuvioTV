@@ -6,6 +6,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.model.CategoryPill
+import com.nuvio.tv.domain.model.CategoryPillDisplayMode
 import com.nuvio.tv.domain.model.CategoryPillOrderEntry
 import com.nuvio.tv.domain.model.PillVisibility
 import kotlinx.coroutines.flow.Flow
@@ -70,13 +71,19 @@ class CategoryPillOrderDataStore @Inject constructor(
     private data class SerializableEntry(
         val pillId: String,
         val visibility: String,
+        // `iconsOnly` is the legacy field; older payloads only carry this
+        // boolean. Newer payloads write `displayMode` (string). When
+        // reading, [displayMode] takes precedence; if absent, [iconsOnly]
+        // backfills it (`true` → ICON_ONLY, `false` → ICON_AND_TEXT).
         val iconsOnly: Boolean = false,
+        val displayMode: String? = null,
     )
 
     private fun CategoryPillOrderEntry.toSerializable() = SerializableEntry(
         pillId = pill.storageId,
         visibility = visibility.storageValue,
-        iconsOnly = iconsOnly,
+        iconsOnly = displayMode == CategoryPillDisplayMode.ICON_ONLY,
+        displayMode = displayMode.storageValue,
     )
 
     private fun parseOrder(json: String?): List<CategoryPillOrderEntry> {
@@ -86,10 +93,16 @@ class CategoryPillOrderDataStore @Inject constructor(
             val raw: List<SerializableEntry> = gson.fromJson(json, type) ?: emptyList()
             raw.mapNotNull { entry ->
                 val pill = CategoryPill.fromStorageId(entry.pillId) ?: return@mapNotNull null
+                val mode = when {
+                    entry.displayMode != null ->
+                        CategoryPillDisplayMode.fromStorageValue(entry.displayMode)
+                    entry.iconsOnly -> CategoryPillDisplayMode.ICON_ONLY
+                    else -> CategoryPillDisplayMode.ICON_AND_TEXT
+                }
                 CategoryPillOrderEntry(
                     pill = pill,
                     visibility = PillVisibility.fromStorageValue(entry.visibility),
-                    iconsOnly = entry.iconsOnly,
+                    displayMode = mode,
                 )
             }
         } catch (_: Exception) {
@@ -100,8 +113,10 @@ class CategoryPillOrderDataStore @Inject constructor(
     /**
      * Ensures the returned list contains every [CategoryPill] exactly
      * once. Pills missing from the persisted payload (e.g. after a build
-     * that introduces a new pill type) are appended at the end with
-     * default visibility — so first-launch users always see every pill.
+     * that introduces a new pill type) are appended at the end with the
+     * pill's [CategoryPill.defaultVisibility] — so first-launch users
+     * always see every pill in its intended default slot (TopBar or
+     * drawer).
      */
     private fun reconcileWithDefaults(
         persisted: List<CategoryPillOrderEntry>,
@@ -109,6 +124,8 @@ class CategoryPillOrderDataStore @Inject constructor(
         if (persisted.isEmpty()) return CategoryPillOrderEntry.defaultOrder()
         val seen = persisted.map { it.pill }.toMutableSet()
         val missing = CategoryPill.entries.filterNot { it in seen }
-        return persisted + missing.map { CategoryPillOrderEntry(it, PillVisibility.TOPBAR) }
+        return persisted + missing.map {
+            CategoryPillOrderEntry(it, it.defaultVisibility)
+        }
     }
 }

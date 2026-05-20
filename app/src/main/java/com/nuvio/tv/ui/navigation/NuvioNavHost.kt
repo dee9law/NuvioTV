@@ -1,13 +1,22 @@
 package com.nuvio.tv.ui.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -1064,11 +1073,42 @@ fun NuvioNavHost(
         }
 
         composable(Screen.CollectionsHome.route) {
-            com.nuvio.tv.ui.screens.collection.CollectionsHomeScreen(
-                onFolderClick = { collectionId, folderId ->
-                    navController.navigate(Screen.FolderDetail.createRoute(collectionId, folderId))
-                },
-            )
+            // CollectionsHomeScreen has no Back / immersion plumbing of its
+            // own (the file is exempt from layout edits per project policy)
+            // — wire it here so it behaves like every other root screen:
+            //  - TopBar stays visible on entry (force-reset immersion in
+            //    case a previous screen left it hidden).
+            //  - Back from content levels up to the TopBar via a focus
+            //    request on LocalNavBarFocusRequester, matching the
+            //    Home/Movies/TV Back-Level-Up hierarchy. The wrapping Box
+            //    tracks `contentHasFocus` so when the TopBar already has
+            //    focus this BackHandler disables and the parent
+            //    MainActivity exit-app handler kicks in.
+            DisposableEffect(Unit) {
+                com.nuvio.tv.ui.components.TopBarImmersionState.reset()
+                onDispose {
+                    com.nuvio.tv.ui.components.TopBarImmersionState.reset()
+                }
+            }
+            val navBarFr = com.nuvio.tv.LocalNavBarFocusRequester.current
+            var contentHasFocus by remember { mutableStateOf(true) }
+            BackHandler(enabled = contentHasFocus) {
+                runCatching { navBarFr.requestFocus() }
+                contentHasFocus = false
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onFocusChanged { state ->
+                        contentHasFocus = state.hasFocus || state.isFocused
+                    }
+            ) {
+                com.nuvio.tv.ui.screens.collection.CollectionsHomeScreen(
+                    onFolderClick = { collectionId, folderId ->
+                        navController.navigate(Screen.FolderDetail.createRoute(collectionId, folderId))
+                    },
+                )
+            }
         }
 
         composable(
