@@ -148,6 +148,84 @@ fun GridLayoutPreview(
 }
 
 /**
+ * Animated preview of the Spotlight layout.
+ * Shows a tall hero area (~65% height) with a single row strip at the
+ * bottom (~35%). A card slides horizontally inside the strip while a
+ * subtle highlight pulses on the hero to imply real-time updates.
+ */
+@Composable
+fun SpotlightLayoutPreview(
+    modifier: Modifier = Modifier,
+    accentColor: Color = NuvioColors.Primary
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "spotlightPreview")
+    val scrollOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "spotlightScroll"
+    )
+    val heroPulse by infiniteTransition.animateFloat(
+        initialValue = 0.32f,
+        targetValue = 0.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "spotlightHeroPulse"
+    )
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(NuvioColors.Background)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val heroHeight = h * 0.65f
+            // Hero block — large filled rect that gently pulses to
+            // suggest a live backdrop.
+            drawRoundRect(
+                color = accentColor.copy(alpha = heroPulse),
+                topLeft = Offset(0f, 0f),
+                size = Size(w, heroHeight),
+                cornerRadius = CornerRadius(h * 0.025f)
+            )
+            // Bottom strip — semi-transparent band hosting one row.
+            val stripTop = heroHeight + h * 0.03f
+            val stripHeight = h - stripTop
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.55f),
+                topLeft = Offset(0f, stripTop),
+                size = Size(w, stripHeight),
+                cornerRadius = CornerRadius(h * 0.015f)
+            )
+            // Scrolling cards inside the strip.
+            val cardHeight = stripHeight * 0.66f
+            val cardWidth = cardHeight * 0.72f
+            val gap = w * 0.025f
+            val cardY = stripTop + (stripHeight - cardHeight) / 2f
+            val shift = scrollOffset * (cardWidth + gap) * 2.4f
+            for (i in 0..8) {
+                val x = w * 0.04f + i * (cardWidth + gap) - shift
+                if (x + cardWidth > -cardWidth && x < w + cardWidth) {
+                    drawRoundRect(
+                        color = if (i % 3 == 1) accentColor.copy(alpha = 0.55f) else accentColor.copy(alpha = 0.32f),
+                        topLeft = Offset(x, cardY),
+                        size = Size(cardWidth, cardHeight),
+                        cornerRadius = CornerRadius(h * 0.02f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
  * Animated preview of the modern layout.
  * Shows a large hero area with a moving row of cards beneath it.
  */

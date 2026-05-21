@@ -83,17 +83,17 @@ fun GridContentCard(
     var longPressTriggered by remember { mutableStateOf(false) }
 
 
-    // Focused-card highlight strategy — driven by the user's Card
-    // Focus Style setting. See ContentCard for the matching logic.
+    // Focus highlight split — Poster Glow toggle (shadow) and Card
+    // Focus Style enum (Accent | Bloom border) are orthogonal.
     val cardFocusStyle = com.nuvio.tv.LocalCardFocusStyle.current
-    val styleAccent = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.ACCENT
+    val posterGlowEnabled = com.nuvio.tv.LocalPosterGlowEnabled.current
+    val isBloom = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.BLOOM
+    val needsArtworkColor = posterGlowEnabled || isBloom
     val glowColor = rememberArtworkBackedGlowColor(
         imageUrl = item.poster,
         fallbackSeed = item.id,
-        enabled = !styleAccent && !item.poster.isNullOrBlank(),
+        enabled = needsArtworkColor && !item.poster.isNullOrBlank(),
     )
-    val isBloom = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.BLOOM
-    val isGlow = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.GLOW
     val shadowElevation = if (isBloom) 8.dp else 24.dp
     val shadowColor = if (isBloom) glowColor.copy(alpha = 0.25f) else glowColor
     val focusedBorderColor = if (isBloom && !item.poster.isNullOrBlank()) glowColor
@@ -118,10 +118,9 @@ fun GridContentCard(
                 .width(posterCardStyle.width)
                 .height(posterCardStyle.height)
                 .then(
-                    // Coloured-shadow halo for Poster Glow / Border
-                    // Bloom focus styles. ACCENT keeps the static
-                    // FocusRing border the codebase has always had.
-                    if (isFocused && !item.poster.isNullOrBlank() && (isGlow || isBloom)) {
+                    // Coloured-shadow halo gated by the Poster Glow
+                    // toggle. ACCENT keeps the static FocusRing border.
+                    if (isFocused && posterGlowEnabled && !item.poster.isNullOrBlank()) {
                         Modifier.shadow(
                             elevation = shadowElevation,
                             shape = cardShape,

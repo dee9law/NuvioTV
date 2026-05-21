@@ -74,6 +74,13 @@ data class NewLayoutUiState(
     val availableSources: List<CatalogSourceOption> = emptyList(),
     val availableCollections: List<Collection> = emptyList(),
     val landscapePostersDefault: Boolean = false,
+    /**
+     * When true, the active scope's row arrangement is derived from
+     * installed addons in manifest order. Manual edits to the row list
+     * still write through, but the toggle indicates the user's intent.
+     * Auto-populate runs automatically when the toggle flips ON.
+     */
+    val followAddonsOrder: Boolean = false,
 )
 
 private data class CoreLayoutState(
@@ -114,6 +121,8 @@ class NewLayoutSettingsViewModel @Inject constructor(
         .flatMapLatest { layoutPreferenceDataStore.classicFocusGradientEnabledForScope(it) }
     private val rowsFlow: Flow<List<LayoutRowConfig>> = _selectedScope
         .flatMapLatest { layoutPreferenceDataStore.rowsForScope(it) }
+    private val followAddonsOrderFlow: Flow<Boolean> = _selectedScope
+        .flatMapLatest { layoutPreferenceDataStore.followAddonsOrderForScope(it) }
 
     private val installedAddonsFlow = addonRepository.getInstalledAddons()
 
@@ -198,7 +207,8 @@ class NewLayoutSettingsViewModel @Inject constructor(
         coreState,
         rowsAndSources,
         layoutPreferenceDataStore.modernLandscapePostersEnabled,
-    ) { core, rs, landscape ->
+        followAddonsOrderFlow,
+    ) { core, rs, landscape, followAddons ->
         NewLayoutUiState(
             selectedScope = core.scope,
             layout = core.layout,
@@ -211,6 +221,7 @@ class NewLayoutSettingsViewModel @Inject constructor(
             availableSources = rs.sources,
             availableCollections = rs.collections,
             landscapePostersDefault = landscape,
+            followAddonsOrder = followAddons,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NewLayoutUiState())
 
@@ -247,6 +258,49 @@ class NewLayoutSettingsViewModel @Inject constructor(
      */
     fun setLandscapePostersDefault(enabled: Boolean) = viewModelScope.launch {
         layoutPreferenceDataStore.setModernLandscapePostersEnabled(enabled)
+    }
+
+    /**
+     * Per-scope toggle. Flipping ON auto-populates the row list from
+     * installed addon catalogs in manifest order (overrides whatever the
+     * user had manually arranged). Flipping OFF leaves the current rows
+     * in place so the user can keep editing.
+     */
+    fun setFollowAddonsOrder(enabled: Boolean) = viewModelScope.launch {
+        val scope = _selectedScope.value
+        layoutPreferenceDataStore.setFollowAddonsOrderForScope(scope, enabled)
+        if (enabled) {
+            populateAddonRowsForScope(scope)
+        }
+    }
+
+    /**
+     * Replace the active scope's rows with every installed addon's
+     * catalogs (manifest order). Exposed as the "Auto-populate from
+     * addon" button — only used when the toggle is OFF, since flipping
+     * ON already triggers this.
+     */
+    fun autoPopulateFromAddons() = viewModelScope.launch {
+        populateAddonRowsForScope(_selectedScope.value)
+    }
+
+    private suspend fun populateAddonRowsForScope(scope: LayoutScreenScope) {
+        val addons = installedAddonsFlow.first()
+        val addonRows = addons.flatMap { addon ->
+            addon.catalogs
+                .filter { catalog ->
+                    !catalog.extra.any { it.name.equals("search", ignoreCase = true) && it.isRequired }
+                }
+                .map { catalog ->
+                    LayoutRowConfig(
+                        id = "addon|${addon.id}|${catalog.apiType}|${catalog.id}",
+                        kind = LayoutRowKind.ADDON,
+                        name = catalog.name,
+                        viewContext = scope,
+                    )
+                }
+        }
+        layoutPreferenceDataStore.setRowsForScope(scope, addonRows)
     }
 
     /** Append [row] to the active scope; stamps [viewContext]. */

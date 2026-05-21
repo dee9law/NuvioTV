@@ -106,8 +106,6 @@ private sealed interface AddonExperienceModeState {
 fun AddonManagerScreen(
     viewModel: AddonManagerViewModel = hiltViewModel(),
     showBuiltInHeader: Boolean = true,
-    onNavigateToCatalogOrder: () -> Unit = {},
-    onNavigateToCollections: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val experienceModeState by remember(viewModel) {
@@ -137,11 +135,6 @@ fun AddonManagerScreen(
     val installButtonFocusRequester = remember { FocusRequester() }
     val textFieldFocusRequester = remember { FocusRequester() }
     var isEditing by remember { mutableStateOf(false) }
-    val hasHomeVisibleCatalogs = remember(uiState.installedAddons) {
-        uiState.installedAddons.any { addon ->
-            addon.catalogs.any { catalog -> !catalog.isSearchOnlyCatalog() }
-        }
-    }
     val manageFromPhoneSubtitle = if (webConfigMode == com.nuvio.tv.core.server.AddonWebConfigMode.COLLECTIONS_ONLY) {
         stringResource(R.string.addon_manage_collections_from_phone_subtitle)
     } else {
@@ -378,17 +371,11 @@ fun AddonManagerScreen(
                 )
             }
 
-            if (!viewModel.isReadOnly && !isEssential && hasHomeVisibleCatalogs) {
-                item {
-                    CatalogOrderEntryCard(onClick = onNavigateToCatalogOrder)
-                }
-            }
-
-            if (!isEssential) {
-                item {
-                    CollectionsEntryCard(onClick = onNavigateToCollections)
-                }
-            }
+            // "Reorder Home Catalogs" moved to Settings → Appearance →
+            // Rows (Task 4) — the same arrangement now happens per-scope
+            // alongside the Rows list, with an Auto-populate button.
+            // Collections moved to Settings → Extensions → Collections
+            // (Task 3) — removed from Addons.
 
             item {
                 RefreshAddonsEntryCard(
@@ -652,66 +639,8 @@ private fun CatalogOrderEntryCard(onClick: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun CollectionsEntryCard(onClick: () -> Unit) {
-    var isFocused by remember { mutableStateOf(false) }
-
-    Surface(
-        onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .onFocusChanged { isFocused = it.isFocused },
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.FocusBackground
-        ),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(18.dp)
-            )
-        ),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.FolderOpen,
-                    contentDescription = null,
-                    modifier = Modifier.size(28.dp),
-                    tint = if (isFocused) NuvioColors.Secondary else NuvioColors.TextSecondary
-                )
-                Spacer(modifier = Modifier.width(16.dp))
-                Column {
-                    Text(
-                        text = stringResource(R.string.collections_card_title),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = NuvioColors.TextPrimary
-                    )
-                    Text(
-                        text = stringResource(R.string.collections_card_subtitle),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NuvioColors.TextSecondary
-                    )
-                }
-            }
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = NuvioColors.TextSecondary
-            )
-        }
-    }
-}
+// CollectionsEntryCard removed — Collections is now reachable via
+// Settings → Extensions → Collections (Task 3).
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

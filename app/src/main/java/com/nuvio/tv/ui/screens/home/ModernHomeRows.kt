@@ -12,6 +12,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
@@ -107,6 +108,7 @@ import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.components.placeholderCardShimmer
 import com.nuvio.tv.ui.components.rememberArtworkBackedCardGlow
+import com.nuvio.tv.ui.components.rememberArtworkBackedGlowColor
 import com.nuvio.tv.ui.navigation.tvLeftFromFirstItemToSideRail
 import com.nuvio.tv.ui.components.rememberPlaceholderShimmerOffsetState
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -439,6 +441,7 @@ internal fun ModernRowSection(
     onNavigateToDetail: (String, String, String) -> Unit,
     onNavigateToFolderDetail: (String, String) -> Unit,
     onLoadMoreCatalog: (String, String, String) -> Unit,
+    onNavigateToCatalogSeeAll: (catalogId: String, addonId: String, apiType: String) -> Unit = { _, _, _ -> },
     onBackdropInteraction: () -> Unit,
     onExpandedCatalogFocusKeyChange: (String?) -> Unit,
     itemFocusRequesters: StableRef<MutableMap<Int, FocusRequester>> = StableRef(mutableMapOf()),
@@ -491,14 +494,37 @@ internal fun ModernRowSection(
         // Modern feel: 16dp title inset matches the row / TopBar buffer.
         // Legacy: 52dp historical clearance.
         val rowTitleStartInset = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 52.dp
-        val textModifier = remember(rowTitleBottom, rowTitleStartInset) {
-            Modifier.padding(start = rowTitleStartInset, bottom = rowTitleBottom)
-        }
+        // Row titles are focusable + clickable (Fix 3). Addon catalog
+        // rows (catalogId / addonId / apiType all non-blank) navigate
+        // to the Catalog "See all" grid on Select. Non-addon rows
+        // (Continue Watching, collections, Trakt/TMDB) stay focusable
+        // for D-pad reachability but no-op on press.
+        val rowCatalogId = row.catalogId
+        val rowAddonId = row.addonId
+        val rowApiType = row.apiType
+        val isAddonCatalogRow = !rowCatalogId.isNullOrBlank() &&
+            !rowAddonId.isNullOrBlank() &&
+            !rowApiType.isNullOrBlank() &&
+            row.key != MODERN_CONTINUE_WATCHING_ROW_KEY
+        var titleFocused by remember { mutableStateOf(false) }
+        val focusedTitleColor = NuvioColors.Secondary
+        val titleModifier = Modifier
+            .padding(start = rowTitleStartInset, bottom = rowTitleBottom)
+            .onFocusChanged { state -> titleFocused = state.isFocused || state.hasFocus }
+            .then(
+                if (isAddonCatalogRow) {
+                    Modifier.clickable {
+                        onNavigateToCatalogSeeAll(rowCatalogId!!, rowAddonId!!, rowApiType!!)
+                    }
+                } else {
+                    Modifier.focusable()
+                }
+            )
         Text(
             text = rowTitle,
             style = rowTitleStyle,
-            color = textColor,
-            modifier = textModifier
+            color = if (titleFocused) focusedTitleColor else textColor,
+            modifier = titleModifier
         )
 
         val rowListState = rowListStates.getOrPut(row.key) {
@@ -805,14 +831,16 @@ internal fun ModernRowSection(
                             true
                         } else false
                     },
-                // Vertical contentPadding gives Modifier.shadow on focused
-                // cards room to render outside the card's bounds — the
-                // parent LazyColumn otherwise clips the soft glow.
+                // Vertical contentPadding tightened to 4dp — the prior
+                // 28dp was glow-shadow clearance, but the glow path is
+                // currently buggy. 4dp keeps a tiny breathing room
+                // between the row title and the cards without leaving a
+                // ~36dp gap (title bottom = 8dp + LazyRow top = 28dp).
                 contentPadding = PaddingValues(
                     start = rowStartPadding,
                     end = rowStartPadding,
-                    top = 16.dp,
-                    bottom = 16.dp,
+                    top = 4.dp,
+                    bottom = 4.dp,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -1138,9 +1166,26 @@ private fun ModernCarouselCard(
     val focusRingColor = NuvioColors.FocusRing
     val titleMedium = MaterialTheme.typography.titleMedium
     val backgroundPainter = remember(backgroundCardColor) { ColorPainter(backgroundCardColor) }
-    val focusedBorder = remember(cardShape, focusRingColor) {
+
+    // Focus-highlight settings — Poster Glow toggle (shadow) is
+    // orthogonal to Card Focus Style (Accent | Bloom border). Modern
+    // Home cards now use the same Modifier.shadow path as Discover /
+    // My Stuff grid cards, since TV Material 3's Glow renders no
+    // coloured shadow on this device.
+    val cardFocusStyle = com.nuvio.tv.LocalCardFocusStyle.current
+    val posterGlowEnabled = com.nuvio.tv.LocalPosterGlowEnabled.current
+    val isBloom = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.BLOOM
+    val needsArtworkColor = (posterGlowEnabled || isBloom) && hasImage
+    val artworkGlowColor = rememberArtworkBackedGlowColor(
+        imageUrl = imageUrl,
+        fallbackSeed = item.key,
+        enabled = needsArtworkColor,
+    )
+    val focusedBorderColor = if (isBloom && hasImage) artworkGlowColor else focusRingColor
+    val focusedBorderWidth = if (isBloom) 3.dp else 2.dp
+    val focusedBorder = remember(cardShape, focusedBorderColor, focusedBorderWidth) {
         Border(
-            border = BorderStroke(2.dp, focusRingColor),
+            border = BorderStroke(focusedBorderWidth, focusedBorderColor),
             shape = cardShape
         )
     }
@@ -1168,6 +1213,9 @@ private fun ModernCarouselCard(
         else -> noFocusGlow
     }
     val effectiveCardGlow = if (isFastScrolling) noFocusGlow else cardGlow
+    val showShadow = !isFastScrolling && isFocused && posterGlowEnabled && hasImage
+    val shadowElevation = if (isBloom) 8.dp else 24.dp
+    val shadowColor = if (isBloom) artworkGlowColor.copy(alpha = 0.25f) else artworkGlowColor
     val titleStyle = remember(titleMedium) {
         titleMedium.copy(fontWeight = FontWeight.Medium)
     }
@@ -1189,6 +1237,19 @@ private fun ModernCarouselCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(cardHeight)
+                .then(
+                    // Coloured-shadow halo. Modifier.shadow is the
+                    // chosen render path here because TV M3's Glow
+                    // renders no coloured shadow on the user's device.
+                    if (showShadow) {
+                        Modifier.shadow(
+                            elevation = shadowElevation,
+                            shape = cardShape,
+                            ambientColor = shadowColor,
+                            spotColor = shadowColor,
+                        )
+                    } else Modifier
+                )
                 .focusRequester(focusRequester)
                 .onFocusChanged {
                     isFocused = it.isFocused

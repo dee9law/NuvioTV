@@ -974,6 +974,25 @@ class LayoutPreferenceDataStore @Inject constructor(
     fun classicFocusGradientEnabledForScope(scope: LayoutScreenScope): Flow<Boolean> =
         profileFlow { prefs -> prefs[scopedClassicFocusGradientKey(scope)] ?: false }
 
+    // ── Per-scope "Follow addons order" toggle (Task 4) ──────────────────────
+    //
+    // Lives next to the Rows list in Appearance → Rows. When ON, the row
+    // arrangement for that scope is derived from the installed addons'
+    // manifest order; the user's manual reordering on that scope is
+    // overridden. HOME reuses the global `followAddonsOrderKey` so existing
+    // installs keep their saved choice; other scopes get suffixed keys.
+    private fun scopedFollowAddonsOrderKey(scope: LayoutScreenScope) =
+        if (scope == LayoutScreenScope.HOME) followAddonsOrderKey
+        else booleanPreferencesKey("follow_addons_order_${scope.scopeKey}")
+
+    fun followAddonsOrderForScope(scope: LayoutScreenScope): Flow<Boolean> =
+        profileFlow { prefs -> prefs[scopedFollowAddonsOrderKey(scope)] ?: false }
+
+    suspend fun setFollowAddonsOrderForScope(scope: LayoutScreenScope, enabled: Boolean) {
+        store().edit { it[scopedFollowAddonsOrderKey(scope)] = enabled }
+    }
+
+
     suspend fun setHeroCatalogKeysForScope(scope: LayoutScreenScope, catalogKeys: List<String>) {
         val normalizedKeys = normalizeCatalogOrderKeys(catalogKeys)
         if (scope == LayoutScreenScope.HOME) {

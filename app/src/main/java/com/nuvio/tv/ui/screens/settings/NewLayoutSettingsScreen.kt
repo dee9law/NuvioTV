@@ -93,19 +93,17 @@ fun NewLayoutSettingsContent(
     var showCollectionPicker by remember { mutableStateOf(false) }
 
     val showLayout = mode != NewLayoutContentMode.ROWS_ONLY
-    // Detail Page no longer exists in the Rows screen — if the user had it
-    // selected from a prior session under the Layout screen, snap back to
-    // Home so the panel doesn't render blank.
-    androidx.compose.runtime.LaunchedEffect(mode, uiState.selectedScope) {
-        if (mode == NewLayoutContentMode.ROWS_ONLY &&
-            uiState.selectedScope == LayoutScreenScope.DETAIL) {
+    // Detail Page is no longer a scope pill — it now lives as its own
+    // standalone Appearance sub-item (Task 6). If a user had it selected
+    // from a prior session, snap back to Home so the panel doesn't render
+    // blank.
+    androidx.compose.runtime.LaunchedEffect(uiState.selectedScope) {
+        if (uiState.selectedScope == LayoutScreenScope.DETAIL) {
             viewModel.selectScope(LayoutScreenScope.HOME)
         }
     }
-    val isDetailScope = uiState.selectedScope == LayoutScreenScope.DETAIL
     val isCollectionsScope = uiState.selectedScope == LayoutScreenScope.COLLECTIONS
-    // Detail Page has no per-row config — hide the Rows section entirely there.
-    val showRows = mode != NewLayoutContentMode.LAYOUT_ONLY && !isDetailScope
+    val showRows = mode != NewLayoutContentMode.LAYOUT_ONLY
     // The 4-button picker bar only makes sense for the content surfaces.
     val showScopedAddButtons = showRows && !isCollectionsScope
 
@@ -120,51 +118,51 @@ fun NewLayoutSettingsContent(
                 selected = uiState.selectedScope,
                 onSelect = viewModel::selectScope,
                 firstPillFocusRequester = initialFocusRequester,
-                // Detail Page has no row-level config — only the Layout
-                // screen exposes it. Hiding it on the Rows screen avoids
-                // a dead pill that scrolls users into an empty pane.
-                showDetailPage = mode != NewLayoutContentMode.ROWS_ONLY,
+                // Detail Page is no longer a scope — it's a standalone
+                // Appearance sub-item (Task 6).
+                showDetailPage = false,
             )
         }
         if (showLayout) {
-            if (isDetailScope) {
-                item(key = "detail_page_section") {
-                    DetailPageSection()
-                }
-            } else {
-                item(key = "layout_section") {
-                    LayoutSection(
-                        selected = uiState.layout,
-                        onSelect = viewModel::setLayout,
+            item(key = "layout_section") {
+                LayoutSection(
+                    selected = uiState.layout,
+                    onSelect = viewModel::setLayout,
+                )
+            }
+            // Per-layout settings: each layout type has its own short list
+            // of toggles. Everything else (poster labels, hide unreleased,
+            // focused-poster expand/delay/mute, card width / corner radius)
+            // lives under Settings → Appearance → Global and the Rows tab.
+            item(key = "per_layout_settings") {
+                when (uiState.layout) {
+                    HomeLayout.MODERN -> ModernLayoutSettings(
+                        fullscreenHero = uiState.fullscreenHero,
+                        onFullscreenHeroChange = viewModel::setFullscreenHero,
                     )
-                }
-                // Per-layout settings: each layout type has its own short list
-                // of toggles. Everything else (poster labels, hide unreleased,
-                // focused-poster expand/delay/mute, card width / corner radius)
-                // lives under Settings → Appearance → Global and the Rows tab.
-                item(key = "per_layout_settings") {
-                    when (uiState.layout) {
-                        HomeLayout.MODERN -> ModernLayoutSettings(
-                            fullscreenHero = uiState.fullscreenHero,
-                            onFullscreenHeroChange = viewModel::setFullscreenHero,
-                        )
-                        HomeLayout.GRID -> GridLayoutSettings(
-                            showHero = uiState.showHeroSection,
-                            onShowHeroChange = viewModel::setShowHeroSection,
-                            heroCatalogKeys = uiState.heroCatalogKeys.toSet(),
-                            availableHeroCatalogs = uiState.availableHeroCatalogs,
-                            onToggleHeroCatalog = viewModel::toggleHeroCatalog,
-                        )
-                        HomeLayout.CLASSIC -> ClassicLayoutSettings(
-                            focusItemGradient = uiState.focusItemGradient,
-                            onFocusItemGradientChange = viewModel::setFocusItemGradient,
-                            showHero = uiState.showHeroSection,
-                            onShowHeroChange = viewModel::setShowHeroSection,
-                            heroCatalogKeys = uiState.heroCatalogKeys.toSet(),
-                            availableHeroCatalogs = uiState.availableHeroCatalogs,
-                            onToggleHeroCatalog = viewModel::toggleHeroCatalog,
-                        )
-                    }
+                    HomeLayout.GRID -> GridLayoutSettings(
+                        showHero = uiState.showHeroSection,
+                        onShowHeroChange = viewModel::setShowHeroSection,
+                        heroCatalogKeys = uiState.heroCatalogKeys.toSet(),
+                        availableHeroCatalogs = uiState.availableHeroCatalogs,
+                        onToggleHeroCatalog = viewModel::toggleHeroCatalog,
+                    )
+                    HomeLayout.CLASSIC -> ClassicLayoutSettings(
+                        focusItemGradient = uiState.focusItemGradient,
+                        onFocusItemGradientChange = viewModel::setFocusItemGradient,
+                        showHero = uiState.showHeroSection,
+                        onShowHeroChange = viewModel::setShowHeroSection,
+                        heroCatalogKeys = uiState.heroCatalogKeys.toSet(),
+                        availableHeroCatalogs = uiState.availableHeroCatalogs,
+                        onToggleHeroCatalog = viewModel::toggleHeroCatalog,
+                    )
+                    HomeLayout.SPOTLIGHT -> SpotlightLayoutSettings(
+                        showHeroCarousel = uiState.showHeroSection,
+                        onShowHeroCarouselChange = viewModel::setShowHeroSection,
+                        heroCatalogKeys = uiState.heroCatalogKeys.toSet(),
+                        availableHeroCatalogs = uiState.availableHeroCatalogs,
+                        onToggleHeroCatalog = viewModel::toggleHeroCatalog,
+                    )
                 }
             }
         }
@@ -184,6 +182,20 @@ fun NewLayoutSettingsContent(
                     landscape = uiState.landscapePostersDefault,
                     onChange = viewModel::setLandscapePostersDefault,
                 )
+            }
+            if (showScopedAddButtons) {
+                // "Follow addons order" lives at the top of the Rows
+                // section per Task 4 — flipping ON auto-populates from
+                // installed addons in manifest order; an explicit
+                // Auto-populate button is also offered when OFF so the
+                // user can refresh without losing the manual flag.
+                item(key = "follow_addons_order_section") {
+                    FollowAddonsOrderSection(
+                        checked = uiState.followAddonsOrder,
+                        onCheckedChange = viewModel::setFollowAddonsOrder,
+                        onAutoPopulate = viewModel::autoPopulateFromAddons,
+                    )
+                }
             }
             if (uiState.rows.isEmpty()) {
                 item(key = "rows_empty") {
@@ -356,7 +368,10 @@ private fun LayoutSection(
             style = MaterialTheme.typography.titleSmall,
             color = NuvioColors.TextSecondary,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // 4 layouts side by side — width tightened from 180dp → 156dp
+        // so Classic / Grid / Modern / Spotlight all fit inside the
+        // settings right pane without horizontal scroll.
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             HomeLayout.entries.forEach { layout ->
                 LayoutCard(
                     layout = layout,
@@ -364,7 +379,7 @@ private fun LayoutSection(
                     showLivePreview = true,
                     onClick = { onSelect(layout) },
                     onFocused = {},
-                    modifier = Modifier.width(180.dp),
+                    modifier = Modifier.width(156.dp),
                 )
             }
         }
@@ -417,6 +432,32 @@ private fun GridLayoutSettings(
             onCheckedChange = onShowHeroChange,
         )
         if (showHero) {
+            HeroCatalogsPicker(
+                selectedKeys = heroCatalogKeys,
+                catalogs = availableHeroCatalogs,
+                onToggle = onToggleHeroCatalog,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpotlightLayoutSettings(
+    showHeroCarousel: Boolean,
+    onShowHeroCarouselChange: (Boolean) -> Unit,
+    heroCatalogKeys: Set<String>,
+    availableHeroCatalogs: List<HeroCatalogChoice>,
+    onToggleHeroCatalog: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LayoutSettingsToggleRow(
+            title = "Show Hero Carousel",
+            subtitle = "When on, the mapped hero catalogs become the default view at launch. " +
+                "When off, the first row is focused immediately.",
+            checked = showHeroCarousel,
+            onCheckedChange = onShowHeroCarouselChange,
+        )
+        if (showHeroCarousel) {
             HeroCatalogsPicker(
                 selectedKeys = heroCatalogKeys,
                 catalogs = availableHeroCatalogs,
@@ -834,6 +875,79 @@ private fun DropdownOptionItem(
     }
 }
 
+// ── Follow addons order toggle + Auto-populate (per-scope) ─────────────────
+
+@Composable
+private fun FollowAddonsOrderSection(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    onAutoPopulate: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Follow addons order",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = NuvioColors.TextPrimary,
+                )
+                Text(
+                    text = "Rows auto-populate from the addon's catalogs in manifest " +
+                        "order. Overrides manual arrangement while on.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NuvioColors.TextSecondary,
+                )
+            }
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
+        }
+        if (!checked) {
+            AutoPopulateButton(onClick = onAutoPopulate)
+        }
+    }
+}
+
+@Composable
+private fun AutoPopulateButton(onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.height(38.dp),
+        shape = ButtonDefaults.shape(shape = RoundedCornerShape(19.dp)),
+        colors = ButtonDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.10f),
+            focusedContainerColor = Color.White.copy(alpha = 0.20f),
+        ),
+        border = ButtonDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(19.dp),
+            ),
+        ),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                tint = NuvioColors.TextPrimary,
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                text = "Auto-populate from addon",
+                style = MaterialTheme.typography.labelLarge,
+                color = NuvioColors.TextPrimary,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
 // ── Card Orientation (global Rows-level default) ────────────────────────────
 //
 // Floor of the per-row → global card-orientation hierarchy. Each row's
@@ -938,11 +1052,33 @@ private fun AddRowChip(label: String, onClick: () -> Unit) {
     }
 }
 
-// ── Detail Page section ─────────────────────────────────────────────────────
+// ── Detail Page settings (standalone Appearance sub-item, Task 6) ───────────
 //
-// Reuses [LayoutSettingsViewModel] because the four detail-page toggles
-// already live on the global keys it exposes. If detail-page-specific
-// per-scope persistence is wanted later, swap these to scope.DETAIL keys.
+// Used to render inside the Layout scope pill tabs; now its own pane
+// under Settings → Appearance → Detail Page. Reuses
+// [LayoutSettingsViewModel] because the four detail-page toggles already
+// live on the global keys it exposes.
+
+@Composable
+fun DetailPageSettingsContent(
+    viewModel: LayoutSettingsViewModel = hiltViewModel(),
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        item(key = "detail_page_header") {
+            SettingsDetailHeader(
+                title = "Detail Page",
+                subtitle = "Toggles that govern how an item's detail screen behaves.",
+            )
+        }
+        item(key = "detail_page_body") {
+            DetailPageSection(viewModel = viewModel)
+        }
+    }
+}
 
 @Composable
 private fun DetailPageSection(

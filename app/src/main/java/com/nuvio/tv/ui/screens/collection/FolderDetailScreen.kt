@@ -766,5 +766,27 @@ private fun FollowLayoutContent(
             onSaveFocusState = onSaveFocusState,
             scrollToTopTrigger = scrollToTopTrigger
         )
+        // Folder Detail keeps its existing horizontal-row treatment for
+        // Spotlight selections — the dedicated Spotlight surface lives
+        // on Home / Movies / TV. Reuse Classic content here.
+        HomeLayout.SPOTLIGHT -> ClassicHomeContent(
+            uiState = homeState,
+            posterCardStyle = posterCardStyle,
+            focusState = focusState,
+            trailerPreviewUrls = trailerPreviewUrls,
+            trailerPreviewAudioUrls = trailerPreviewAudioUrls,
+            onNavigateToDetail = onNavigateToDetail,
+            onContinueWatchingClick = noOpCwClick,
+            onNavigateToCatalogSeeAll = onLoadMoreCatalog,
+            onNavigateToFolderDetail = noOpFolderDetail,
+            onRemoveContinueWatching = noOpRemoveCw,
+            isCatalogItemWatched = isItemWatched,
+            catalogSeeAllLabel = loadMoreLabel,
+            onRequestTrailerPreview = { item ->
+                onRequestTrailerPreview(item.id, item.name, item.releaseInfo, item.apiType)
+            },
+            onItemFocus = onItemFocus,
+            onSaveFocusState = onSaveFocusState
+        )
     }
 }

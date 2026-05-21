@@ -1,5 +1,7 @@
 package com.nuvio.tv.ui.components
 
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,6 +41,17 @@ object TopBarImmersionState {
     private val _backdropUrl = MutableStateFlow<String?>(null)
     val backdropUrl: StateFlow<String?> = _backdropUrl.asStateFlow()
 
+    /**
+     * Measured height of the rendered TopBar in dp. Set via
+     * `Modifier.onGloballyPositioned` on the bar's outer Box in
+     * MainActivity. Used as the source of truth for the hero text
+     * top inset (`LocalTopBarOverlayHeight`) so layouts react to the
+     * actual rendered height — wraps, taller fonts, accessibility
+     * scaling — instead of a hard-coded constant.
+     */
+    private val _topBarHeightDp = MutableStateFlow(0.dp)
+    val topBarHeightDp: StateFlow<Dp> = _topBarHeightDp.asStateFlow()
+
     fun setVisible(value: Boolean) {
         if (_visible.value != value) _visible.value = value
     }
@@ -46,6 +59,10 @@ object TopBarImmersionState {
     /** Push the current hero backdrop URL (or null to clear). */
     fun setBackdropUrl(url: String?) {
         if (_backdropUrl.value != url) _backdropUrl.value = url
+    }
+
+    fun setTopBarHeightDp(value: Dp) {
+        if (_topBarHeightDp.value != value) _topBarHeightDp.value = value
     }
 
     /** Force-reset to visible. Call on screen dispose. */

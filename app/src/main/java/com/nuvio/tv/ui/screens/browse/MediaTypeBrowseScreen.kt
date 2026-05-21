@@ -119,6 +119,14 @@ internal fun MediaTypeBrowseBody(
                 onMetaClick = onMetaClick,
                 contentFocusRequester = contentFocusRequester,
             )
+            // MediaTypeBrowse doesn't have a dedicated Spotlight body —
+            // fall through to the Classic horizontal-row treatment for
+            // browse / search-result surfaces.
+            HomeLayout.SPOTLIGHT -> ClassicBody(
+                state = state,
+                onMetaClick = onMetaClick,
+                contentFocusRequester = contentFocusRequester,
+            )
         }
     }
 }

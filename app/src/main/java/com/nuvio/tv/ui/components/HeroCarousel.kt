@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.offset
@@ -33,8 +34,10 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -69,6 +72,17 @@ import kotlinx.coroutines.delay
 private const val AUTO_ADVANCE_INTERVAL_MS = 10000L
 private val YEAR_REGEX = Regex("""\b\d{4}\b""")
 
+/**
+ * Drop-shadow for every hero Text — keeps titles, metadata and the
+ * synopsis readable against any backdrop without a heavy scrim.
+ * Mirrors ARVIO's `Shadow(α 0.9, offset 0,2, blur 8)`.
+ */
+private val HeroTextShadow = Shadow(
+    color = Color.Black.copy(alpha = 0.9f),
+    offset = Offset(0f, 2f),
+    blurRadius = 8f,
+)
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun HeroCarousel(
@@ -77,6 +91,10 @@ fun HeroCarousel(
     onItemFocus: (MetaPreview) -> Unit = {},
     focusRequester: FocusRequester? = null,
     fullWidth: Dp = Dp.Unspecified,
+    // Default 400.dp preserves Classic / Grid behavior. Spotlight passes
+    // a larger value so the same hero composable can occupy ~65% of the
+    // screen without rebuilding the slide internals.
+    heroHeight: Dp = 400.dp,
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) return
@@ -112,7 +130,7 @@ fun HeroCarousel(
                 else
                     Modifier.fillMaxWidth()
             )
-            .height(400.dp)
+            .height(heroHeight)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .focusable()
             .onFocusChanged { isFocused = it.hasFocus || it.isFocused }
@@ -313,7 +331,7 @@ private fun HeroCarouselSlide(
             } else {
                 Text(
                     text = item.name,
-                    style = MaterialTheme.typography.headlineLarge,
+                    style = MaterialTheme.typography.headlineLarge.copy(shadow = HeroTextShadow),
                     color = Color.White,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -346,7 +364,7 @@ private fun HeroCarouselSlide(
                         val ratingText = remember(rating) { String.format("%.1f", rating) }
                         Text(
                             text = ratingText,
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelLarge.copy(shadow = HeroTextShadow),
                             color = Color.White.copy(alpha = 0.8f)
                         )
                     }
@@ -360,7 +378,7 @@ private fun HeroCarouselSlide(
                 releaseYear?.let { year ->
                     Text(
                         text = year,
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelLarge.copy(shadow = HeroTextShadow),
                         color = Color.White.copy(alpha = 0.8f)
                     )
                 }
@@ -374,7 +392,7 @@ private fun HeroCarouselSlide(
                     item.genres.take(3).forEach { genre ->
                         Text(
                             text = genre,
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelMedium.copy(shadow = HeroTextShadow),
                             color = Color.White.copy(alpha = 0.7f),
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
@@ -387,13 +405,19 @@ private fun HeroCarouselSlide(
 
             item.description?.let { desc ->
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = desc,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.7f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                // 72dp cap prevents an unusually long synopsis from
+                // pushing the hero meta up into the TopBar zone. Safe
+                // constraint (kept from the prior session — purely a
+                // ceiling, no effect when descriptions are short).
+                Box(modifier = Modifier.heightIn(max = 72.dp)) {
+                    Text(
+                        text = desc,
+                        style = MaterialTheme.typography.bodyMedium.copy(shadow = HeroTextShadow),
+                        color = Color.White.copy(alpha = 0.7f),
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }

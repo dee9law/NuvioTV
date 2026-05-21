@@ -452,9 +452,21 @@ fun HomeScreen(
                                 onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginningStable,
                                 onContinueWatchingPlayManually = onContinueWatchingPlayManuallyStable,
                                 showContinueWatchingManualPlayOption = effectiveAutoplayEnabled,
+                                onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAllStable,
                                 onNavigateToFolderDetail = onNavigateToFolderDetailStable,
                                 isCatalogItemWatched = isCatalogItemWatched,
                                 onCatalogItemLongPress = onCatalogItemLongPress
+                            )
+
+                            HomeLayout.SPOTLIGHT -> SpotlightHomeRoute(
+                                viewModel = viewModel,
+                                uiState = uiState,
+                                posterCardStyle = posterCardStyle,
+                                onNavigateToDetail = onNavigateToDetailStable,
+                                onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAllStable,
+                                onNavigateToFolderDetail = onNavigateToFolderDetailStable,
+                                isCatalogItemWatched = isCatalogItemWatched,
+                                onCatalogItemLongPress = onCatalogItemLongPress,
                             )
                         }
                     }
@@ -638,6 +650,32 @@ private fun GridHomeRoute(
 }
 
 @Composable
+private fun SpotlightHomeRoute(
+    viewModel: BaseHomeViewModel,
+    uiState: HomeUiState,
+    posterCardStyle: PosterCardStyle,
+    onNavigateToDetail: (String, String, String) -> Unit,
+    onNavigateToCatalogSeeAll: (String, String, String) -> Unit,
+    onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> },
+    isCatalogItemWatched: (MetaPreview) -> Boolean,
+    onCatalogItemLongPress: (MetaPreview, String) -> Unit,
+) {
+    val focusState by viewModel.focusState.collectAsStateWithLifecycle()
+    val onItemFocus = remember(viewModel) { { item: MetaPreview -> viewModel.onItemFocus(item) } }
+    SpotlightHomeContent(
+        uiState = uiState,
+        focusState = focusState,
+        posterCardStyle = posterCardStyle,
+        onNavigateToDetail = onNavigateToDetail,
+        onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
+        onNavigateToFolderDetail = onNavigateToFolderDetail,
+        isCatalogItemWatched = isCatalogItemWatched,
+        onCatalogItemLongPress = onCatalogItemLongPress,
+        onItemFocus = onItemFocus,
+    )
+}
+
+@Composable
 private fun ModernHomeRoute(
     viewModel: BaseHomeViewModel,
     uiState: HomeUiState,
@@ -646,6 +684,7 @@ private fun ModernHomeRoute(
     onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit,
     onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit,
     showContinueWatchingManualPlayOption: Boolean,
+    onNavigateToCatalogSeeAll: (String, String, String) -> Unit,
     onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> },
     isCatalogItemWatched: (MetaPreview) -> Boolean,
     onCatalogItemLongPress: (MetaPreview, String) -> Unit
@@ -702,6 +741,7 @@ private fun ModernHomeRoute(
         showContinueWatchingManualPlayOption = showContinueWatchingManualPlayOption,
         onRequestTrailerPreview = requestTrailerPreview,
         onLoadMoreCatalog = loadMoreCatalog,
+        onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
         onRemoveContinueWatching = removeContinueWatching,
         isCatalogItemWatched = isCatalogItemWatched,
         onCatalogItemLongPress = onCatalogItemLongPress,

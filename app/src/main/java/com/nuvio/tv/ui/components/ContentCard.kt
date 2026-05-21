@@ -283,21 +283,20 @@ fun ContentCard(
         val bgCardColor = NuvioColors.BackgroundCard
         val backgroundPainter = remember(bgCardColor) { androidx.compose.ui.graphics.painter.ColorPainter(bgCardColor) }
 
-        // Focused-card highlight strategy — driven by the user's
-        // Card Focus Style setting. ACCENT keeps the original static
-        // border; GLOW paints a soft coloured shadow behind the card;
-        // BLOOM combines a tight coloured border with an outer
-        // coloured shadow for a defined-edge "luminous" look.
+        // Focused-card highlight is split into two orthogonal settings:
+        //   - Poster Glow toggle → soft coloured shadow behind the card
+        //   - Card Focus Style (Accent | Border Bloom) → border treatment
+        // The two combine freely (e.g. Glow ON + Bloom border).
         val cardFocusStyle = com.nuvio.tv.LocalCardFocusStyle.current
-        val styleAccent = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.ACCENT
+        val posterGlowEnabled = com.nuvio.tv.LocalPosterGlowEnabled.current
+        val isBloom = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.BLOOM
+        val needsArtworkColor = posterGlowEnabled || isBloom
         val glowColor = rememberArtworkBackedGlowColor(
             imageUrl = item.poster,
             fallbackSeed = item.id,
-            enabled = !styleAccent && !item.poster.isNullOrBlank(),
+            enabled = needsArtworkColor && !item.poster.isNullOrBlank(),
         )
-        val isBloom = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.BLOOM
-        val isGlow = cardFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.GLOW
-        val showShadow = isFocused && !item.poster.isNullOrBlank() && (isGlow || isBloom)
+        val showShadow = isFocused && posterGlowEnabled && !item.poster.isNullOrBlank()
         val shadowElevation = if (isBloom) 8.dp else 24.dp
         val shadowColor = if (isBloom) glowColor.copy(alpha = 0.25f) else glowColor
         val focusedBorderColor = if (isBloom && !item.poster.isNullOrBlank()) glowColor
@@ -317,10 +316,10 @@ fun ContentCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
-                    // Coloured-shadow halo for Poster Glow / Border
-                    // Bloom. Bloom uses tighter elevation + dimmer alpha
-                    // so the static coloured border carries most of
-                    // the visual weight.
+                    // Coloured-shadow halo gated solely by the Poster
+                    // Glow toggle. Bloom uses tighter elevation + dimmer
+                    // alpha so the static coloured border carries most
+                    // of the visual weight when both are on.
                     if (showShadow) {
                         Modifier.shadow(
                             elevation = shadowElevation,

@@ -102,6 +102,14 @@ fun CatalogRowSection(
      *  on the last-focused card via focusRestorer semantics. */
     firstItemFocusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
+    /**
+     * When `true`, the row title renders with Modern home's smaller
+     * style (`titleMedium` + SemiBold + 8dp bottom padding) instead of
+     * Classic / Grid's larger `headlineMedium`. Used by Spotlight so
+     * its bottom strip matches Modern's title rhythm. Default stays
+     * `false` so Classic / Grid keep their existing look.
+     */
+    compactTitle: Boolean = false,
     listState: LazyListState = rememberLazyListState(initialFirstVisibleItemIndex = initialScrollIndex)
 ) {
     fun rowItemFocusKey(index: Int, item: MetaPreview): String {
@@ -215,20 +223,30 @@ fun CatalogRowSection(
             }
         } else Modifier
     )) {
+        // Title rhythm: Modern uses titleMedium + SemiBold + 8dp bottom;
+        // Classic / Grid keep the larger headlineMedium + 12dp bottom.
+        val titleBottomPadding = if (compactTitle) 8.dp else 12.dp
+        val rowTitleStyle = if (compactTitle) {
+            MaterialTheme.typography.titleMedium.copy(
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            )
+        } else {
+            MaterialTheme.typography.headlineMedium
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = titleStartInset, end = 48.dp, bottom = 12.dp),
+                .padding(start = titleStartInset, end = 48.dp, bottom = titleBottomPadding),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
                 Text(
                     text = catalogTitle,
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = rowTitleStyle,
                     color = NuvioColors.TextPrimary,
-                    maxLines = 3,
-                    overflow = TextOverflow.Clip
+                    maxLines = if (compactTitle) 1 else 3,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (showAddonName) {
                     Text(

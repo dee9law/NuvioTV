@@ -27,6 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
@@ -87,6 +89,7 @@ fun SettingsHubScreen(
     onNavigateToSupportersContributors: () -> Unit,
     onNavigateToAddons: () -> Unit,
     onNavigateToTrakt: () -> Unit,
+    onNavigateToCollections: () -> Unit,
 ) {
     BackHandler { onBack() }
 
@@ -122,6 +125,7 @@ fun SettingsHubScreen(
                     when (action) {
                         NavTarget.ADDONS -> onNavigateToAddons()
                         NavTarget.TRAKT -> onNavigateToTrakt()
+                        NavTarget.COLLECTIONS -> onNavigateToCollections()
                     }
                 },
                 onBack = onBack,
@@ -169,11 +173,20 @@ private fun LeftRail(
         ) {
             items(items = categories, key = { it.id }) { category ->
                 val isExpanded = category.id == expandedCategoryId
+                val isDirect = category.directContentId != null
                 CategoryCard(
                     category = category,
                     isExpanded = isExpanded,
                     selectedContentSubId = selectedContentSubId,
-                    onToggleCategory = { onToggleCategory(category.id) },
+                    onToggleCategory = {
+                        if (isDirect) {
+                            // Direct categories never expand — clicking
+                            // routes straight to their content.
+                            onSelectContentSub(category.id, category.directContentId!!)
+                        } else {
+                            onToggleCategory(category.id)
+                        }
+                    },
                     onSelectSub = { sub ->
                         when (sub) {
                             is HubSubItem.Content -> onSelectContentSub(category.id, sub.id)
@@ -202,6 +215,12 @@ private fun CategoryCard(
     onSelectSub: (HubSubItem) -> Unit,
     upFocus: FocusRequester?,
 ) {
+    val isDirect = category.directContentId != null
+    // Direct categories are highlighted as "expanded" whenever their
+    // content is the one currently showing in the right pane — gives
+    // the user the same visual feedback as a selected sub-item row
+    // would, without the cascade.
+    val directSelected = isDirect && category.directContentId == selectedContentSubId
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -217,11 +236,14 @@ private fun CategoryCard(
     ) {
         CategoryRailRow(
             category = category,
-            isExpanded = isExpanded,
+            isExpanded = if (isDirect) directSelected else isExpanded,
+            // Direct categories never render a caret — they're not a
+            // cascade, just a leaf row.
+            showCaret = !isDirect,
             onSelect = onToggleCategory,
             upFocus = upFocus,
         )
-        if (isExpanded) {
+        if (!isDirect && isExpanded) {
             category.subItems.forEach { sub ->
                 SubItemRailRow(
                     sub = sub,
@@ -299,6 +321,12 @@ private fun CategoryRailRow(
     isExpanded: Boolean,
     onSelect: () -> Unit,
     upFocus: FocusRequester?,
+    /**
+     * Whether to draw the caret indicator on the right of the row.
+     * Cascade categories (subItems list) show it; direct-content
+     * categories (Advanced, About) don't.
+     */
+    showCaret: Boolean = true,
 ) {
     var focused by remember { mutableStateOf(false) }
     val rowShape = RoundedCornerShape(SettingsSecondaryCardRadius - 4.dp)
@@ -373,14 +401,16 @@ private fun CategoryRailRow(
                 fontWeight = if (focused || isExpanded) FontWeight.SemiBold else FontWeight.Medium,
                 modifier = Modifier.weight(1f),
             )
-            // Caret rotates to indicate expansion state — open ↓, closed →
-            val caret = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.ChevronRight
-            Icon(
-                imageVector = caret,
-                contentDescription = null,
-                tint = iconColor,
-                modifier = Modifier.size(18.dp),
-            )
+            if (showCaret) {
+                // Caret rotates to indicate expansion state — open ↓, closed →
+                val caret = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.ChevronRight
+                Icon(
+                    imageVector = caret,
+                    contentDescription = null,
+                    tint = iconColor,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }
@@ -437,6 +467,14 @@ private fun SubItemRailRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            sub.leadingIcon?.let { icon ->
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = textColor,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
             Text(
                 text = sub.label,
                 style = MaterialTheme.typography.bodyMedium,
@@ -536,6 +574,9 @@ private fun SubItemContent(
         "appearance.rows" -> NewLayoutSettingsContent(mode = NewLayoutContentMode.ROWS_ONLY)
         "appearance.continue_watching" -> ContinueWatchingSettingsContent()
         "appearance.theme" -> ThemeSettingsContent()
+        "appearance.cards" -> CardsSettingsContent()
+        "appearance.siderail" -> SideRailSettingsContent()
+        "appearance.detailpage" -> DetailPageSettingsContent()
         // Extensions
         "extensions.plugins" -> PluginsInlineWrapper()
         "extensions.tmdb" -> TmdbSettingsContent()
@@ -590,11 +631,25 @@ private data class HubCategory(
     val label: String,
     val icon: ImageVector,
     val subItems: List<HubSubItem>,
+    /**
+     * When non-null, tapping the category directly renders the content
+     * with this id in the right pane instead of expanding sub-items.
+     * Used by Advanced (Network) and About — both have a single pane,
+     * so a cascade would be redundant.
+     */
+    val directContentId: String? = null,
 )
 
 private sealed interface HubSubItem {
     val id: String
     val label: String
+    /**
+     * Optional leading icon. NavAction rows that point at a recognisable
+     * surface (Collections, future Plugins-as-NavAction, etc.) can set
+     * one to make the row visually distinct from plain Content rows.
+     * Defaults to null so existing rows stay untouched.
+     */
+    val leadingIcon: ImageVector? get() = null
 
     /** A sub-item whose content renders inline in the right pane. */
     data class Content(override val id: String, override val label: String) : HubSubItem
@@ -607,29 +662,33 @@ private sealed interface HubSubItem {
         override val id: String,
         override val label: String,
         val target: NavTarget,
-    ) : HubSubItem
+        val icon: ImageVector? = null,
+    ) : HubSubItem {
+        override val leadingIcon: ImageVector? get() = icon
+    }
 }
 
-private enum class NavTarget { ADDONS, TRAKT }
+private enum class NavTarget { ADDONS, TRAKT, COLLECTIONS }
 
 private fun settingsCategories(): List<HubCategory> = listOf(
     HubCategory(
         id = "appearance",
         label = "Appearance",
         icon = Icons.Default.Palette,
+        // Order is fixed by Task 6 — Feel / Layout / Rows / Top Bar /
+        // Side Rail / Global / Theme / Continue Watching / Cards /
+        // Detail Page.
         subItems = listOf(
             HubSubItem.Content("appearance.feel", "Feel"),
-            HubSubItem.Content("appearance.topbar", "Top Bar"),
-            HubSubItem.Content("appearance.global", "Global"),
             HubSubItem.Content("appearance.layout", "Layout"),
             HubSubItem.Content("appearance.rows", "Rows"),
-            HubSubItem.Content("appearance.continue_watching", "Continue Watching"),
-            // "Old Layout" removed from the Appearance cascade per spec
-            // (Group 4).  The file [LayoutSettingsScreen.kt] is kept dormant
-            // for now so its remaining settings (Continue Watching internals,
-            // detail-page toggles) can be migrated in follow-up work
-            // without a single-PR rewrite.
+            HubSubItem.Content("appearance.topbar", "Top Bar"),
+            HubSubItem.Content("appearance.siderail", "Side Rail"),
+            HubSubItem.Content("appearance.global", "Global"),
             HubSubItem.Content("appearance.theme", "Theme"),
+            HubSubItem.Content("appearance.continue_watching", "Continue Watching"),
+            HubSubItem.Content("appearance.cards", "Cards"),
+            HubSubItem.Content("appearance.detailpage", "Detail Page"),
         ),
     ),
     HubCategory(
@@ -639,6 +698,12 @@ private fun settingsCategories(): List<HubCategory> = listOf(
         subItems = listOf(
             HubSubItem.Content("extensions.plugins", "Plugins"),
             HubSubItem.NavAction("extensions.addons", "Addons", NavTarget.ADDONS),
+            HubSubItem.NavAction(
+                id = "extensions.collections",
+                label = "Collections",
+                target = NavTarget.COLLECTIONS,
+                icon = Icons.Default.Folder,
+            ),
             HubSubItem.Content("extensions.tmdb", "TMDB"),
             HubSubItem.Content("extensions.mdblist", "MDBList"),
             HubSubItem.Content("extensions.animeskip", "AnimeSkip"),
@@ -667,9 +732,18 @@ private fun settingsCategories(): List<HubCategory> = listOf(
         id = "advanced",
         label = "Advanced",
         icon = Icons.Default.Settings,
-        subItems = listOf(
-            HubSubItem.Content("advanced.network", "Network"),
-            HubSubItem.Content("advanced.about", "About"),
-        ),
+        subItems = emptyList(),
+        // Direct-content: tapping Advanced shows the Network pane
+        // straight in the right pane — no cascade (Task 7).
+        directContentId = "advanced.network",
+    ),
+    HubCategory(
+        id = "about",
+        label = "About",
+        icon = Icons.Default.Info,
+        subItems = emptyList(),
+        // About is the bottom-most main settings category and shows
+        // its own pane directly when selected (Task 7).
+        directContentId = "advanced.about",
     ),
 )

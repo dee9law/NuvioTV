@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import coil3.request.crossfade
 import coil3.request.transformations
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -139,10 +140,9 @@ val LocalTopBarOverlayHeight: androidx.compose.runtime.ProvidableCompositionLoca
     compositionLocalOf { 0.dp }
 
 /**
- * Legacy CompositionLocal kept for any old callers — derives from
- * [LocalCardFocusStyle]. `true` when the active style is anything other
- * than ACCENT (i.e. GLOW or BLOOM). Prefer reading
- * [LocalCardFocusStyle] directly for new code.
+ * Whether focused cards (and channel pill logos) should render the
+ * soft coloured-shadow halo. Orthogonal to [LocalCardFocusStyle] —
+ * Poster Glow works with either Accent or Bloom border styles.
  */
 val LocalPosterGlowEnabled = compositionLocalOf { true }
 
@@ -371,8 +371,7 @@ class MainActivity : ComponentActivity() {
                     LocalBringIntoViewSpec provides bringIntoViewSpec,
                     LocalFastHorizontalNavigationEnabled provides mainUiPrefs.fastHorizontalNavigationEnabled,
                     LocalRecompositionHighlighterEnabled provides mainUiPrefs.composeHighlighterEnabled,
-                    LocalPosterGlowEnabled provides (mainUiPrefs.cardFocusStyle !=
-                        com.nuvio.tv.domain.model.CardFocusStyle.ACCENT),
+                    LocalPosterGlowEnabled provides mainUiPrefs.posterGlowEnabled,
                     LocalCardFocusStyle provides mainUiPrefs.cardFocusStyle,
                     com.nuvio.tv.core.player.LocalTrailerPlayerPool provides trailerPlayerPool
                 ) {
@@ -621,7 +620,30 @@ private fun TopNavBarScaffold(
     modernTopBarEnabled: Boolean,
 ) {
     val isModernFeel = navigationFeel == Feel.MODERN
-    val showTopNav = currentRoute in rootRoutes
+    // TopBar (and Legacy SideRail) is only meaningful on "layout"
+    // screens — the ones that render a hero + rows. Dedicated screens
+    // (Settings, Search, Discover, My Stuff, ManageProfiles, Detail,
+    // Stream, Player) have their own chrome and shouldn't double up.
+    val layoutRoutes = remember {
+        setOf(
+            Screen.Home.route,
+            Screen.Movies.route,
+            Screen.TvShows.route,
+            Screen.CollectionsHome.route,
+        )
+    }
+    val showTopNav = currentRoute in layoutRoutes
+
+    // Whenever the user lands on a layout route, force the immersion
+    // state back to visible so the TopBar reappears immediately (no
+    // alpha-fade lag). Without this, returning from Settings /
+    // Discover after scrolling deep on Home left the bar invisible
+    // because the immersion flag was still false.
+    LaunchedEffect(currentRoute) {
+        if (currentRoute in layoutRoutes) {
+            com.nuvio.tv.ui.components.TopBarImmersionState.setVisible(true)
+        }
+    }
     val contentFocusRequester = remember { FocusRequester() }
     val navBarFr              = remember { FocusRequester() }
     val sideRailFr            = remember { FocusRequester() }
@@ -782,6 +804,21 @@ private fun TopNavBarScaffold(
         else -> null
     }
 
+    // Dynamic TopBar height — measured via Modifier.onGloballyPositioned
+    // on the bar's outer Box (further down in this scaffold) and pushed
+    // into TopBarImmersionState.topBarHeightDp. Hero text composables
+    // read this through LocalTopBarOverlayHeight so the inset reacts to
+    // the actual rendered bar height instead of a hard-coded constant.
+    // Fallback 60dp matches the prior static value so the very first
+    // frame (before measurement lands) doesn't underlay the hero text
+    // behind the bar.
+    val measuredTopBarHeight by com.nuvio.tv.ui.components.TopBarImmersionState
+        .topBarHeightDp.collectAsState()
+    val heroTextTopInset = if (showTopNav) {
+        val measured = measuredTopBarHeight
+        if (measured > 0.dp) measured + 8.dp else 68.dp
+    } else 0.dp
+
     CompositionLocalProvider(
         LocalContentFocusRequester provides contentFocusRequester,
         LocalNavBarFocusRequester  provides navBarFr,
@@ -792,11 +829,10 @@ private fun TopNavBarScaffold(
         // left buffer when they see this. Legacy keeps the existing
         // padding because the SideRail needs that clearance.
         LocalIsModernFeel         provides isModernFeel,
-        // Hero text inset — non-zero only when the glassmorphism
-        // TopBar is overlaying the hero image (Modern Top Bar toggle
-        // ON + a top-nav root screen). 64dp = TopBar 60dp + 4dp
-        // breathing room so titles don't kiss the bar's bottom edge.
-        LocalTopBarOverlayHeight  provides if (modernTopBarEnabled && showTopNav) 64.dp else 0.dp,
+        // Hero text inset — measured TopBar height + 8dp breathing room
+        // so the hero title logo never sits behind the bar even when the
+        // bar grows for taller fonts / accessibility scaling.
+        LocalTopBarOverlayHeight  provides heroTextTopInset,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
 
@@ -820,12 +856,21 @@ private fun TopNavBarScaffold(
             // and gradual"). Back/Up to the hero brings it back.
             val topBarVisible by com.nuvio.tv.ui.components.TopBarImmersionState.visible
                 .collectAsState()
+            // Asymmetric animation: showing is instant (snap) so the
+            // bar reappears with alpha 1.0 the moment the user lands on
+            // a layout route, even after immersion-mode had hidden it.
+            // Hiding still uses the gradual 600ms fade so scrolling
+            // into rows feels smooth.
             val topBarAlpha by androidx.compose.animation.core.animateFloatAsState(
                 targetValue = if (topBarVisible) 1f else 0f,
-                animationSpec = androidx.compose.animation.core.tween(
-                    durationMillis = 600,
-                    easing = androidx.compose.animation.core.FastOutSlowInEasing,
-                ),
+                animationSpec = if (topBarVisible) {
+                    androidx.compose.animation.core.snap()
+                } else {
+                    androidx.compose.animation.core.tween(
+                        durationMillis = 600,
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                    )
+                },
                 label = "topBarImmersionAlpha",
             )
             if (showTopNav) {
@@ -853,10 +898,22 @@ private fun TopNavBarScaffold(
                 }
                 val topBarBackdropUrl by com.nuvio.tv.ui.components.TopBarImmersionState
                     .backdropUrl.collectAsState()
+                val topBarDensity = LocalDensity.current
                 androidx.compose.foundation.layout.Box(
                     modifier = Modifier
                         .alpha(topBarAlpha)
                         .fillMaxWidth()
+                        // Measure the actual rendered bar height and push
+                        // it into TopBarImmersionState so hero text can
+                        // inset itself dynamically (Task 1).
+                        .onGloballyPositioned { coords ->
+                            val heightPx = coords.size.height
+                            if (heightPx > 0) {
+                                val dp = with(topBarDensity) { heightPx.toDp() }
+                                com.nuvio.tv.ui.components.TopBarImmersionState
+                                    .setTopBarHeightDp(dp)
+                            }
+                        }
                 ) {
                     if (modernTopBarEnabled) {
                         if (!topBarBackdropUrl.isNullOrBlank()) {
@@ -894,15 +951,21 @@ private fun TopNavBarScaffold(
                                 )
                         )
                     } else {
+                        // Default (non-glass) TopBar: subtle readability
+                        // vignette. ~0.3 alpha at y=0 fading to fully
+                        // transparent across ~40dp (≈67% of the 60dp
+                        // bar). Just enough for pill text to stay legible
+                        // over bright hero images without looking like a
+                        // visible block.
                         androidx.compose.foundation.layout.Box(
                             modifier = Modifier
                                 .matchParentSize()
                                 .background(
                                     brush = Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.Black.copy(alpha = 0.55f),
-                                            Color.Black.copy(alpha = 0.55f),
-                                            Color.Transparent,
+                                        colorStops = arrayOf(
+                                            0f to Color.Black.copy(alpha = 0.3f),
+                                            0.67f to Color.Transparent,
+                                            1f to Color.Transparent,
                                         )
                                     )
                                 )

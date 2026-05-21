@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +35,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -59,6 +61,17 @@ import kotlinx.coroutines.flow.debounce
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.res.stringResource
+
+/**
+ * Drop-shadow baked into every hero Text style so titles, metadata and
+ * synopsis stay legible against any backdrop without depending on a
+ * heavy scrim. Mirrors ARVIO's hero text shadow recipe.
+ */
+private val HeroTextShadow = Shadow(
+    color = Color.Black.copy(alpha = 0.9f),
+    offset = Offset(0f, 2f),
+    blurRadius = 8f,
+)
 
 private data class ModernHeroSecondaryMeta(
     val highlightText: String?,
@@ -315,7 +328,11 @@ internal fun HeroTitleBlock(
 
     val displayPreview = if (!isEnriching && currentPreview != null) currentPreview else stablePreview
     if (displayPreview == null) return
-    
+
+    // TopBar clearance is now reserved by the caller via a wrapper Box
+    // (`padding(top = LocalTopBarOverlayHeight)` in ModernHomeContent),
+    // so HeroTitleBlock just needs to be BottomStart-aligned within
+    // that constrained area. No internal padding/fillMaxHeight tricks.
     Box(
         modifier = modifier,
         contentAlignment = Alignment.BottomStart
@@ -375,14 +392,21 @@ private fun HeroTitleContent(
     val scaledTitleStyle = remember(headlineLarge, titleScale) {
         headlineLarge.copy(
             fontSize = headlineLarge.fontSize * titleScale,
-            lineHeight = headlineLarge.lineHeight * titleScale
+            lineHeight = headlineLarge.lineHeight * titleScale,
+            shadow = HeroTextShadow,
         )
     }
     val scaledDescriptionStyle = remember(bodyMedium, descriptionScale) {
         bodyMedium.copy(
             fontSize = bodyMedium.fontSize * descriptionScale,
-            lineHeight = bodyMedium.lineHeight * descriptionScale
+            lineHeight = bodyMedium.lineHeight * descriptionScale,
+            shadow = HeroTextShadow,
         )
+    }
+    // Pre-shadowed copies for the metadata row(s) — reused for plain
+    // text, badges, IMDb cluster, secondary details.
+    val shadowedLabelMedium = remember(labelMedium) {
+        labelMedium.copy(shadow = HeroTextShadow)
     }
 
     Column(
@@ -482,7 +506,7 @@ private fun HeroTitleContent(
             if (hasLeadingMeta) {
                 Text(
                     text = leadingMetaText,
-                    style = labelMedium,
+                    style = shadowedLabelMedium,
                     color = NuvioColors.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -505,7 +529,7 @@ private fun HeroTitleContent(
                     if (!runtimeText.isNullOrBlank()) {
                         Text(
                             text = runtimeText,
-                            style = labelMedium,
+                            style = shadowedLabelMedium,
                             color = NuvioColors.TextSecondary,
                             maxLines = 1
                         )
@@ -516,7 +540,7 @@ private fun HeroTitleContent(
                     if (!yearText.isNullOrBlank()) {
                         Text(
                             text = yearText,
-                            style = labelMedium,
+                            style = shadowedLabelMedium,
                             color = NuvioColors.TextSecondary,
                             maxLines = 1
                         )
@@ -525,7 +549,7 @@ private fun HeroTitleContent(
                         HeroImdbMeta(
                             imdbText = imdbText,
                             imdbLogoModel = imdbLogoModel,
-                            textStyle = labelMedium,
+                            textStyle = shadowedLabelMedium,
                             textColor = NuvioColors.TextSecondary,
                             logoSize = 30.dp * metaScale,
                             spacing = imdbMetaSpacing
@@ -541,7 +565,9 @@ private fun HeroTitleContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(metaSpacing)
             ) {
-                val semiBoldLabelMedium = remember(labelMedium) { labelMedium.copy(fontWeight = FontWeight.SemiBold) }
+                val semiBoldLabelMedium = remember(labelMedium) {
+                    labelMedium.copy(fontWeight = FontWeight.SemiBold, shadow = HeroTextShadow)
+                }
         secondaryHighlightText?.let { text ->
                     Text(
                         text = text,
@@ -558,21 +584,21 @@ private fun HeroTitleContent(
                     HeroCombinedMetaBadge(
                         leftText = ageRatingBadge,
                         rightText = statusBadge,
-                        textStyle = labelMedium,
+                        textStyle = shadowedLabelMedium,
                         contentColor = NuvioColors.TextPrimary
                     )
                 } else {
                     ageRatingBadge?.let { badge ->
                         HeroMetaBadge(
                             text = badge,
-                            textStyle = labelMedium,
+                            textStyle = shadowedLabelMedium,
                             contentColor = NuvioColors.TextPrimary
                         )
                     }
                     statusBadge?.let { badge ->
                         HeroMetaBadge(
                             text = badge,
-                            textStyle = labelMedium,
+                            textStyle = shadowedLabelMedium,
                             contentColor = NuvioColors.TextPrimary
                         )
                     }
@@ -584,7 +610,7 @@ private fun HeroTitleContent(
                     HeroImdbMeta(
                         imdbText = preview.imdbText.orEmpty(),
                         imdbLogoModel = imdbLogoModel,
-                        textStyle = labelMedium,
+                        textStyle = shadowedLabelMedium,
                         textColor = NuvioColors.TextSecondary,
                         logoSize = 30.dp * metaScale,
                         spacing = imdbMetaSpacing
@@ -596,7 +622,7 @@ private fun HeroTitleContent(
                 secondaryDetails.forEachIndexed { index, value ->
                     Text(
                         text = value,
-                        style = labelMedium,
+                        style = shadowedLabelMedium,
                         color = NuvioColors.TextTertiary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -609,14 +635,22 @@ private fun HeroTitleContent(
         }
 
         preview.description?.takeIf { it.isNotBlank() }?.let { description ->
-            Text(
-                text = description,
-                style = scaledDescriptionStyle,
-                color = NuvioColors.TextPrimary,
-                maxLines = descriptionMaxLines,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.graphicsLayer { alpha = metaAlpha }
-            )
+            // 72dp cap: 4 lines @ 16sp lineHeight + a couple dp slack.
+            // Keeps an unusually long synopsis from pushing the hero
+            // logo / metadata up into the TopBar (Task 1d).
+            Box(
+                modifier = Modifier
+                    .heightIn(max = 72.dp)
+                    .graphicsLayer { alpha = metaAlpha }
+            ) {
+                Text(
+                    text = description,
+                    style = scaledDescriptionStyle,
+                    color = NuvioColors.TextPrimary,
+                    maxLines = descriptionMaxLines,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

@@ -247,17 +247,109 @@ fun GlobalSettingsContent(viewModel: GlobalSettingsViewModel = hiltViewModel()) 
                         checked = state.searchDiscoverEnabled,
                         onCheckedChange = viewModel::setSearchDiscoverEnabled,
                     )
-                    com.nuvio.tv.ui.components.AccentActionRow(
-                        title = "Card Focus Style",
-                        subtitle = "Choose how focused cards are highlighted. " +
-                            "Current: ${state.cardFocusStyle.displayLabel}. " +
-                            "Tap to cycle: Accent → Poster Glow → Border Bloom.",
-                        onClick = { viewModel.cycleCardFocusStyle() },
-                    )
                 }
             }
         }
-        item(key = "global_focused_poster_section") {
+        // Poster Glow / Card Focus Style / Focused-poster settings moved
+        // to Settings → Appearance → Cards (Task 5). See
+        // [CardsSettingsContent].
+    }
+}
+
+// ── Side Rail sub-item ──────────────────────────────────────────────────────
+//
+// Placeholder Appearance pane for SideRail-specific settings. Currently
+// hosts the Show Discover toggle (which the SideRail / Profile Overlay
+// honours) and a hint about more controls landing later. Reuses the
+// existing GlobalSettingsViewModel since the underlying flag is the
+// same searchDiscoverEnabled.
+
+@Composable
+fun SideRailSettingsContent(viewModel: GlobalSettingsViewModel = hiltViewModel()) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        item(key = "siderail_header") {
+            SettingsDetailHeader(
+                title = "Side Rail",
+                subtitle = "Legacy-feel left rail navigation entries. More controls coming soon.",
+            )
+        }
+        item(key = "siderail_show_discover") {
+            GlobalSection(title = "Entries") {
+                GlobalToggleRow(
+                    title = "Show Discover",
+                    subtitle = "Surface the Discover entry in the side rail / overlay.",
+                    checked = state.searchDiscoverEnabled,
+                    onCheckedChange = viewModel::setSearchDiscoverEnabled,
+                )
+            }
+        }
+    }
+}
+
+// ── Cards sub-item ──────────────────────────────────────────────────────────
+//
+// Holds every card-related toggle / chip that used to live in Global. Same
+// ViewModel/DataStore — just lifted into its own pane so Global stays slim.
+
+@Composable
+fun CardsSettingsContent(viewModel: GlobalSettingsViewModel = hiltViewModel()) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+        item(key = "cards_header") {
+            SettingsDetailHeader(
+                title = "Cards",
+                subtitle = "How content cards look and behave when focused.",
+            )
+        }
+        item(key = "cards_focus_section") {
+            GlobalSection(title = "Focus highlight") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    GlobalToggleRow(
+                        title = "Poster Glow",
+                        subtitle = "Soft coloured halo behind focused cards, sampled from " +
+                            "the poster's dominant colour. Works with either focus border style.",
+                        checked = state.posterGlowEnabled,
+                        onCheckedChange = viewModel::setPosterGlowEnabled,
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Card Focus Style",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = NuvioColors.TextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Border treatment for focused cards. Bloom samples the poster " +
+                                "colour for a tight luminous edge.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = NuvioColors.TextSecondary,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            com.nuvio.tv.domain.model.CardFocusStyle.entries.forEach { style ->
+                                ChoicePill(
+                                    label = style.displayLabel,
+                                    isSelected = style == state.cardFocusStyle,
+                                    onClick = {
+                                        if (style != state.cardFocusStyle) viewModel.cycleCardFocusStyle()
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item(key = "cards_focused_poster_section") {
             GlobalSection(title = "Focused poster") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     GlobalToggleRow(
@@ -398,6 +490,7 @@ internal fun HomeLayout.displayLabel(): String = when (this) {
     HomeLayout.MODERN -> "Modern"
     HomeLayout.CLASSIC -> "Classic"
     HomeLayout.GRID -> "Grid"
+    HomeLayout.SPOTLIGHT -> "Spotlight"
 }
 
 internal fun FocusedPosterTrailerPlaybackTarget.displayLabel(): String = when (this) {

@@ -53,6 +53,49 @@ import com.nuvio.tv.ui.screens.profile.ProfileSelectionScreen
 import com.nuvio.tv.ui.screens.tmdb.TmdbEntityBrowseScreen
 import com.nuvio.tv.ui.screens.home.HeroBackdropState
 
+/**
+ * Routes considered "main" — i.e. surfaces that render a layout (hero +
+ * rows) and act as anchors for Back navigation. Back from any other
+ * screen returns the user to the most recently visited main screen (or
+ * Home as a fallback when none is on the stack).
+ */
+private val MainScreenRoutes = setOf(
+    Screen.Home.route,
+    Screen.Movies.route,
+    Screen.TvShows.route,
+    Screen.CollectionsHome.route,
+)
+
+/**
+ * Pop the back stack to the most recently visited main screen
+ * (Home / Movies / TV Shows / CollectionsHome). If none is on the stack
+ * we navigate to Home as a fresh anchor — clears anything stale and
+ * matches the spec: "Back from any non-main screen always returns to a
+ * main screen".
+ */
+internal fun NavHostController.popBackToMainScreen() {
+    // Walk the live back stack from top to bottom and find the first
+    // main-route entry that isn't the current destination. popBackStack
+    // alone can't do this since we don't know in advance which main
+    // route was last visited.
+    val stack = currentBackStack.value
+    val currentRoute = currentDestination?.route
+    val topMostMain = stack.asReversed().firstOrNull { entry ->
+        val route = entry.destination.route
+        route != null && route in MainScreenRoutes && route != currentRoute
+    }
+    val targetRoute = topMostMain?.destination?.route
+    if (targetRoute != null) {
+        popBackStack(targetRoute, inclusive = false)
+    } else {
+        // No main screen on the back stack — navigate fresh to Home.
+        navigate(Screen.Home.route) {
+            popUpTo(graph.id) { inclusive = true }
+            launchSingleTop = true
+        }
+    }
+}
+
 @Composable
 fun NuvioNavHost(
     navController: NavHostController,
@@ -276,6 +319,11 @@ fun NuvioNavHost(
                 returnFocusEpisode = returnFocusEpisode,
                 heroBackdropUrl = heroBackdropUrl,
                 onBackPress = {
+                    // Detail is a non-main screen — Back always lands on
+                    // the most recent main screen (Home / Movies / TV /
+                    // CollectionsHome). returnToHomeOnBack stays as an
+                    // explicit override for Continue-Watching launches
+                    // that should reliably anchor to Home.
                     if (returnToHomeOnBack) {
                         val popped = navController.popBackStack(Screen.Home.route, inclusive = false)
                         if (!popped) {
@@ -284,7 +332,7 @@ fun NuvioNavHost(
                             }
                         }
                     } else {
-                        navController.popBackStack()
+                        navController.popBackToMainScreen()
                     }
                 },
                 onNavigateToCastDetail = { personId, personName, preferCrew ->
@@ -477,7 +525,10 @@ fun NuvioNavHost(
                             }
                         }
                     } else {
-                        navController.popBackStack()
+                        // Movie or no-detail flow — bounce to the most
+                        // recent main screen instead of just popping one
+                        // layer (Task 2).
+                        navController.popBackToMainScreen()
                     }
                 },
                 onStreamSelected = { playbackInfo ->
@@ -746,7 +797,7 @@ fun NuvioNavHost(
                                     }
                                 }
                             } else {
-                                navController.popBackStack()
+                                navController.popBackToMainScreen()
                             }
                         }
                         episodeChangedInPlace && !autoPlayEnabled -> {
@@ -775,7 +826,7 @@ fun NuvioNavHost(
                                     launchSingleTop = true
                                 }
                             } else {
-                                navController.popBackStack()
+                                navController.popBackToMainScreen()
                             }
                         }
                         else -> {
@@ -805,7 +856,7 @@ fun NuvioNavHost(
                                         }
                                     }
                                 } else {
-                                    navController.popBackStack()
+                                    navController.popBackToMainScreen()
                                 }
                             }
                         }
@@ -858,7 +909,7 @@ fun NuvioNavHost(
                         val title = args?.getString("title").orEmpty()
 
                         if (videoId.isBlank() || contentType.isBlank() || title.isBlank()) {
-                            navController.popBackStack()
+                            navController.popBackToMainScreen()
                         } else {
                             val route = Screen.Stream.createRoute(
                                 videoId = videoId,
@@ -909,6 +960,11 @@ fun NuvioNavHost(
         }
 
         composable(Screen.Discover.route) {
+            // DiscoverScreen doesn't expose an onBackPress hook of its
+            // own (its internal handlers only deal with row-level Back),
+            // so register one at the navhost level so Back lands on the
+            // most recent main screen instead of just popping one layer.
+            BackHandler { navController.popBackToMainScreen() }
             DiscoverScreen(
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
@@ -991,7 +1047,7 @@ fun NuvioNavHost(
 
         composable(Screen.Settings.route) {
             SettingsHubScreen(
-                onBack = { navController.popBackStack() },
+                onBack = { navController.popBackToMainScreen() },
                 onNavigateToAuthQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
                 onNavigateToManageProfiles = { navController.navigate(Screen.ManageProfiles.route) },
                 onNavigateToSupportersContributors = {
@@ -999,6 +1055,7 @@ fun NuvioNavHost(
                 },
                 onNavigateToAddons = { navController.navigate(Screen.AddonManager.route) },
                 onNavigateToTrakt = { navController.navigate(Screen.Trakt.route) },
+                onNavigateToCollections = { navController.navigate(Screen.Collections.route) },
             )
         }
 
@@ -1006,37 +1063,37 @@ fun NuvioNavHost(
             ProfileSelectionScreen(
                 onProfileSelected = {},
                 screenMode = ProfileSelectionMode.Management,
-                onBackPress = { navController.popBackStack() }
+                onBackPress = { navController.popBackToMainScreen() }
             )
         }
 
         composable(Screen.Trakt.route) {
             TraktScreen(
-                onBackPress = { navController.popBackStack() }
+                onBackPress = { navController.popBackToMainScreen() }
             )
         }
 
         composable(Screen.TmdbSettings.route) {
             TmdbSettingsScreen(
-                onBackPress = { navController.popBackStack() }
+                onBackPress = { navController.popBackToMainScreen() }
             )
         }
 
         composable(Screen.ThemeSettings.route) {
             ThemeSettingsScreen(
-                onBackPress = { navController.popBackStack() }
+                onBackPress = { navController.popBackToMainScreen() }
             )
         }
 
         composable(Screen.PlaybackSettings.route) {
             PlaybackSettingsScreen(
-                onBackPress = { navController.popBackStack() }
+                onBackPress = { navController.popBackToMainScreen() }
             )
         }
 
         composable(Screen.About.route) {
             AboutScreen(
-                onBackPress = { navController.popBackStack() },
+                onBackPress = { navController.popBackToMainScreen() },
                 onNavigateToSupportersContributors = {
                     navController.navigate(Screen.SupportersContributors.route)
                 }
@@ -1045,21 +1102,19 @@ fun NuvioNavHost(
 
         composable(Screen.SupportersContributors.route) {
             SupportersContributorsScreen(
-                onBackPress = { navController.popBackStack() }
+                onBackPress = { navController.popBackToMainScreen() }
             )
         }
 
         composable(Screen.AddonManager.route) {
             AddonManagerScreen(
                 showBuiltInHeader = !hideBuiltInHeaders,
-                onNavigateToCatalogOrder = { navController.navigate(Screen.CatalogOrder.route) },
-                onNavigateToCollections = { navController.navigate(Screen.Collections.route) }
             )
         }
 
         composable(Screen.CatalogOrder.route) {
             CatalogOrderScreen(
-                onBackPress = { navController.popBackStack() }
+                onBackPress = { navController.popBackToMainScreen() }
             )
         }
 
@@ -1068,7 +1123,7 @@ fun NuvioNavHost(
                 onNavigateToEditor = { collectionId ->
                     navController.navigate(Screen.CollectionEditor.createRoute(collectionId))
                 },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackToMainScreen() }
             )
         }
 
@@ -1122,7 +1177,7 @@ fun NuvioNavHost(
             )
         ) {
             com.nuvio.tv.ui.screens.collection.CollectionEditorScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackToMainScreen() }
             )
         }
 
@@ -1137,41 +1192,41 @@ fun NuvioNavHost(
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
                 },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackToMainScreen() }
             )
         }
 
         if (AppFeaturePolicy.pluginsEnabled) {
             composable(Screen.Plugins.route) {
                 PluginScreen(
-                    onBackPress = { navController.popBackStack() }
+                    onBackPress = { navController.popBackToMainScreen() }
                 )
             }
         }
 
         composable(Screen.Account.route) {
             AuthQrSignInScreen(
-                onBackPress = { navController.popBackStack() }
+                onBackPress = { navController.popBackToMainScreen() }
             )
         }
 
         composable(Screen.AuthSignIn.route) {
             AuthSignInScreen(
-                onBackPress = { navController.popBackStack() },
+                onBackPress = { navController.popBackToMainScreen() },
                 onNavigateToQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
-                onSuccess = { navController.popBackStack() }
+                onSuccess = { navController.popBackToMainScreen() }
             )
         }
 
         composable(Screen.AuthQrSignIn.route) {
             AuthQrSignInScreen(
-                onBackPress = { navController.popBackStack() }
+                onBackPress = { navController.popBackToMainScreen() }
             )
         }
 
         composable(Screen.LayoutSettings.route) {
             LayoutSettingsScreen(
-                onBackPress = { navController.popBackStack() }
+                onBackPress = { navController.popBackToMainScreen() }
             )
         }
 
@@ -1185,7 +1240,7 @@ fun NuvioNavHost(
                 ?: com.nuvio.tv.domain.model.LayoutScreenScope.HOME
             com.nuvio.tv.ui.screens.settings.AppearanceRowsScreen(
                 scope = scope,
-                onBack = { navController.popBackStack() },
+                onBack = { navController.popBackToMainScreen() },
             )
         }
 
@@ -1226,7 +1281,7 @@ fun NuvioNavHost(
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
                 },
-                onBackPress = { navController.popBackStack() }
+                onBackPress = { navController.popBackToMainScreen() }
             )
         }
 
@@ -1242,7 +1297,7 @@ fun NuvioNavHost(
             )
         ) {
             CastDetailScreen(
-                onBackPress = { navController.popBackStack() },
+                onBackPress = { navController.popBackToMainScreen() },
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
                 }
@@ -1262,7 +1317,7 @@ fun NuvioNavHost(
             )
         ) {
             TmdbEntityBrowseScreen(
-                onBackPress = { navController.popBackStack() },
+                onBackPress = { navController.popBackToMainScreen() },
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
                 }

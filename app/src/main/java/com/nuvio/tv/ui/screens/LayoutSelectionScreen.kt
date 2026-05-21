@@ -219,6 +219,9 @@ private fun LayoutOptionCard(
                         HomeLayout.MODERN -> ModernLayoutPreview(
                             modifier = Modifier.fillMaxSize()
                         )
+                        HomeLayout.SPOTLIGHT -> com.nuvio.tv.ui.components.SpotlightLayoutPreview(
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
                 }
 
@@ -229,6 +232,7 @@ private fun LayoutOptionCard(
                         HomeLayout.CLASSIC -> stringResource(R.string.layout_classic)
                         HomeLayout.GRID -> stringResource(R.string.layout_grid)
                         HomeLayout.MODERN -> stringResource(R.string.layout_modern)
+                        HomeLayout.SPOTLIGHT -> stringResource(R.string.layout_spotlight)
                     },
                     style = MaterialTheme.typography.titleLarge,
                     color = if (isSelected || isFocused) NuvioColors.TextPrimary else NuvioColors.TextSecondary
@@ -241,6 +245,7 @@ private fun LayoutOptionCard(
                     HomeLayout.CLASSIC -> stringResource(R.string.layout_classic_desc)
                     HomeLayout.GRID -> stringResource(R.string.layout_grid_desc)
                     HomeLayout.MODERN -> stringResource(R.string.layout_modern_desc)
+                    HomeLayout.SPOTLIGHT -> stringResource(R.string.layout_spotlight_desc)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = NuvioColors.TextTertiary

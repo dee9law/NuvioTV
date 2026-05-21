@@ -108,6 +108,7 @@ fun ModernHomeContent(
     showContinueWatchingManualPlayOption: Boolean = false,
     onRequestTrailerPreview: (String, String, String?, String) -> Unit,
     onLoadMoreCatalog: (String, String, String) -> Unit,
+    onNavigateToCatalogSeeAll: (catalogId: String, addonId: String, apiType: String) -> Unit = { _, _, _ -> },
     onRemoveContinueWatching: (String, Int?, Int?, Boolean) -> Unit,
     isCatalogItemWatched: (MetaPreview) -> Boolean = { false },
     onCatalogItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
@@ -881,7 +882,9 @@ fun ModernHomeContent(
 
             val localDensity = LocalDensity.current
             val rowsViewportHeightFraction = if (useLandscapePosters) 0.49f else 0.52f
-            val rowsViewportHeight = remember(screenHeight, rowsViewportHeightFraction) { screenHeight * rowsViewportHeightFraction }
+            val rowsViewportHeight = remember(screenHeight, rowsViewportHeightFraction) {
+                screenHeight * rowsViewportHeightFraction
+            }
             val rowTitleLineHeight = MaterialTheme.typography.titleMedium.lineHeight
             val rowTitleHeight = remember(rowTitleLineHeight, localDensity) {
                 with(localDensity) {
@@ -965,10 +968,16 @@ fun ModernHomeContent(
             val shouldPlayTrailerLambda = remember { { shouldPlayCatalogHeroTrailerUpdated } }
             val heroTrailerRenderedLambda = remember { { heroTrailerFirstFrameRenderedUpdated } }
 
-            val heroMetadataModifier = remember(rowHorizontalPadding, rowsViewportHeight) {
+            val topBarOverlayHeight = com.nuvio.tv.LocalTopBarOverlayHeight.current
+            val heroMetadataModifier = remember(rowHorizontalPadding, rowsViewportHeight, topBarOverlayHeight) {
                 Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = rowHorizontalPadding, end = 48.dp, bottom = 0.dp + rowsViewportHeight + 16.dp)
+                    .padding(
+                        start = rowHorizontalPadding,
+                        end = 48.dp,
+                        top = topBarOverlayHeight,
+                        bottom = 0.dp + rowsViewportHeight + 16.dp,
+                    )
                     .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
             }
 
@@ -1052,6 +1061,7 @@ fun ModernHomeContent(
                 onNavigateToDetail = onNavigateToDetail,
                 onNavigateToFolderDetail = onNavigateToFolderDetail,
                 onLoadMoreCatalog = onLoadMoreCatalog,
+                onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
                 onContinueWatchingClick = onContinueWatchingClick,
                 onContinueWatchingOptions = onContinueWatchingOptionsLambda,
                 onRequestLazyCatalogLoad = stableOnRequestLazyCatalogLoad,

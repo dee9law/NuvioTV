@@ -88,6 +88,7 @@ internal fun ModernHomeRowsList(
     onNavigateToDetail: (String, String, String) -> Unit,
     onNavigateToFolderDetail: (String, String) -> Unit,
     onLoadMoreCatalog: (String, String, String) -> Unit,
+    onNavigateToCatalogSeeAll: (catalogId: String, addonId: String, apiType: String) -> Unit = { _, _, _ -> },
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
     onContinueWatchingOptions: (ContinueWatchingItem) -> Unit,
     onRequestLazyCatalogLoad: (String) -> Unit,
@@ -422,7 +423,10 @@ internal fun ModernHomeRowsList(
                     row = row,
                     isActiveRow = isActiveRowLambda,
                     rowFocusRequester = rowFocusRequesters.getOrPut(row.key) { FocusRequester() },
-                    rowTitleBottom = 14.dp, // rowTitleBottom
+                    // Row title sits 8dp above its own cards so it visually
+                    // belongs to the row beneath it, not the hero above
+                    // (Task 1 spacing rule).
+                    rowTitleBottom = 8.dp,
                     defaultBringIntoViewSpec = defaultBringIntoViewSpec,
                     focusStateCatalogRowScrollIndex = focusState.catalogRowScrollStates[row.key] ?: 0,
                     focusedItemByRow = focusedItemByRow,
@@ -462,6 +466,7 @@ internal fun ModernHomeRowsList(
                     onNavigateToDetail = onNavigateToDetail,
                     onNavigateToFolderDetail = onNavigateToFolderDetail,
                     onLoadMoreCatalog = onLoadMoreCatalog,
+                    onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
                     onBackdropInteraction = onBackdropInteraction,
                     onExpandedCatalogFocusKeyChange = onExpandedCatalogFocusKeyChange,
                     isVerticalRowsScrollingState = isVerticalRowsScrollingState,

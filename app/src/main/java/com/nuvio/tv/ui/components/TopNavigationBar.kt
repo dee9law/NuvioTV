@@ -775,21 +775,21 @@ private fun ChannelTabItem(
         label = "channelScale",
     )
     val hasLogoUrl = !channel.titleLogoUrl.isNullOrBlank() && !logoLoadFailed
-    // Channel pill focus treatment mirrors the Card Focus Style enum
-    // used by content cards (so users get one consistent setting). The
-    // numbers are tuned smaller than poster cards — pills are tiny, so
-    // a 6dp shadow + 0.25 alpha colour reads as a subtle halo rather
-    // than overpowering fuzz.
+    // Channel-pill focus treatment mirrors the split content-card
+    // settings: Poster Glow toggle (shadow) is orthogonal to Card
+    // Focus Style (Accent | Bloom). Numbers are tuned smaller than
+    // poster cards — pills are tiny, so a 6-8dp shadow + 0.25 alpha
+    // reads as a subtle halo.
     val pillFocusStyle = com.nuvio.tv.LocalCardFocusStyle.current
-    val pillStyleAccent = pillFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.ACCENT
+    val pillGlowEnabled = com.nuvio.tv.LocalPosterGlowEnabled.current
+    val pillIsBloom = pillFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.BLOOM
+    val pillNeedsArtworkColor = pillGlowEnabled || pillIsBloom
     val glowColor = rememberArtworkBackedGlowColor(
         imageUrl = channel.titleLogoUrl,
         fallbackSeed = channel.id,
-        enabled = !pillStyleAccent && hasLogoUrl,
+        enabled = pillNeedsArtworkColor && hasLogoUrl,
     )
-    val pillIsBloom = pillFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.BLOOM
-    val pillIsGlow = pillFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.GLOW
-    val showPillGlow = hasLogoUrl && isFocused && (pillIsGlow || pillIsBloom)
+    val showPillGlow = hasLogoUrl && isFocused && pillGlowEnabled
     val pillShadowElevation = if (pillIsBloom) 6.dp else 8.dp
     val pillShadowColor = glowColor.copy(alpha = 0.25f)
     val pillFocusedBorderColor = if (pillIsBloom && hasLogoUrl) glowColor

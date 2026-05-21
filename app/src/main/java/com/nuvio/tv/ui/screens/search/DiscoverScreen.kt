@@ -21,8 +21,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.BackHandler
 import com.nuvio.tv.LocalContentFocusRequester
-import com.nuvio.tv.ui.navigation.TvBackToFirstThenTopNav
 import com.nuvio.tv.ui.navigation.dpadLeftToSideRail
 import com.nuvio.tv.ui.navigation.dpadUpToTopNav
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -77,16 +77,18 @@ fun DiscoverScreen(
 
     val contentEntryFocusRequester = LocalContentFocusRequester.current
 
-    TvBackToFirstThenTopNav(
-        contentHasFocus = { uiState.discoverEnabled },
-        isAtFirstItem = { discoverFocusedItemIndex == 0 },
-        requestFirstItemFocus = {
-            if (discoverFocusedItemIndex > 0) {
-                discoverFocusedItemIndex = 0
-                restoreDiscoverFocus = true
-            }
-        }
-    )
+    // Discover Back routing (Fix 2):
+    //  - If deep in the grid, Back scrolls/focus back to the first item.
+    //  - If already at the first item (or Discover disabled), DISABLE
+    //    this handler so the parent NuvioNavHost-level BackHandler
+    //    (`navController.popBackToMainScreen()`) wins — without this
+    //    short-circuit, the prior helper consumed every Back press
+    //    inside Discover and the user could never leave the screen.
+    val canScrollToFirstItem = uiState.discoverEnabled && discoverFocusedItemIndex > 0
+    BackHandler(enabled = canScrollToFirstItem) {
+        discoverFocusedItemIndex = 0
+        restoreDiscoverFocus = true
+    }
 
     Box(
         modifier = Modifier

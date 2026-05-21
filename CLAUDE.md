@@ -761,3 +761,225 @@ automatically update this `CLAUDE.md` file with:
 
 Commit the `CLAUDE.md` update as part of the final push. **Do not ask
 — just do it.**
+
+---
+
+## 📅 Session log — 2026-05-21 (Long-cycle: Modern hero polish, ARVIO trace + revert, settings reorg, Spotlight layout)
+
+### Headline
+
+Marathon day across ~12 sub-sessions. Two major outcomes:
+
+1. **Modern hero / rows layout** — went through ARVIO-inspired tunings
+   (rowsViewport 36%, offset positioning, Arrangement.Bottom, dynamic
+   TopBar inset), discovered them to be broken when stacked, and
+   surgically reverted the layout patches back to stock while keeping
+   the non-layout improvements (text shadows, description cap, 8dp
+   row-title gap, focusable titles, dynamic TopBar measurement infra).
+   Net: Modern's layout math matches HEAD; only readability/UX tweaks
+   stuck.
+2. **New SPOTLIGHT layout** — a fourth `HomeLayout` enum value. Fixed
+   full-bleed hero (reuses `HeroCarousel` with a new `heroHeight: Dp`
+   parameter, defaults preserve Classic / Grid) plus a Modern-style
+   bottom strip of rows that animates from 35% → 85% screen height
+   when the user moves focus into them. Focused row card drives the
+   hero via a single-item items list + `key()` reset and a 140ms
+   debounce.
+
+Plus a sizeable settings reorg and a Back-navigation rewrite.
+
+### Features shipped (untested on TV unless noted)
+
+**Layout system**
+- `HomeLayout.SPOTLIGHT` added. New `SpotlightHomeContent.kt`,
+  `SpotlightHomeRoute`, `SpotlightLayoutPreview` animation. The
+  Layout picker now holds 4 cards (width 180 → 156dp, gap 12 → 10dp).
+- `HeroCarousel` gained `heroHeight: Dp = 400.dp` — replaces a
+  hardcoded `.height(400.dp)`. Classic / Grid unaffected (default).
+- `CatalogRowSection` gained `compactTitle: Boolean = false`. Switches
+  the row title from `headlineMedium` to `titleMedium + SemiBold`,
+  drops the bottom padding 12dp → 8dp, and caps maxLines to 1. Used
+  by Spotlight so its strip rhythm matches Modern.
+- TopBar visibility per route: new `layoutRoutes = {Home, Movies, TV,
+  CollectionsHome}` drives `showTopNav`; entering a layout route runs
+  a `LaunchedEffect` that resets `TopBarImmersionState.visible = true`.
+  Show animation snaps; hide animation tweens 600ms.
+- Dynamic TopBar height: `TopBarImmersionState.topBarHeightDp` flow
+  set via `onGloballyPositioned` in MainActivity, exposed through
+  `LocalTopBarOverlayHeight`. Currently the **only** Modern-hero
+  consumer is one `padding(top = …)` line in `heroMetadataModifier`.
+- Modern hero text shadows (`HeroTextShadow`) baked into title,
+  description, leading meta, IMDb sub-cluster, secondary highlights
+  via pre-shadowed `scaledTitleStyle / scaledDescriptionStyle /
+  shadowedLabelMedium / semiBoldLabelMedium`. HeroCarousel descriptions
+  match via inline `.copy(shadow = HeroTextShadow)`.
+- Modern hero description + HeroCarousel description wrapped in
+  `Box(Modifier.heightIn(max = 72.dp))`.
+- Default-mode TopBar gradient softened to `0.3α @ y=0 → transparent
+  @ 67%` (~40dp vignette).
+
+**Settings hub reorg**
+- New sub-items under Appearance:
+  - **Cards** — Poster Glow + Card Focus Style + Focused-poster
+    auto-play / target / muted / expand / delay (all moved out of
+    Global).
+  - **Side Rail** — placeholder; currently hosts Show Discover toggle.
+  - **Detail Page** — extracted from the Layout scope-pill tabs.
+- Appearance ordering fixed: Feel → Layout → Rows → Top Bar → Side
+  Rail → Global → Theme → Continue Watching → Cards → Detail Page.
+- **Collections** promoted from "an entry inside the Addons screen"
+  to its own `NavAction` sub-item under Extensions with a Folder icon.
+  `HubSubItem.NavAction` now accepts an optional `icon: ImageVector?`
+  rendered as a leading 16dp icon.
+- **Reorder Home Catalogs** removed from Addons (deemed redundant).
+- **Follow addons order** migrated from a global flag to a per-scope
+  toggle under Rows settings. Flipping ON auto-populates the rows
+  list from installed addon catalogs in manifest order. Plus a new
+  **Auto-populate from addon** button visible when the toggle is OFF.
+- **Advanced** flattened — tapping the category jumps straight to the
+  Network pane (no cascade, no caret) via new
+  `HubCategory.directContentId: String?`.
+- **About** extracted as its own top-level main settings category at
+  the bottom (Info icon, `directContentId = "advanced.about"`).
+- **Card Focus Style** enum reduced from 3 entries (Accent/Glow/
+  Bloom) to 2 (Accent / Bloom). Glow is now a separate `posterGlowEnabled`
+  boolean. `LocalPosterGlowEnabled` reads the boolean directly
+  instead of deriving from the enum.
+
+**Card focus rendering**
+- `ContentCard`, `GridContentCard`, `TopNavigationBar` channel pills,
+  and Modern's `ModernCarouselCard` all now use `Modifier.shadow` for
+  glow rendering (TV M3 `Card.glow` no-ops on the user's device).
+  Shadow elevation 24dp for posters, 8/6dp for pill / bloom variants.
+
+**Navigation**
+- New `NavHostController.popBackToMainScreen()` helper walks the live
+  back stack to find the topmost Home / Movies / TV / CollectionsHome
+  entry and pops to it; fallback navigates fresh to Home.
+- Replaced 22 trivial `popBackStack()` lambdas in `NuvioNavHost.kt`
+  with `popBackToMainScreen()` plus the fallback branches of Detail /
+  Stream / Player.
+- **Discover Back** now uses an inline `BackHandler(enabled =
+  canScrollToFirstItem)` instead of `TvBackToFirstThenTopNav`. When
+  disabled, Back falls through to the navhost-level handler →
+  `popBackToMainScreen()`.
+- Row-title focus + click in Modern: titles are focusable; addon
+  rows (catalogId / addonId / apiType non-blank) navigate to
+  `Screen.CatalogSeeAll` on Select. Plumbed
+  `onNavigateToCatalogSeeAll` through `ModernHomeContent` →
+  `ModernHomeRowsList` → `ModernRowSection` and via `ModernHomeRoute`
+  in `HomeScreen`.
+
+**Modern hero / row spacing tweaks (kept after revert)**
+- `rowTitleBottom = 8.dp` (was 14dp).
+- `LazyRow contentPadding(top = 4.dp, bottom = 4.dp)` (was 16dp originally,
+  raised to 28dp for shadow clearance, dropped to 4dp because the glow
+  path is currently buggy and the gap was disproportionate).
+- `heroMetadataModifier` now adds `top = LocalTopBarOverlayHeight.current`
+  to its `padding(start, end, top, bottom)` — surgical fix for hero
+  logo overlapping TopBar pills in extreme cases.
+
+### Bugs fixed
+
+- **Back from Discover/Search/Settings/My Stuff stuck**: every screen
+  used `popBackStack()` which only pops one layer. Replaced with the
+  `popBackToMainScreen()` helper so Back always lands on a layout
+  route or fresh Home.
+- **`TvBackToFirstThenTopNav` consumed Discover Back entirely**: the
+  helper was registering an always-enabled BackHandler that just
+  focused the TopBar without popping. Replaced with a scoped
+  `BackHandler(enabled = canScrollToFirstItem)` so Back can fall
+  through to the navhost handler when there's nothing left to scroll.
+- **`heroBackdropHeight` math broken in unpinned mode**: the
+  original formula adds `+ rowTitleHeight + 14.dp` so the image
+  bleeds 38dp past the rows top edge in BottomStart-anchored mode.
+  In the brief "Pin Rows to Bottom OFF" variant that wrapped rows
+  TopStart with `padding(top = heroBlockHeight)`, the overrun became a
+  literal 38dp overlap. **Resolution: removed the unpinned variant
+  entirely** during the surgical revert; pinned BottomStart is the
+  only Modern path again.
+- **Glow rendering invisible on Modern**: ModernCarouselCard relied
+  on TV M3 `Card.glow` which the device's GPU no-ops. Added a
+  `Modifier.shadow` halo (same path Discover / My Stuff use). Required
+  bumping LazyRow `contentPadding` 16 → 28dp for clearance — *then*
+  reduced to 4dp during the title-gap fix once we concluded the glow
+  path is still buggy on this device.
+- **`CategoryPillsViewModel` cold-start race**: pre-existing — `order`
+  flow seeded with `null`; mutations early-return on null instead of
+  persisting defaults. Carried over from prior session, mentioned for
+  context.
+
+### Architectural decisions
+
+- **Reuse, don't rebuild.** First Spotlight implementation built a
+  custom hero from scratch. Rewritten to call `HeroCarousel` directly
+  with a `heroHeight` param. Same composable handles both "carousel
+  of mapped hero items" and "single focused-row-card preview" by
+  swapping the items list and using `key()` to reset internal state.
+- **Avoid premature layout abstraction.** The earlier "Pin Rows to
+  Bottom" toggle layered a second layout architecture (TopStart rows
+  with `padding(top = heroBlockHeight)`) onto a screen whose dp math
+  was tuned for one specific BottomStart anchor. The toggle was
+  removed during the surgical revert; never shipped to users.
+- **Settings hub: direct-content categories.** New `directContentId`
+  field on `HubCategory` lets Advanced / About skip the cascade and
+  render straight in the right pane. Cleaner than forcing every
+  category into the expand/sub-item shape.
+- **Per-scope DataStore keys.** "Follow addons order" + the
+  short-lived "Pin Rows" toggle both used a `scopedXxxForScope(scope)`
+  flow with the HOME scope aliasing the legacy global key for
+  backwards-compat. Pattern carried across the codebase.
+
+### New files
+
+- `app/src/main/java/com/nuvio/tv/ui/screens/home/SpotlightHomeContent.kt`
+  — Spotlight layout host (~270 lines). Hero + animated row strip.
+
+### Pending follow-ups
+
+1. **Spotlight on-device testing.** Initial focus retry was added on
+   the last cycle but never verified on the TV. Need to confirm the
+   slide-up animation, hero swap-on-row-focus, and focus chain all
+   work end-to-end.
+2. **Spotlight row cycling.** Currently the bottom strip renders the
+   full LazyColumn so multiple rows are accessible vertically via
+   spatial focus. The "Show Hero Carousel" toggle exists but doesn't
+   yet drive initial focus (V2: when toggle = ON, start on the hero;
+   when OFF, start on the first row).
+3. **Glow clearance vs title gap.** With LazyRow contentPadding at
+   4dp the title-to-cards gap is tight, but `Modifier.shadow` with
+   elevation 24dp will get clipped. Either re-tune to ~16dp (small
+   regression in gap) or migrate to a shadow path that doesn't depend
+   on parent contentPadding clearance.
+4. **Modern landscape card sizes barely change.** Compact (104) →
+   Large (140) maps to landscape height 59dp → 79dp — only a 20dp
+   visible delta. Either drop the landscape-size dropdown or add a
+   landscape multiplier to `effBaseWidth` in `ModernRowSection`.
+5. **Untested everywhere.** The hero text shadows / description cap /
+   description-Box constraint / Discover Back / Spotlight everything
+   landed on JAWWY-TV-2.0 but no on-device verification this session.
+6. **Phase 8 localization sweep** still pending from prior sessions.
+7. **23 skipped upstream commits** from 05-19 — still pending. Highest
+   value: `daf4546c` (player exit after CW), `5b2f0819` (next-episode
+   end overlay), `f8840d57` (Parental Guide), `08663af4`+`1dfa38ad`
+   (forced-subtitle scoring), DiscoverLocation 5-commit bundle.
+
+### Notes for future sessions
+
+- The Modern hero layout went through 5 iterations and 1 surgical
+  revert. The final state matches HEAD plus a single
+  `padding(top = LocalTopBarOverlayHeight.current)` on the metadata
+  modifier — every other tuning was rolled back. Resist ARVIO-style
+  rebuilds in this area without thoroughly tracing every dp value
+  (`rowsViewportHeight` / `heroBackdropHeight` / `heroBottomPadding`)
+  before committing.
+- `TopBarImmersionState.topBarHeightDp` + the `LocalTopBarOverlayHeight`
+  CompositionLocal are kept for measurement infrastructure but
+  consumed by exactly one site today. If something else needs the
+  measured height in the future, it's there.
+- `CardFocusStyle.GLOW` no longer exists — only `ACCENT` / `BLOOM`.
+  Any legacy persisted value "glow" falls back to `ACCENT` via
+  `fromStorageValue`. Poster Glow is now the separate
+  `posterGlowEnabled` boolean.
+- Single push at EOD again — 50+ files modified across the day. Bisect
+  difficulty acknowledged; spread future days into smaller pushes.
