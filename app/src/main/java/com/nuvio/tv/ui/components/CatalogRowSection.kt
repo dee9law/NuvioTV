@@ -225,7 +225,9 @@ fun CatalogRowSection(
     )) {
         // Title rhythm: Modern uses titleMedium + SemiBold + 8dp bottom;
         // Classic / Grid keep the larger headlineMedium + 12dp bottom.
-        val titleBottomPadding = if (compactTitle) 8.dp else 12.dp
+        // Tight title→cards rhythm (Prime-style): 2dp under the title
+        // regardless of the compact / headline variant.
+        val titleBottomPadding = 2.dp
         val rowTitleStyle = if (compactTitle) {
             MaterialTheme.typography.titleMedium.copy(
                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
@@ -305,14 +307,14 @@ fun CatalogRowSection(
                     }
                 )
                 .focusGroup(),
-            // Vertical contentPadding gives Modifier.shadow on focused
-            // ContentCards room to render outside the card's bounds —
-            // without it the parent LazyColumn clips the soft glow
-            // because the row's slot height matches the card height.
+            // Tight Prime-style title→cards rhythm: 0dp top so the cards
+            // sit immediately under the row title.  Bottom keeps a small
+            // glow-clearance value so focused-card shadows still render
+            // outside the card without bleeding into the next row.
             contentPadding = PaddingValues(
                 start = leftEdgeInset,
                 end = rightEdgeInset,
-                top = 16.dp,
+                top = 0.dp,
                 bottom = 16.dp,
             ),
             horizontalArrangement = Arrangement.spacedBy(16.dp)

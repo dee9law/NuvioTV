@@ -145,7 +145,8 @@ fun ContinueWatchingSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = titleStartInset, end = 48.dp, bottom = 16.dp),
+                // Tight Prime-style title→cards rhythm.
+                .padding(start = titleStartInset, end = 48.dp, bottom = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -186,12 +187,12 @@ fun ContinueWatchingSection(
                 .fillMaxWidth()
                 .focusRestorer(restoreFocusRequester)
                 .focusGroup(),
-            // Vertical contentPadding gives focused-card glow shadows
-            // breathing room outside the card's bounds.
+            // Tight Prime-style title→cards rhythm: 0dp top.  Bottom keeps
+            // glow-shadow clearance.
             contentPadding = PaddingValues(
                 start = leftEdgeInset,
                 end = rightEdgeInset,
-                top = 16.dp,
+                top = 0.dp,
                 bottom = 16.dp,
             ),
             horizontalArrangement = Arrangement.spacedBy(16.dp),

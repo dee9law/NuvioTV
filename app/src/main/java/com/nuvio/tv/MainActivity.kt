@@ -1288,11 +1288,8 @@ private fun navigateToTopNavRoute(
 ) {
     // Always reconcile against the navController's REAL current destination
     // rather than the [currentRoute] parameter — that parameter can carry a
-    // stale `optimisticRoute` value from a previous tap, which made the
-    // first tap on Movies / TV silently early-return ("nothing rendered until
-    // the second tap"). `launchSingleTop = true` below already prevents
-    // duplicate stack entries when we ARE already on the target, so the only
-    // case we need to special-case is "tap Home while on Home → scroll to top".
+    // stale `optimisticRoute` value from a previous tap.  Only Home gets
+    // tap-to-scroll-to-top; other tabs no-op on same-tab repeat tap.
     val realRoute = navController.currentDestination?.route
     if (realRoute == targetRoute) {
         if (targetRoute == Screen.Home.route) {
@@ -1304,12 +1301,20 @@ private fun navigateToTopNavRoute(
         }
         return
     }
+    // The bottom-nav `saveState`/`restoreState` pair was silently no-op'ing
+    // the FIRST Home→Movies tap: with `launchSingleTop=true` + `restoreState=
+    // true`, the navigator consults the saved-state map for the target and
+    // short-circuits before the back stack actually changes when the target
+    // has no saved state yet AND we're navigating away from the graph's
+    // start destination.  TV Shows worked because its branch was warmed up
+    // (or it intermittently lost the race differently).  Strip both
+    // saveState/restoreState — `popUpTo(start) + launchSingleTop` is enough
+    // to keep the back stack a single layer deep without state-restoration
+    // ambiguity.  Per-screen scroll/focus state is rebuilt on tab switch
+    // (acceptable vs. the silent-no-op bug).
     navController.navigate(targetRoute) {
-        popUpTo(navController.graph.startDestinationId) {
-            saveState = true
-        }
+        popUpTo(navController.graph.startDestinationId)
         launchSingleTop = true
-        restoreState = true
     }
 }
 

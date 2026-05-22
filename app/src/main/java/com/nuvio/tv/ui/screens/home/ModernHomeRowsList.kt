@@ -426,7 +426,7 @@ internal fun ModernHomeRowsList(
                     // Row title sits 8dp above its own cards so it visually
                     // belongs to the row beneath it, not the hero above
                     // (Task 1 spacing rule).
-                    rowTitleBottom = 8.dp,
+                    rowTitleBottom = 2.dp,
                     defaultBringIntoViewSpec = defaultBringIntoViewSpec,
                     focusStateCatalogRowScrollIndex = focusState.catalogRowScrollStates[row.key] ?: 0,
                     focusedItemByRow = focusedItemByRow,

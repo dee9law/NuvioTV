@@ -162,6 +162,15 @@ internal fun BaseHomeViewModel.observeInstalledAddonsPipeline() {
 @OptIn(FlowPreview::class)
 internal fun BaseHomeViewModel.observeConfiguredHomeRowsForScopePipeline() {
     viewModelScope.launch {
+        // No blanket COLLECTION filter here.  Per-scope visibility is already
+        // enforced upstream by `LayoutPreferenceDataStore.rowsForScope`, which
+        // returns only rows whose `viewContext == scope`.  And the two writers
+        // that auto-create rows (`autoPopulateFromAddons` and `followAddons
+        // Order`'s populator in `NewLayoutSettingsViewModel`) only insert
+        // ADDON-kind rows — they never bulk-insert Collections into MOVIES /
+        // TV scopes.  So any Collection row reaching the TV / Movies pipeline
+        // here was explicitly added by the user via "+ Add Row" while that
+        // scope was active, and should be honored.
         combine(
             addonRepository.getInstalledAddons().distinctUntilChanged(),
             layoutPreferenceDataStore.rowsForScope(homeScope).distinctUntilChanged(),

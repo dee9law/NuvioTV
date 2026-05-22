@@ -831,15 +831,13 @@ internal fun ModernRowSection(
                             true
                         } else false
                     },
-                // Vertical contentPadding tightened to 4dp — the prior
-                // 28dp was glow-shadow clearance, but the glow path is
-                // currently buggy. 4dp keeps a tiny breathing room
-                // between the row title and the cards without leaving a
-                // ~36dp gap (title bottom = 8dp + LazyRow top = 28dp).
+                // Tight Prime-style rhythm: 0dp top so cards sit right
+                // under the row title.  Bottom kept at 4dp for minimal
+                // breathing room before the next row's title.
                 contentPadding = PaddingValues(
                     start = rowStartPadding,
                     end = rowStartPadding,
-                    top = 4.dp,
+                    top = 0.dp,
                     bottom = 4.dp,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
