@@ -170,7 +170,7 @@ fun HeroCarousel(
             label = "heroSlide"
         ) { index ->
             val item = items.getOrNull(index) ?: return@Crossfade
-            HeroCarouselSlide(item = item)
+            HeroCarouselSlide(item = item, heroHeight = heroHeight)
         }
 
         // Indicator dots — optimized to minimize recompositions and layout passes
@@ -213,7 +213,8 @@ fun HeroCarousel(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun HeroCarouselSlide(
-    item: MetaPreview
+    item: MetaPreview,
+    heroHeight: Dp = 400.dp,
 ) {
     val highlighterEnabled = LocalRecompositionHighlighterEnabled.current
     val context = LocalContext.current
@@ -303,15 +304,13 @@ private fun HeroCarouselSlide(
                 }
         )
 
-        // Content overlay — Modern feel uses 16dp leading inset matching
-        // the rest of the home screen's edge buffer. Legacy keeps the
-        // historical 48dp clearance.
+        val metadataBottomPadding = (heroHeight.value * 0.12f).dp.coerceIn(16.dp, 48.dp)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(
                     start = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 48.dp,
-                    bottom = 48.dp,
+                    bottom = metadataBottomPadding,
                     end = 48.dp,
                 )
                 .fillMaxWidth(0.5f)
@@ -409,12 +408,12 @@ private fun HeroCarouselSlide(
                 // pushing the hero meta up into the TopBar zone. Safe
                 // constraint (kept from the prior session — purely a
                 // ceiling, no effect when descriptions are short).
-                Box(modifier = Modifier.heightIn(max = 72.dp)) {
+                Box(modifier = Modifier.heightIn(max = 56.dp)) {
                     Text(
                         text = desc,
-                        style = MaterialTheme.typography.bodyMedium.copy(shadow = HeroTextShadow),
+                        style = MaterialTheme.typography.bodySmall.copy(shadow = HeroTextShadow),
                         color = Color.White.copy(alpha = 0.7f),
-                        maxLines = 4,
+                        maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
                 }

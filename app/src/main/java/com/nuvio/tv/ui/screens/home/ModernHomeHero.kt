@@ -329,10 +329,8 @@ internal fun HeroTitleBlock(
     val displayPreview = if (!isEnriching && currentPreview != null) currentPreview else stablePreview
     if (displayPreview == null) return
 
-    // TopBar clearance is now reserved by the caller via a wrapper Box
-    // (`padding(top = LocalTopBarOverlayHeight)` in ModernHomeContent),
-    // so HeroTitleBlock just needs to be BottomStart-aligned within
-    // that constrained area. No internal padding/fillMaxHeight tricks.
+    // BottomStart-aligned within the caller's constrained area.
+    // TopBar fades out when focus moves to rows, so no clearance needed.
     Box(
         modifier = modifier,
         contentAlignment = Alignment.BottomStart
@@ -353,7 +351,7 @@ private fun HeroTitleContent(
 ) {
     val preview = previewProvider() ?: return
     val highlighterEnabled = LocalRecompositionHighlighterEnabled.current
-    val descriptionMaxLines = 4
+    val descriptionMaxLines = 3
     val descriptionScale = if (portraitMode) 0.90f else 1f
     val titleScale = if (portraitMode) 0.92f else 1f
     val metaScale = 1f
@@ -364,7 +362,7 @@ private fun HeroTitleContent(
     val density = LocalDensity.current
     val headlineLarge = MaterialTheme.typography.headlineLarge
     val labelMedium = MaterialTheme.typography.labelMedium
-    val bodyMedium = MaterialTheme.typography.bodyMedium
+    val bodySmall = MaterialTheme.typography.bodySmall
     val logoMaxWidthPx = remember(density) { with(density) { 220.dp.roundToPx() } }
     val logoHeightPx = remember(density) { with(density) { 100.dp.roundToPx() } }
 
@@ -396,10 +394,10 @@ private fun HeroTitleContent(
             shadow = HeroTextShadow,
         )
     }
-    val scaledDescriptionStyle = remember(bodyMedium, descriptionScale) {
-        bodyMedium.copy(
-            fontSize = bodyMedium.fontSize * descriptionScale,
-            lineHeight = bodyMedium.lineHeight * descriptionScale,
+    val scaledDescriptionStyle = remember(bodySmall, descriptionScale) {
+        bodySmall.copy(
+            fontSize = bodySmall.fontSize * descriptionScale,
+            lineHeight = bodySmall.lineHeight * descriptionScale,
             shadow = HeroTextShadow,
         )
     }
@@ -640,7 +638,7 @@ private fun HeroTitleContent(
             // logo / metadata up into the TopBar (Task 1d).
             Box(
                 modifier = Modifier
-                    .heightIn(max = 72.dp)
+                    .heightIn(max = 56.dp)
                     .graphicsLayer { alpha = metaAlpha }
             ) {
                 Text(

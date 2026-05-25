@@ -266,12 +266,13 @@ internal fun BaseHomeViewModel.applyConfiguredHomeRows(
                 val key = "collection_$collectionId"
                 if (allowed.add(key)) orderedKeys.add(key)
             }
+            LayoutRowKind.CONTINUE_WATCHING -> {
+                val key = "continue_watching"
+                if (allowed.add(key)) orderedKeys.add(key)
+            }
             LayoutRowKind.TRAKT,
             LayoutRowKind.TMDB_DISCOVER,
             LayoutRowKind.TMDB_NETWORK -> {
-                // Persisted by the new "+ TMDB Source" / "+ Trakt List"
-                // pickers; runtime rendering for these kinds lives in a
-                // separate pipeline change.
             }
         }
     }
@@ -867,6 +868,10 @@ internal suspend fun BaseHomeViewModel.updateCatalogRowsPipeline() {
         // }
         for (key in orderedKeys) {
             if (key in disabledHomeCatalogKeys) continue
+            if (key == "continue_watching") {
+                add(HomeRow.ContinueWatching)
+                continue
+            }
             val collectionEntry = collectionsSnapshot[key]
             if (collectionEntry != null) {
                 // Always render: in rows-only mode the user's explicit row
@@ -988,9 +993,8 @@ internal suspend fun BaseHomeViewModel.updateCatalogRowsPipeline() {
                             ))
                         }
                     }
-                    is HomeRow.PlaceholderCatalog -> {
-                        // Grid layout: skip placeholders (grid loads all at once)
-                    }
+                    is HomeRow.ContinueWatching -> { }
+                    is HomeRow.PlaceholderCatalog -> { }
                 }
             }
         }.let { replaceGridHeroItemsPipeline(it, baseHeroItems) }

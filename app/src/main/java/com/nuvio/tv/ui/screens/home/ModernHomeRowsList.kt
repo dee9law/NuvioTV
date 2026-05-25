@@ -307,8 +307,8 @@ internal fun ModernHomeRowsList(
                 .fillMaxWidth()
                 .recompositionHighlighter()
                 .height(rowsViewportHeight)
-                .padding(bottom = catalogBottomPadding)
                 .clipToBounds()
+                .padding(bottom = catalogBottomPadding)
                 .graphicsLayer { alpha = trailerContentAlpha() }
                 .focusRequester(contentFocusRequester)
                 .onFocusChanged { onContentFocusChanged(it.hasFocus) }

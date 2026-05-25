@@ -10,8 +10,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,7 +35,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Border
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Card
+import androidx.tv.material3.Icon
+import androidx.tv.material3.IconButton
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Switch
@@ -155,6 +165,44 @@ class GlobalSettingsViewModel @Inject constructor(
     fun setSearchDiscoverEnabled(enabled: Boolean) = viewModelScope.launch {
         prefs.setSearchDiscoverEnabled(enabled)
     }
+    val sideRailSearchVisible = prefs.sideRailSearchVisible
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+    val sideRailDiscoverVisible = prefs.sideRailDiscoverVisible
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+    val sideRailMyStuffVisible = prefs.sideRailMyStuffVisible
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+    val sideRailPillChannelsVisible = prefs.sideRailPillChannelsVisible
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+    val sideRailSettingsVisible = prefs.sideRailSettingsVisible
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+    fun setSideRailItemVisible(id: String, visible: Boolean) = viewModelScope.launch {
+        prefs.setSideRailItemVisible(id, visible)
+    }
+    val sideRailOrder = prefs.sideRailOrder
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000),
+            com.nuvio.tv.data.local.LayoutPreferenceDataStore.DEFAULT_SIDE_RAIL_ORDER)
+    val sideRailDisplayModes = prefs.sideRailDisplayModes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    fun moveSideRailItem(id: String, direction: Int) = viewModelScope.launch {
+        val current = sideRailOrder.value.toMutableList()
+        val idx = current.indexOf(id)
+        if (idx < 0) return@launch
+        val target = (idx + direction).coerceIn(0, current.lastIndex)
+        if (target == idx) return@launch
+        current.removeAt(idx)
+        current.add(target, id)
+        prefs.setSideRailOrder(current)
+    }
+    fun cycleSideRailDisplayMode(id: String) = viewModelScope.launch {
+        val modes = sideRailDisplayModes.value
+        val current = modes[id] ?: "icon_and_text"
+        val next = when (current) {
+            "icon_and_text" -> "icon_only"
+            "icon_only" -> "text_only"
+            else -> "icon_and_text"
+        }
+        prefs.setSideRailDisplayMode(id, next)
+    }
     fun setPosterGlowEnabled(enabled: Boolean) = viewModelScope.launch {
         prefs.setPosterGlowEnabled(enabled)
     }
@@ -266,28 +314,145 @@ fun GlobalSettingsContent(viewModel: GlobalSettingsViewModel = hiltViewModel()) 
 
 @Composable
 fun SideRailSettingsContent(viewModel: GlobalSettingsViewModel = hiltViewModel()) {
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val searchVisible by viewModel.sideRailSearchVisible.collectAsStateWithLifecycle()
+    val discoverVisible by viewModel.sideRailDiscoverVisible.collectAsStateWithLifecycle()
+    val myStuffVisible by viewModel.sideRailMyStuffVisible.collectAsStateWithLifecycle()
+    val pillChannelsVisible by viewModel.sideRailPillChannelsVisible.collectAsStateWithLifecycle()
+    val settingsVisible by viewModel.sideRailSettingsVisible.collectAsStateWithLifecycle()
+    val order by viewModel.sideRailOrder.collectAsStateWithLifecycle()
+    val displayModes by viewModel.sideRailDisplayModes.collectAsStateWithLifecycle()
+
+    val labels = mapOf(
+        "profile" to "Profile", "search" to "Search", "home" to "Home",
+        "discover" to "Discover", "my_stuff" to "My Stuff",
+        "pill_channels" to "Pill Channels", "settings" to "Settings",
+    )
+    val visibilityMap = mapOf(
+        "search" to searchVisible, "discover" to discoverVisible,
+        "my_stuff" to myStuffVisible, "pill_channels" to pillChannelsVisible,
+        "settings" to settingsVisible,
+    )
+    val canToggle = setOf("search", "discover", "my_stuff", "pill_channels")
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "siderail_header") {
             SettingsDetailHeader(
                 title = "Side Rail",
-                subtitle = "Legacy-feel left rail navigation entries. More controls coming soon.",
+                subtitle = "Reorder items, change display mode, or hide them from the Legacy side rail.",
             )
         }
-        item(key = "siderail_show_discover") {
-            GlobalSection(title = "Entries") {
-                GlobalToggleRow(
-                    title = "Show Discover",
-                    subtitle = "Surface the Discover entry in the side rail / overlay.",
-                    checked = state.searchDiscoverEnabled,
-                    onCheckedChange = viewModel::setSearchDiscoverEnabled,
-                )
+        items(order.size, key = { order[it] }) { index ->
+            val id = order[index]
+            val label = labels[id] ?: id
+            val visible = visibilityMap[id] ?: true
+            val toggleable = id in canToggle
+            val mode = displayModes[id] ?: "icon_and_text"
+            val modeLabel = when (mode) {
+                "icon_only" -> "Icon"
+                "text_only" -> "Text"
+                else -> "Icon + Text"
             }
+            SideRailItemRow(
+                label = label,
+                displayModeLabel = modeLabel,
+                visible = visible,
+                canToggle = toggleable,
+                canMoveUp = index > 0,
+                canMoveDown = index < order.lastIndex,
+                onMoveUp = { viewModel.moveSideRailItem(id, -1) },
+                onMoveDown = { viewModel.moveSideRailItem(id, 1) },
+                onCycleDisplayMode = { viewModel.cycleSideRailDisplayMode(id) },
+                onToggleVisible = if (toggleable) {
+                    { checked -> viewModel.setSideRailItemVisible(id, checked) }
+                } else null,
+            )
         }
+    }
+}
+
+@Composable
+private fun SideRailItemRow(
+    label: String,
+    displayModeLabel: String,
+    visible: Boolean,
+    canToggle: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onCycleDisplayMode: () -> Unit,
+    onToggleVisible: ((Boolean) -> Unit)?,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleSmall,
+            color = NuvioColors.TextPrimary,
+            modifier = Modifier.weight(1f),
+        )
+        SmallIconButton(
+            icon = Icons.Default.ArrowUpward,
+            contentDescription = "Move up",
+            enabled = canMoveUp,
+            onClick = onMoveUp,
+        )
+        SmallIconButton(
+            icon = Icons.Default.ArrowDownward,
+            contentDescription = "Move down",
+            enabled = canMoveDown,
+            onClick = onMoveDown,
+        )
+        Button(
+            onClick = onCycleDisplayMode,
+            modifier = Modifier.height(32.dp),
+            shape = ButtonDefaults.shape(shape = RoundedCornerShape(16.dp)),
+            contentPadding = PaddingValues(horizontal = 10.dp),
+            colors = ButtonDefaults.colors(
+                containerColor = NuvioColors.BackgroundCard,
+                contentColor = NuvioColors.TextSecondary,
+                focusedContainerColor = NuvioColors.FocusBackground,
+                focusedContentColor = NuvioColors.TextPrimary,
+            ),
+        ) {
+            Text(text = displayModeLabel, style = MaterialTheme.typography.labelSmall)
+        }
+        if (onToggleVisible != null) {
+            Switch(
+                checked = visible,
+                onCheckedChange = onToggleVisible,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SmallIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(32.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (enabled) NuvioColors.TextSecondary else NuvioColors.TextSecondary.copy(alpha = 0.3f),
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 

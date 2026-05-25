@@ -36,6 +36,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalView
@@ -881,7 +882,11 @@ fun ModernHomeContent(
             }
 
             val localDensity = LocalDensity.current
-            val rowsViewportHeightFraction = if (useLandscapePosters) 0.49f else 0.52f
+            // Named in ModernHomeModels.kt — see doc there for why this is
+            // a design fraction rather than a card-size-derived value.
+            val rowsViewportHeightFraction =
+                if (useLandscapePosters) MODERN_LANDSCAPE_ROWS_FRACTION
+                else MODERN_PORTRAIT_ROWS_FRACTION
             val rowsViewportHeight = remember(screenHeight, rowsViewportHeightFraction) {
                 screenHeight * rowsViewportHeightFraction
             }
@@ -892,6 +897,11 @@ fun ModernHomeContent(
                         .getOrDefault(24.dp)
                 }
             }
+            // Intentional overlap (rowTitleHeight + 14dp): the hero backdrop
+            // extends ~38dp into the rows strip so the first row's title
+            // fades onto the hero rather than butting up against it. This
+            // is the immersion seam — removing it leaves a visible step
+            // between hero and rows.
             val heroBackdropHeight = remember(screenHeight, rowsViewportHeight, rowTitleHeight) { (screenHeight - rowsViewportHeight + rowTitleHeight + 14.dp).coerceAtMost(screenHeight) }
             val verticalRowBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec) {
                 val topInsetPx = with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
@@ -930,6 +940,10 @@ fun ModernHomeContent(
                 if (fullScreenBackdrop) {
                     Modifier.align(Alignment.TopStart).fillMaxWidth().height(screenHeight)
                 } else {
+                    // 56dp right-bleed pushes the hero media slightly past the
+                    // screen edge so the gradient fade-off lands off-screen
+                    // instead of inside the visible area. Deliberate Apple-TV
+                    // style bleed; not a layout hack.
                     Modifier.align(Alignment.TopEnd).offset(x = 56.dp).fillMaxWidth(MODERN_HERO_MEDIA_WIDTH_FRACTION).height(heroBackdropHeight)
                 }
             }
@@ -968,14 +982,12 @@ fun ModernHomeContent(
             val shouldPlayTrailerLambda = remember { { shouldPlayCatalogHeroTrailerUpdated } }
             val heroTrailerRenderedLambda = remember { { heroTrailerFirstFrameRenderedUpdated } }
 
-            val topBarOverlayHeight = com.nuvio.tv.LocalTopBarOverlayHeight.current
-            val heroMetadataModifier = remember(rowHorizontalPadding, rowsViewportHeight, topBarOverlayHeight) {
+            val heroMetadataModifier = remember(rowHorizontalPadding, rowsViewportHeight) {
                 Modifier
                     .align(Alignment.BottomStart)
                     .padding(
                         start = rowHorizontalPadding,
                         end = 48.dp,
-                        top = topBarOverlayHeight,
                         bottom = 0.dp + rowsViewportHeight + 16.dp,
                     )
                     .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
@@ -1111,7 +1123,7 @@ fun ModernHomeContent(
                 onExpansionInteractionNonceChange = onExpansionInteractionNonceChangeLambda,
                 onContentFocusChanged = onContentFocusChangedLambda,
                 isVerticalRowsScrollingState = isVerticalRowsScrollingState,
-                modifier = Modifier.align(Alignment.BottomStart)
+                modifier = Modifier.align(Alignment.BottomStart).clipToBounds()
             )
     }
 

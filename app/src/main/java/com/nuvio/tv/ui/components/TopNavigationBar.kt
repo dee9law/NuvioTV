@@ -223,6 +223,15 @@ fun TopNavigationBar(
             if (isModernFeel) avatarFr.requestFocus() else firstCategoryFr.requestFocus()
         }
     }
+    val wrapToFirstChannel: () -> Unit = {
+        if (channels.isNotEmpty()) {
+            wrapScope.launch {
+                listState.scrollToItem(0)
+                withFrameNanos { }
+                runCatching { channelFr(0).requestFocus() }
+            }
+        }
+    }
     // ── Carousel takeover (Task B1/B2) ──────────────────────────────────────
     // When focus is inside the channel-pill LazyRow, slide the Main Section
     // (avatar + category pills + divider) off-screen and let the carousel
@@ -300,7 +309,7 @@ fun TopNavigationBar(
                 // Avatar is leftmost — D-pad Left wraps to the last channel
                 // pill (scroll-into-view first since LazyRow may have it
                 // offscreen).
-                onWrapLeft = if (channels.isNotEmpty()) wrapToLastChannel else null,
+                onWrapLeft = null,
             )
             Spacer(Modifier.width(12.dp))
         }
@@ -385,12 +394,8 @@ fun TopNavigationBar(
                                 else -> false
                             }
                         } else null,
-                        // Loop wrap: first category's D-pad Left goes to the
-                        // last channel pill (Legacy & Modern share this — for
-                        // Modern the avatar sits before the categories so the
-                        // wrap point shifts to the avatar's Left key handler).
-                        onWrapLeft = if (isFirstCategory && !isModernFeel && channels.isNotEmpty()) {
-                            wrapToLastChannel
+                        onWrapLeft = if (isFirstCategory && isModernFeel) {
+                            { runCatching { avatarFr.requestFocus() } }
                         } else null,
                     )
                 }
@@ -476,6 +481,7 @@ fun TopNavigationBar(
                 ) { index, channel ->
                     val isActiveChannel = index == selectedChannelIndex
                     val isLastChannel = index == channels.lastIndex
+                    val isFirstChannel = index == 0
                     ChannelTabItem(
                         channel = channel,
                         displayMode = channelDisplayMode,
@@ -484,10 +490,8 @@ fun TopNavigationBar(
                         secondaryFocusRequester = if (isActiveChannel) firstTabFocusRequester else null,
                         onFocused = { lastFocusedChannel = index },
                         onClick = { onChannelSelected(index) },
-                        // Loop wrap: last channel pill's D-pad Right loops back
-                        // to the leftmost bar item (avatar in Modern, first
-                        // category in Legacy).
-                        onWrapRight = if (isLastChannel) wrapToLeftmostBarItem else null,
+                        onWrapRight = if (isLastChannel) wrapToFirstChannel else null,
+                        onWrapLeft = if (isFirstChannel) wrapToLastChannel else null,
                     )
                 }
             }
@@ -741,6 +745,8 @@ private fun ChannelTabItem(
     secondaryFocusRequester: FocusRequester? = null,
     /** Loop-wrap handler for D-pad Right when this is the last channel. */
     onWrapRight: (() -> Unit)? = null,
+    /** Loop-wrap handler for D-pad Left when this is the first channel. */
+    onWrapLeft: (() -> Unit)? = null,
     /**
      * Per-channel display mode driven by the CHANNELS pill's setting in
      * TopBar settings. ICON_AND_TEXT shows logo + caption (default);
@@ -820,6 +826,14 @@ private fun ChannelTabItem(
                 if (onWrapRight != null) Modifier.onPreviewKeyEvent { event ->
                     if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
                         onWrapRight()
+                        true
+                    } else false
+                } else Modifier
+            )
+            .then(
+                if (onWrapLeft != null) Modifier.onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                        onWrapLeft()
                         true
                     } else false
                 } else Modifier

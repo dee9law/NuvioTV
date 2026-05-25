@@ -135,6 +135,9 @@ sealed class HomeRow {
     @Immutable
     data class CollectionRow(val collection: Collection) : HomeRow()
 
+    @Immutable
+    data object ContinueWatching : HomeRow()
+
     /**
      * Placeholder for a catalog row whose data hasn't been fetched yet.
      * Rendered as a shimmer/skeleton row until the user scrolls near it

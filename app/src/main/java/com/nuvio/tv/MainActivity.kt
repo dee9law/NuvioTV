@@ -169,6 +169,7 @@ private data class MainUiPrefs(
     val fastHorizontalNavigationEnabled: Boolean = false,
     val composeHighlighterEnabled: Boolean = false,
     val navigationFeel: Feel = Feel.MODERN,
+    val topBarEnabled: Boolean = true,
     val modernTopBarEnabled: Boolean = false,
     val posterGlowEnabled: Boolean = true,
     val cardFocusStyle: com.nuvio.tv.domain.model.CardFocusStyle =
@@ -342,6 +343,8 @@ class MainActivity : ComponentActivity() {
                     prefs.copy(composeHighlighterEnabled = composeHighlighterEnabled)
                 }.combine(layoutPreferenceDataStore.navigationFeel) { prefs, feel ->
                     prefs.copy(navigationFeel = feel)
+                }.combine(layoutPreferenceDataStore.topBarEnabled) { prefs, topBar ->
+                    prefs.copy(topBarEnabled = topBar)
                 }.combine(layoutPreferenceDataStore.modernTopBarEnabled) { prefs, modernTopBar ->
                     prefs.copy(modernTopBarEnabled = modernTopBar)
                 }.combine(layoutPreferenceDataStore.posterGlowEnabled) { prefs, posterGlow ->
@@ -533,6 +536,14 @@ class MainActivity : ComponentActivity() {
 
                     val showDiscoverInRail by layoutPreferenceDataStore.searchDiscoverEnabled
                         .collectAsState(initial = true)
+                    val sideRailSearchVisible by layoutPreferenceDataStore.sideRailSearchVisible
+                        .collectAsState(initial = true)
+                    val sideRailMyStuffVisible by layoutPreferenceDataStore.sideRailMyStuffVisible
+                        .collectAsState(initial = true)
+                    val sideRailPillChannelsVisible by layoutPreferenceDataStore.sideRailPillChannelsVisible
+                        .collectAsState(initial = true)
+                    val sideRailSettingsVisible by layoutPreferenceDataStore.sideRailSettingsVisible
+                        .collectAsState(initial = true)
                     TopNavBarScaffold(
                         navController = navController,
                         startDestination = startDestination,
@@ -547,7 +558,12 @@ class MainActivity : ComponentActivity() {
                         profileColorHex = activeProfile?.avatarColorHex,
                         profileAvatarUrl = activeProfileAvatarImageUrl,
                         showDiscoverInRail = showDiscoverInRail,
+                        sideRailSearchVisible = sideRailSearchVisible,
+                        sideRailMyStuffVisible = sideRailMyStuffVisible,
+                        sideRailPillChannelsVisible = sideRailPillChannelsVisible,
+                        sideRailSettingsVisible = sideRailSettingsVisible,
                         navigationFeel = mainUiPrefs.navigationFeel,
+                        topBarEnabled = mainUiPrefs.topBarEnabled,
                         modernTopBarEnabled = mainUiPrefs.modernTopBarEnabled,
                     )
 
@@ -616,14 +632,15 @@ private fun TopNavBarScaffold(
     profileColorHex: String?,
     profileAvatarUrl: String?,
     showDiscoverInRail: Boolean,
+    sideRailSearchVisible: Boolean,
+    sideRailMyStuffVisible: Boolean,
+    sideRailPillChannelsVisible: Boolean,
+    sideRailSettingsVisible: Boolean,
     navigationFeel: Feel,
+    topBarEnabled: Boolean,
     modernTopBarEnabled: Boolean,
 ) {
     val isModernFeel = navigationFeel == Feel.MODERN
-    // TopBar (and Legacy SideRail) is only meaningful on "layout"
-    // screens — the ones that render a hero + rows. Dedicated screens
-    // (Settings, Search, Discover, My Stuff, ManageProfiles, Detail,
-    // Stream, Player) have their own chrome and shouldn't double up.
     val layoutRoutes = remember {
         setOf(
             Screen.Home.route,
@@ -632,7 +649,7 @@ private fun TopNavBarScaffold(
             Screen.CollectionsHome.route,
         )
     }
-    val showTopNav = currentRoute in layoutRoutes
+    val showTopNav = (isModernFeel || topBarEnabled) && currentRoute in layoutRoutes
 
     // Whenever the user lands on a layout route, force the immersion
     // state back to visible so the TopBar reappears immediately (no
@@ -863,14 +880,10 @@ private fun TopNavBarScaffold(
             // into rows feels smooth.
             val topBarAlpha by androidx.compose.animation.core.animateFloatAsState(
                 targetValue = if (topBarVisible) 1f else 0f,
-                animationSpec = if (topBarVisible) {
-                    androidx.compose.animation.core.snap()
-                } else {
-                    androidx.compose.animation.core.tween(
-                        durationMillis = 600,
-                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
-                    )
-                },
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = if (topBarVisible) 300 else 400,
+                    easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                ),
                 label = "topBarImmersionAlpha",
             )
             if (showTopNav) {
@@ -1136,6 +1149,10 @@ private fun TopNavBarScaffold(
                     profileColorHex = profileColorHex,
                     profileAvatarUrl = profileAvatarUrl,
                     showDiscover = showDiscoverInRail,
+                    showSearch = sideRailSearchVisible,
+                    showMyStuff = sideRailMyStuffVisible,
+                    showPillChannels = sideRailPillChannelsVisible,
+                    showSettings = sideRailSettingsVisible,
                     firstItemFocusRequester = sideRailFr,
                     activeItem = activeSideRailItem,
                     modifier = Modifier.align(Alignment.CenterStart),

@@ -88,6 +88,7 @@ fun TopBarSettingsContent(
 ) {
     val orderState by viewModel.order.collectAsStateWithLifecycle()
     val fullOrder = orderState.orEmpty()
+    val topBarEnabled by feelViewModel.topBarEnabled.collectAsStateWithLifecycle()
     val modernTopBarEnabled by feelViewModel.modernTopBarEnabled.collectAsStateWithLifecycle()
     // Legacy hides the four overlay surfaces — they have no presence on
     // the Legacy TopBar so configuring them here would be meaningless.
@@ -110,11 +111,17 @@ fun TopBarSettingsContent(
                 },
             )
         }
+        if (feel == Feel.LEGACY) {
+            item(key = "top_bar_enabled_toggle") {
+                AccentToggleRow(
+                    title = "Show Top Bar",
+                    subtitle = "Hide the top bar — use the Side Rail for navigation instead",
+                    checked = topBarEnabled,
+                    onCheckedChange = { feelViewModel.setTopBarEnabled(it) },
+                )
+            }
+        }
         item(key = "modern_top_bar_toggle") {
-            // Glassmorphism opt-in. Anchored at the top of the list so it's
-            // the first thing the user lands on when entering Top Bar
-            // settings — flipping this changes how every other TopBar
-            // setting visually presents.
             AccentToggleRow(
                 title = "Modern Top Bar",
                 subtitle = "Glassmorphism top bar with hero bleed-through",

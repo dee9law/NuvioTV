@@ -238,6 +238,7 @@ fun CatalogRowSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(if (compactTitle) 28.dp else 36.dp)
                 .padding(start = titleStartInset, end = 48.dp, bottom = titleBottomPadding),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically

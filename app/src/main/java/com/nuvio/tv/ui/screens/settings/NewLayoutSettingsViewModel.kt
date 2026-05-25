@@ -35,6 +35,7 @@ data class CatalogSourceOption(
     val kind: LayoutRowKind,
     val name: String,
     val groupLabel: String,
+    val apiType: String? = null,
 )
 
 /**
@@ -141,6 +142,7 @@ class NewLayoutSettingsViewModel @Inject constructor(
                         kind = LayoutRowKind.ADDON,
                         name = catalog.name,
                         groupLabel = addon.displayName,
+                        apiType = catalog.apiType,
                     )
                 }
         }
@@ -380,7 +382,20 @@ class NewLayoutSettingsViewModel @Inject constructor(
         )
     }
 
+    fun addContinueWatchingRow() {
+        val id = LayoutRowKey.forContinueWatching()
+        addRow(
+            LayoutRowConfig(
+                id = id,
+                kind = LayoutRowKind.CONTINUE_WATCHING,
+                name = "Continue Watching",
+            )
+        )
+    }
+
     fun removeRow(rowId: String) = mutateRows { it.filterNot { row -> row.id == rowId } }
+
+    fun clearAllRows() = mutateRows { emptyList() }
 
     fun moveRow(rowId: String, direction: Int) = mutateRows { rows ->
         val idx = rows.indexOfFirst { it.id == rowId }

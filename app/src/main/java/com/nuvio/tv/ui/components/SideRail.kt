@@ -117,6 +117,10 @@ fun SideRail(
     profileColorHex: String?,
     profileAvatarUrl: String?,
     showDiscover: Boolean = true,
+    showSearch: Boolean = true,
+    showMyStuff: Boolean = true,
+    showPillChannels: Boolean = true,
+    showSettings: Boolean = true,
     onProfileClick: () -> Unit = {},
     onPillChannelsClick: () -> Unit = {},
     firstItemFocusRequester: FocusRequester? = null,
@@ -228,15 +232,17 @@ fun SideRail(
                 focusRequester = requesterFor(SideRailItem.Profile),
             )
             Spacer(modifier = Modifier.size(SectionGap))
-            RailItem(
-                icon = Icons.Default.Search,
-                label = "Search",
-                expanded = hasFocus,
-                labelAlpha = labelAlpha,
-                isActive = activeItem == SideRailItem.Search,
-                onClick = onSearchClick,
-                focusRequester = requesterFor(SideRailItem.Search),
-            )
+            if (showSearch) {
+                RailItem(
+                    icon = Icons.Default.Search,
+                    label = "Search",
+                    expanded = hasFocus,
+                    labelAlpha = labelAlpha,
+                    isActive = activeItem == SideRailItem.Search,
+                    onClick = onSearchClick,
+                    focusRequester = requesterFor(SideRailItem.Search),
+                )
+            }
             RailItem(
                 icon = Icons.Default.Home,
                 label = "Home",
@@ -257,33 +263,39 @@ fun SideRail(
                     focusRequester = requesterFor(SideRailItem.Discover),
                 )
             }
-            RailItem(
-                icon = Icons.Default.Bookmark,
-                label = "My Stuff",
-                expanded = hasFocus,
-                labelAlpha = labelAlpha,
-                isActive = activeItem == SideRailItem.MyStuff,
-                onClick = onMyStuffClick,
-                focusRequester = requesterFor(SideRailItem.MyStuff),
-            )
-            RailItem(
-                icon = Icons.Default.Tune,
-                label = "Pill Channels",
-                expanded = hasFocus,
-                labelAlpha = labelAlpha,
-                isActive = activeItem == SideRailItem.PillChannels,
-                onClick = onPillChannelsClick,
-                focusRequester = requesterFor(SideRailItem.PillChannels),
-            )
-            RailItem(
-                icon = Icons.Default.Settings,
-                label = "Settings",
-                expanded = hasFocus,
-                labelAlpha = labelAlpha,
-                isActive = activeItem == SideRailItem.Settings,
-                onClick = onSettingsClick,
-                focusRequester = requesterFor(SideRailItem.Settings),
-            )
+            if (showMyStuff) {
+                RailItem(
+                    icon = Icons.Default.Bookmark,
+                    label = "My Stuff",
+                    expanded = hasFocus,
+                    labelAlpha = labelAlpha,
+                    isActive = activeItem == SideRailItem.MyStuff,
+                    onClick = onMyStuffClick,
+                    focusRequester = requesterFor(SideRailItem.MyStuff),
+                )
+            }
+            if (showPillChannels) {
+                RailItem(
+                    icon = Icons.Default.Tune,
+                    label = "Pill Channels",
+                    expanded = hasFocus,
+                    labelAlpha = labelAlpha,
+                    isActive = activeItem == SideRailItem.PillChannels,
+                    onClick = onPillChannelsClick,
+                    focusRequester = requesterFor(SideRailItem.PillChannels),
+                )
+            }
+            if (showSettings) {
+                RailItem(
+                    icon = Icons.Default.Settings,
+                    label = "Settings",
+                    expanded = hasFocus,
+                    labelAlpha = labelAlpha,
+                    isActive = activeItem == SideRailItem.Settings,
+                    onClick = onSettingsClick,
+                    focusRequester = requesterFor(SideRailItem.Settings),
+                )
+            }
         }
     }
 }

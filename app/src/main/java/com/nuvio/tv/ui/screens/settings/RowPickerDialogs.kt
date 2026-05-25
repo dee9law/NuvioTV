@@ -63,8 +63,19 @@ fun CatalogPickerDialog(
     existingRowIds: Set<String>,
     onSelect: (CatalogSourceOption) -> Unit,
     onDismiss: () -> Unit,
+    scope: com.nuvio.tv.domain.model.LayoutScreenScope = com.nuvio.tv.domain.model.LayoutScreenScope.HOME,
 ) {
-    val addonOnly = remember(sources) { sources.filter { it.kind == LayoutRowKind.ADDON } }
+    val addonOnly = remember(sources, scope) {
+        sources.filter { it.kind == LayoutRowKind.ADDON }.let { addons ->
+            when (scope) {
+                com.nuvio.tv.domain.model.LayoutScreenScope.MOVIES ->
+                    addons.filter { it.apiType.equals("movie", ignoreCase = true) }
+                com.nuvio.tv.domain.model.LayoutScreenScope.TV ->
+                    addons.filter { it.apiType.equals("series", ignoreCase = true) }
+                else -> addons
+            }
+        }
+    }
     AddRowPickerDialog(
         sources = addonOnly,
         existingRowIds = existingRowIds,

@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.home
 
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -83,25 +84,13 @@ fun SpotlightHomeContent(
     val heroCarouselItems = uiState.heroItems
 
     // ── Sizing ──────────────────────────────────────────────────────
-    // Rows container height = exactly one row's height, derived from
-    // the active [PosterCardStyle]. Formula (matches the spec):
-    //   cardHeight + titleHeight + titlePadding + cardTopPadding
-    //     + cardBottomPadding + 16dp top breathing + 16dp bottom breathing
-    // posterCardStyle.height already encodes portrait vs landscape
-    // (portrait: width * 1.5 ; landscape: width / 1.77).
     val configuration = LocalConfiguration.current
     val screenHeight = configuration.screenHeightDp.dp
     val rowsContainerHeight = remember(posterCardStyle.height) {
-        posterCardStyle.height +
-            24.dp +  // titleHeight
-            2.dp +   // titlePadding (tight Prime-style title→cards rhythm)
-            0.dp +   // cardTopPadding (LazyRow contentPadding.top = 0 now)
-            16.dp +  // cardBottomPadding (LazyRow contentPadding.bottom for glow clearance)
-            16.dp +  // breathing top
-            16.dp    // breathing bottom
+        singleRowContainerHeight(posterCardStyle.height)
     }
     val heroHeight = remember(screenHeight, rowsContainerHeight) {
-        (screenHeight - rowsContainerHeight).coerceAtLeast(200.dp)
+        heroHeightForRowsContainer(screenHeight, rowsContainerHeight)
     }
 
     // ── State: hero focus mirror + one-row-at-a-time index ──────────
@@ -129,9 +118,11 @@ fun SpotlightHomeContent(
         else -> listOfNotNull(catalogRows.firstOrNull()?.items?.firstOrNull())
     }
 
-    // ── Reset TopBar visibility on entry ────────────────────────────
+    // ── TopBar immersion: hide when rows have focus, show on hero ──
+    LaunchedEffect(rowsAreaHasFocus) {
+        com.nuvio.tv.ui.components.TopBarImmersionState.setVisible(!rowsAreaHasFocus)
+    }
     DisposableEffect(Unit) {
-        com.nuvio.tv.ui.components.TopBarImmersionState.setVisible(true)
         onDispose { com.nuvio.tv.ui.components.TopBarImmersionState.setVisible(true) }
     }
 
@@ -242,23 +233,27 @@ fun SpotlightHomeContent(
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .height(rowsContainerHeight)
+                .clipToBounds()
                 .onFocusChanged { state -> rowsAreaHasFocus = state.hasFocus }
                 .onPreviewKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when (event.key) {
                         Key.DirectionDown -> {
-                            if (currentRowIndex < catalogRows.lastIndex) {
-                                currentRowIndex++
+                            if (event.type == KeyEventType.KeyDown) {
+                                android.util.Log.d("SpotlightNav", "Down pressed, currentRowIndex=$currentRowIndex, totalRows=${catalogRows.size}")
+                                if (currentRowIndex < catalogRows.lastIndex) {
+                                    currentRowIndex++
+                                }
                             }
-                            // Consume even on last row so focus doesn't
-                            // try to leave the container downward.
                             true
                         }
                         Key.DirectionUp -> {
-                            if (currentRowIndex == 0) {
-                                runCatching { heroFocusRequester.requestFocus() }
-                            } else {
-                                currentRowIndex--
+                            if (event.type == KeyEventType.KeyDown) {
+                                android.util.Log.d("SpotlightNav", "Up pressed, currentRowIndex=$currentRowIndex")
+                                if (currentRowIndex == 0) {
+                                    runCatching { heroFocusRequester.requestFocus() }
+                                } else {
+                                    currentRowIndex--
+                                }
                             }
                             true
                         }

@@ -231,6 +231,7 @@ fun ClassicHomeContent(
             when (row) {
                 is HomeRow.Catalog -> "${row.row.addonId}_${row.row.apiType}_${row.row.catalogId}"
                 is HomeRow.CollectionRow -> "collection_${row.collection.id}"
+                is HomeRow.ContinueWatching -> "continue_watching"
                 is HomeRow.PlaceholderCatalog -> row.catalogKey
             }
         }
@@ -253,6 +254,7 @@ fun ClassicHomeContent(
                 when (row) {
                     is HomeRow.Catalog -> "${row.row.addonId}_${row.row.apiType}_${row.row.catalogId}"
                     is HomeRow.CollectionRow -> "collection_${row.collection.id}"
+                    is HomeRow.ContinueWatching -> "continue_watching"
                     is HomeRow.PlaceholderCatalog -> row.catalogKey
                 }
             }
@@ -484,6 +486,7 @@ fun ClassicHomeContent(
                     when (row) {
                         is HomeRow.Catalog -> "${row.row.addonId}_${row.row.apiType}_${row.row.catalogId}"
                         is HomeRow.CollectionRow -> "collection_${row.collection.id}"
+                        is HomeRow.ContinueWatching -> "continue_watching"
                         is HomeRow.PlaceholderCatalog -> row.catalogKey
                     }
                 }
@@ -556,6 +559,7 @@ fun ClassicHomeContent(
                         "${r.addonId}_${r.apiType}_${r.catalogId}"
                     }
                     is HomeRow.CollectionRow -> "collection_${item.collection.id}"
+                    is HomeRow.ContinueWatching -> "continue_watching"
                     is HomeRow.PlaceholderCatalog -> item.catalogKey
                 }
             },
@@ -563,6 +567,7 @@ fun ClassicHomeContent(
                 when (item) {
                     is HomeRow.Catalog -> "catalog_row"
                     is HomeRow.CollectionRow -> "collection_row"
+                    is HomeRow.ContinueWatching -> "continue_watching"
                     is HomeRow.PlaceholderCatalog -> "catalog_row"
                 }
             }
@@ -698,6 +703,8 @@ fun ClassicHomeContent(
                         }
                     )
                 }
+
+                is HomeRow.ContinueWatching -> { }
 
                 is HomeRow.PlaceholderCatalog -> { }
             }

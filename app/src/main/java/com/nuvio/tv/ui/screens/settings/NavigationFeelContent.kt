@@ -68,11 +68,18 @@ class NavigationFeelViewModel @Inject constructor(
     val feel: StateFlow<Feel> = prefs.navigationFeel
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Feel.MODERN)
 
+    val topBarEnabled: StateFlow<Boolean> = prefs.topBarEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
     val modernTopBarEnabled: StateFlow<Boolean> = prefs.modernTopBarEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     fun setFeel(feel: Feel) = viewModelScope.launch {
         prefs.setNavigationFeel(feel)
+    }
+
+    fun setTopBarEnabled(enabled: Boolean) = viewModelScope.launch {
+        prefs.setTopBarEnabled(enabled)
     }
 
     fun setModernTopBarEnabled(enabled: Boolean) = viewModelScope.launch {

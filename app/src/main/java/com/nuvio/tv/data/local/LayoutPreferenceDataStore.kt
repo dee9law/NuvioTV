@@ -39,6 +39,7 @@ class LayoutPreferenceDataStore @Inject constructor(
         private const val DEFAULT_POSTER_CARD_WIDTH_DP = 126
         private const val DEFAULT_POSTER_CARD_HEIGHT_DP = 189
         private const val DEFAULT_POSTER_CARD_CORNER_RADIUS_DP = 12
+        val DEFAULT_SIDE_RAIL_ORDER = listOf("profile", "search", "home", "discover", "my_stuff", "pill_channels", "settings")
         private const val DEFAULT_FOCUSED_POSTER_BACKDROP_EXPAND_DELAY_SECONDS = 3
         private const val MIN_FOCUSED_POSTER_BACKDROP_EXPAND_DELAY_SECONDS = 0
     }
@@ -62,6 +63,13 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val modernLandscapePostersEnabledKey = booleanPreferencesKey("modern_landscape_posters_enabled")
     private val heroSectionEnabledKey = booleanPreferencesKey("hero_section_enabled")
     private val searchDiscoverEnabledKey = booleanPreferencesKey("search_discover_enabled")
+    private val sideRailSearchVisibleKey = booleanPreferencesKey("side_rail_search_visible")
+    private val sideRailDiscoverVisibleKey = booleanPreferencesKey("side_rail_discover_visible")
+    private val sideRailMyStuffVisibleKey = booleanPreferencesKey("side_rail_my_stuff_visible")
+    private val sideRailPillChannelsVisibleKey = booleanPreferencesKey("side_rail_pill_channels_visible")
+    private val sideRailSettingsVisibleKey = booleanPreferencesKey("side_rail_settings_visible")
+    private val sideRailOrderKey = stringPreferencesKey("side_rail_order")
+    private val sideRailDisplayModeKey = stringPreferencesKey("side_rail_display_modes")
     private val posterLabelsEnabledKey = booleanPreferencesKey("poster_labels_enabled")
     private val catalogAddonNameEnabledKey = booleanPreferencesKey("catalog_addon_name_enabled")
     private val catalogTypeSuffixEnabledKey = booleanPreferencesKey("catalog_type_suffix_enabled")
@@ -91,6 +99,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val followAddonsOrderKey = booleanPreferencesKey("follow_addons_order")
     private val composeHighlighterEnabledKey = booleanPreferencesKey("compose_highlighter_enabled")
     private val navigationFeelKey = stringPreferencesKey("navigation_feel")
+    private val topBarEnabledKey = booleanPreferencesKey("top_bar_enabled")
     private val modernTopBarEnabledKey = booleanPreferencesKey("modern_top_bar_enabled")
     private val posterGlowEnabledKey = booleanPreferencesKey("poster_glow_enabled")
     private val cardFocusStyleKey = stringPreferencesKey("card_focus_style")
@@ -189,6 +198,51 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val searchDiscoverEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[searchDiscoverEnabledKey] ?: true
+    }
+
+    val sideRailSearchVisible: Flow<Boolean> = profileFlow { prefs -> prefs[sideRailSearchVisibleKey] ?: true }
+    val sideRailDiscoverVisible: Flow<Boolean> = profileFlow { prefs -> prefs[sideRailDiscoverVisibleKey] ?: true }
+    val sideRailMyStuffVisible: Flow<Boolean> = profileFlow { prefs -> prefs[sideRailMyStuffVisibleKey] ?: true }
+    val sideRailPillChannelsVisible: Flow<Boolean> = profileFlow { prefs -> prefs[sideRailPillChannelsVisibleKey] ?: true }
+    val sideRailSettingsVisible: Flow<Boolean> = profileFlow { prefs -> prefs[sideRailSettingsVisibleKey] ?: true }
+
+    suspend fun setSideRailItemVisible(item: String, visible: Boolean) {
+        val key = when (item) {
+            "search" -> sideRailSearchVisibleKey
+            "discover" -> sideRailDiscoverVisibleKey
+            "my_stuff" -> sideRailMyStuffVisibleKey
+            "pill_channels" -> sideRailPillChannelsVisibleKey
+            "settings" -> sideRailSettingsVisibleKey
+            else -> return
+        }
+        store().edit { prefs -> prefs[key] = visible }
+    }
+
+    val sideRailOrder: Flow<List<String>> = profileFlow { prefs ->
+        prefs[sideRailOrderKey]?.split(",")?.filter { it.isNotBlank() }
+            ?: DEFAULT_SIDE_RAIL_ORDER
+    }
+
+    suspend fun setSideRailOrder(order: List<String>) {
+        store().edit { prefs -> prefs[sideRailOrderKey] = order.joinToString(",") }
+    }
+
+    val sideRailDisplayModes: Flow<Map<String, String>> = profileFlow { prefs ->
+        prefs[sideRailDisplayModeKey]?.split(",")
+            ?.mapNotNull { entry ->
+                val parts = entry.split("=")
+                if (parts.size == 2) parts[0] to parts[1] else null
+            }?.toMap() ?: emptyMap()
+    }
+
+    suspend fun setSideRailDisplayMode(item: String, mode: String) {
+        store().edit { prefs ->
+            val current = prefs[sideRailDisplayModeKey]?.split(",")
+                ?.mapNotNull { e -> val p = e.split("="); if (p.size == 2) p[0] to p[1] else null }
+                ?.toMap()?.toMutableMap() ?: mutableMapOf()
+            current[item] = mode
+            prefs[sideRailDisplayModeKey] = current.entries.joinToString(",") { "${it.key}=${it.value}" }
+        }
     }
 
     val posterLabelsEnabled: Flow<Boolean> = profileFlow { prefs ->
@@ -322,6 +376,16 @@ class LayoutPreferenceDataStore @Inject constructor(
      * frosted-glass overlay (semi-transparent + RenderEffect blur on
      * API 31+) sitting on top of a hero that runs to y=0.
      */
+    val topBarEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[topBarEnabledKey] ?: true
+    }
+
+    suspend fun setTopBarEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[topBarEnabledKey] = enabled
+        }
+    }
+
     val modernTopBarEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[modernTopBarEnabledKey] ?: false
     }

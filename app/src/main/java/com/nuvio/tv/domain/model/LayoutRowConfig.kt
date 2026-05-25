@@ -26,7 +26,7 @@ data class LayoutRowConfig(
     val metadata: Map<String, String> = emptyMap(),
 )
 
-enum class LayoutRowKind { ADDON, COLLECTION, TRAKT, TMDB_DISCOVER, TMDB_NETWORK }
+enum class LayoutRowKind { ADDON, COLLECTION, TRAKT, TMDB_DISCOVER, TMDB_NETWORK, CONTINUE_WATCHING }
 enum class LayoutCardStyle { POSTER, LANDSCAPE }
 
 /**
@@ -63,6 +63,8 @@ object LayoutRowKey {
      */
     fun forTmdbNetwork(networkId: Int, mediaType: String): String =
         "tmdb_network|$networkId|$mediaType"
+
+    fun forContinueWatching(): String = "continue_watching"
 }
 
 /**

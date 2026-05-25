@@ -237,11 +237,12 @@ private fun PickerItem(
 }
 
 private fun sectionLabel(kind: LayoutRowKind): String = when (kind) {
-    LayoutRowKind.ADDON          -> "Addons"
-    LayoutRowKind.COLLECTION     -> "Collections"
-    LayoutRowKind.TRAKT          -> "Trakt"
-    LayoutRowKind.TMDB_DISCOVER  -> "TMDB Discover"
-    LayoutRowKind.TMDB_NETWORK   -> "TMDB Networks"
+    LayoutRowKind.ADDON              -> "Addons"
+    LayoutRowKind.COLLECTION         -> "Collections"
+    LayoutRowKind.TRAKT              -> "Trakt"
+    LayoutRowKind.TMDB_DISCOVER      -> "TMDB Discover"
+    LayoutRowKind.TMDB_NETWORK       -> "TMDB Networks"
+    LayoutRowKind.CONTINUE_WATCHING  -> "Continue Watching"
 }
 
 private fun Modifier.heightInDialogContent(): Modifier = this.then(Modifier.height(520.dp))

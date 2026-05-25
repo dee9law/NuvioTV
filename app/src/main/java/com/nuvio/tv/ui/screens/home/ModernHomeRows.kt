@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
 import androidx.compose.foundation.lazy.LazyListState
@@ -508,24 +509,28 @@ internal fun ModernRowSection(
             row.key != MODERN_CONTINUE_WATCHING_ROW_KEY
         var titleFocused by remember { mutableStateOf(false) }
         val focusedTitleColor = NuvioColors.Secondary
-        val titleModifier = Modifier
-            .padding(start = rowTitleStartInset, bottom = rowTitleBottom)
-            .onFocusChanged { state -> titleFocused = state.isFocused || state.hasFocus }
-            .then(
-                if (isAddonCatalogRow) {
-                    Modifier.clickable {
-                        onNavigateToCatalogSeeAll(rowCatalogId!!, rowAddonId!!, rowApiType!!)
+        Box(
+            modifier = Modifier
+                .padding(start = rowTitleStartInset, bottom = rowTitleBottom)
+                .height(28.dp)
+                .wrapContentHeight(Alignment.CenterVertically)
+                .onFocusChanged { state -> titleFocused = state.isFocused || state.hasFocus }
+                .then(
+                    if (isAddonCatalogRow) {
+                        Modifier.clickable {
+                            onNavigateToCatalogSeeAll(rowCatalogId!!, rowAddonId!!, rowApiType!!)
+                        }
+                    } else {
+                        Modifier.focusable()
                     }
-                } else {
-                    Modifier.focusable()
-                }
+                )
+        ) {
+            Text(
+                text = rowTitle,
+                style = rowTitleStyle,
+                color = if (titleFocused) focusedTitleColor else textColor,
             )
-        Text(
-            text = rowTitle,
-            style = rowTitleStyle,
-            color = if (titleFocused) focusedTitleColor else textColor,
-            modifier = titleModifier
-        )
+        }
 
         val rowListState = rowListStates.getOrPut(row.key) {
             LazyListState(

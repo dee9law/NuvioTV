@@ -306,6 +306,7 @@ internal fun buildModernHomePresentation(
                     )
                     add(placeholderRow)
                 }
+                is HomeRow.ContinueWatching -> { }
             }
         }
 
@@ -333,10 +334,8 @@ private fun resolveVisibleHomeRows(input: ModernHomePresentationInput): List<Hom
                 is HomeRow.CollectionRow -> {
                     homeRow.collection.takeIf(Collection::hasVisibleFolders)?.let(HomeRow::CollectionRow)
                 }
-                is HomeRow.PlaceholderCatalog -> {
-                    // Keep placeholder rows as-is — they'll be rendered as shimmer skeletons
-                    homeRow
-                }
+                is HomeRow.ContinueWatching -> homeRow
+                is HomeRow.PlaceholderCatalog -> homeRow
             }
         }
     }

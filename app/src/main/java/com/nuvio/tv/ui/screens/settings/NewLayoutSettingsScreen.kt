@@ -194,6 +194,8 @@ fun NewLayoutSettingsContent(
                         checked = uiState.followAddonsOrder,
                         onCheckedChange = viewModel::setFollowAddonsOrder,
                         onAutoPopulate = viewModel::autoPopulateFromAddons,
+                        hasRows = uiState.rows.isNotEmpty(),
+                        onClearAll = viewModel::clearAllRows,
                     )
                 }
             }
@@ -232,6 +234,10 @@ fun NewLayoutSettingsContent(
                         onAddTmdb = { showTmdbPicker = true },
                         onAddTrakt = { showTraktPicker = true },
                         onAddCollection = { showCollectionPicker = true },
+                        onAddContinueWatching = { viewModel.addContinueWatchingRow() },
+                        continueWatchingAlreadyAdded = uiState.rows.any {
+                            it.kind == com.nuvio.tv.domain.model.LayoutRowKind.CONTINUE_WATCHING
+                        },
                     )
                 }
             }
@@ -246,6 +252,7 @@ fun NewLayoutSettingsContent(
             existingRowIds = existingRowIds,
             onSelect = { source -> viewModel.addRow(source) },
             onDismiss = { showCatalogPicker = false },
+            scope = uiState.selectedScope,
         )
     }
     if (showTmdbPicker) {
@@ -882,7 +889,10 @@ private fun FollowAddonsOrderSection(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     onAutoPopulate: () -> Unit,
+    hasRows: Boolean = false,
+    onClearAll: () -> Unit = {},
 ) {
+    var showClearConfirm by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -905,20 +915,66 @@ private fun FollowAddonsOrderSection(
             Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
         if (!checked) {
-            AutoPopulateButton(onClick = onAutoPopulate)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AutoPopulateButton(
+                    label = "Populate All",
+                    onClick = onAutoPopulate,
+                    containerColor = Color.White.copy(alpha = 0.10f),
+                    focusedContainerColor = Color.White.copy(alpha = 0.20f),
+                )
+                if (hasRows) {
+                    AutoPopulateButton(
+                        label = "Clear All",
+                        onClick = { showClearConfirm = true },
+                        containerColor = Color(0xFF5A1C1C),
+                        focusedContainerColor = Color(0xFF7A2C2C),
+                    )
+                }
+            }
+        }
+    }
+    if (showClearConfirm) {
+        com.nuvio.tv.ui.components.NuvioDialog(
+            onDismiss = { showClearConfirm = false },
+            title = "Remove all rows?",
+            subtitle = "This will clear every row from this scope.",
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        onClearAll()
+                        showClearConfirm = false
+                    },
+                    colors = ButtonDefaults.colors(
+                        containerColor = Color(0xFF7A2C2C),
+                        focusedContainerColor = Color(0xFFAA3C3C),
+                    ),
+                ) { Text("Clear All") }
+                Button(
+                    onClick = { showClearConfirm = false },
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioColors.BackgroundCard,
+                    ),
+                ) { Text("Cancel") }
+            }
         }
     }
 }
 
 @Composable
-private fun AutoPopulateButton(onClick: () -> Unit) {
+private fun AutoPopulateButton(
+    label: String = "Auto-populate from addon",
+    onClick: () -> Unit,
+    containerColor: Color = Color.White.copy(alpha = 0.10f),
+    focusedContainerColor: Color = Color.White.copy(alpha = 0.20f),
+) {
     Button(
         onClick = onClick,
         modifier = Modifier.height(38.dp),
         shape = ButtonDefaults.shape(shape = RoundedCornerShape(19.dp)),
         colors = ButtonDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.10f),
-            focusedContainerColor = Color.White.copy(alpha = 0.20f),
+            containerColor = containerColor,
+            focusedContainerColor = focusedContainerColor,
         ),
         border = ButtonDefaults.border(
             focusedBorder = Border(
@@ -932,14 +988,8 @@ private fun AutoPopulateButton(onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = null,
-                tint = NuvioColors.TextPrimary,
-                modifier = Modifier.size(16.dp),
-            )
             Text(
-                text = "Auto-populate from addon",
+                text = label,
                 style = MaterialTheme.typography.labelLarge,
                 color = NuvioColors.TextPrimary,
                 fontWeight = FontWeight.SemiBold,
@@ -1002,6 +1052,8 @@ private fun AddRowButtonBar(
     onAddTmdb: () -> Unit,
     onAddTrakt: () -> Unit,
     onAddCollection: () -> Unit,
+    onAddContinueWatching: () -> Unit,
+    continueWatchingAlreadyAdded: Boolean,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1011,6 +1063,9 @@ private fun AddRowButtonBar(
         AddRowChip(label = "TMDB Source", onClick = onAddTmdb)
         AddRowChip(label = "Trakt List", onClick = onAddTrakt)
         AddRowChip(label = "Collection", onClick = onAddCollection)
+        if (!continueWatchingAlreadyAdded) {
+            AddRowChip(label = "Continue Watching", onClick = onAddContinueWatching)
+        }
     }
 }
 

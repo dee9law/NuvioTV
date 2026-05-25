@@ -29,6 +29,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -138,22 +143,22 @@ fun HomeScreen(
         }
     }
 
-    // ── Back-button Level-Up hierarchy (spec L1 / L2 / L3) ───────────────
-    // L3: focus deep in a row (focusedItemIndex > 0) → reset to row's first item.
-    // L1: focus on a carousel row (focusedRowIndex > 0, at item 0)        → jump to hero.
-    // L2: focus on hero (focusedRowIndex == 0)                            → jump to TopBar.
-    // L4 / TopBar: handled by MainActivity's app-exit BackHandler since this
-    //   BackHandler is disabled when content doesn't have focus.
+    // ── Back-button Level-Up hierarchy — universal across all layouts. ──
+    // See [UniversalHomeBackNavigation] for the full L0–L5 spec. Wired
+    // once here at the dispatch level so per-layout files never install
+    // their own BackHandlers; switching between Modern / Classic / Grid /
+    // Spotlight always feels identical to the user.
     var contentHasFocus by remember { mutableStateOf(true) }
     val navBarFr = com.nuvio.tv.LocalNavBarFocusRequester.current
-    androidx.activity.compose.BackHandler(enabled = contentHasFocus) {
-        val fs = viewModel.focusState.value
-        when {
-            fs.focusedItemIndex > 0 -> viewModel.requestResetCurrentRowFocus()
-            fs.focusedRowIndex > 0 -> viewModel.requestFocusHero()
-            else -> runCatching { navBarFr.requestFocus() }
-        }
-    }
+    val focusStateForBack by viewModel.focusState.collectAsStateWithLifecycle()
+    UniversalHomeBackNavigation(
+        enabled = contentHasFocus,
+        focusedRowIndex = focusStateForBack.focusedRowIndex,
+        focusedItemIndex = focusStateForBack.focusedItemIndex,
+        requestResetCurrentRowFocus = { viewModel.requestResetCurrentRowFocus() },
+        requestFocusHero = { viewModel.requestFocusHero() },
+        topBarFocusRequester = navBarFr,
+    )
 
     // Watched status: the lambda is recreated whenever movieWatchedStatus changes,
     // which forces downstream LazyRow items to recompose with fresh watched state.
@@ -233,15 +238,28 @@ fun HomeScreen(
     val noAddonsError = stringResource(R.string.home_error_no_addons)
     val noCatalogAddonsError = stringResource(R.string.home_error_no_catalog_addons)
 
+    var backLongPressHandled by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier
             .fillMaxSize()
-            // Track focus so our BackHandler stays enabled only while the
-            // user is on home content.  When focus moves up to TopBar pills
-            // (which live outside this Box, in MainActivity), `hasFocus`
-            // flips false and the BackHandler in MainActivity wins → app
-            // exit on Back.
             .onFocusChanged { contentHasFocus = it.hasFocus }
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                when {
+                    event.key == Key.Back && event.type == KeyEventType.KeyDown &&
+                        native.repeatCount >= 1 && !backLongPressHandled -> {
+                        backLongPressHandled = true
+                        com.nuvio.tv.ui.components.TopBarImmersionState.setVisible(true)
+                        runCatching { navBarFr.requestFocus() }
+                        true
+                    }
+                    event.key == Key.Back && backLongPressHandled -> {
+                        if (event.type == KeyEventType.KeyUp) backLongPressHandled = false
+                        true
+                    }
+                    else -> false
+                }
+            }
     ) {
         val hasAnyContent = uiState.catalogRows.isNotEmpty() ||
             uiState.continueWatchingItems.isNotEmpty() ||

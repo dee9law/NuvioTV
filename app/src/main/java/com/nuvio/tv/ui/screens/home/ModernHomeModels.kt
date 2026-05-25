@@ -26,6 +26,20 @@ internal const val MODERN_HERO_MEDIA_WIDTH_FRACTION = 0.72f
 internal const val MODERN_TRAILER_OVERSCAN_ZOOM = 1.35f
 internal const val MODERN_HERO_FOCUS_DEBOUNCE_MS = 450L
 internal val MODERN_ROW_HEADER_FOCUS_INSET = 40.dp
+
+/**
+ * Vertical share of the screen the Modern bottom-rows strip occupies.
+ * The split (~half hero, ~half rows) is a deliberate design choice —
+ * the rows strip needs to show CW + 1–2 catalog rows simultaneously
+ * while leaving the hero readable above it. Landscape posters are
+ * shorter, so the strip needs slightly less room than portrait.
+ *
+ * These are NOT card-size-derived because Modern shows multiple rows
+ * at once; a single-row formula (see [singleRowContainerHeight])
+ * would either crop CW or shrink the hero to a sliver.
+ */
+internal const val MODERN_PORTRAIT_ROWS_FRACTION = 0.52f
+internal const val MODERN_LANDSCAPE_ROWS_FRACTION = 0.49f
 internal const val MODERN_CONTINUE_WATCHING_ROW_KEY = "continue_watching"
 internal val MODERN_LANDSCAPE_LOGO_GRADIENT = Brush.verticalGradient(
     colorStops = arrayOf(
