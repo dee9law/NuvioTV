@@ -209,10 +209,12 @@ internal fun ModernHomeRowsList(
                             },
                         ) == LayoutCardStyle.LANDSCAPE
                         val rowBaseWidth = rowConfig?.cardWidthDp?.dp
-                        val rowPortraitW = rowBaseWidth ?: portraitCatalogCardWidth
-                        val rowPortraitH = rowBaseWidth?.times(1.5f) ?: portraitCatalogCardHeight
-                        val rowLandscapeW = rowBaseWidth ?: landscapeCatalogCardWidth
-                        val rowLandscapeH = rowBaseWidth?.div(1.77f) ?: landscapeCatalogCardHeight
+                        val modernPortraitScale = 0.84f * 1.08f
+                        val modernLandscapeScale = 1.24f * 1.34f
+                        val rowPortraitW = rowBaseWidth?.times(modernPortraitScale) ?: portraitCatalogCardWidth
+                        val rowPortraitH = rowBaseWidth?.times(modernPortraitScale)?.times(1.5f) ?: portraitCatalogCardHeight
+                        val rowLandscapeW = rowBaseWidth?.times(modernLandscapeScale) ?: landscapeCatalogCardWidth
+                        val rowLandscapeH = rowBaseWidth?.times(modernLandscapeScale)?.div(1.77f) ?: landscapeCatalogCardHeight
                         for (i in 0 until minOf(prefetchItemsPerRow, row.items.list.size)) {
                             val item = row.items.list[i]
                             val url = item.imageUrl ?: continue
@@ -307,9 +309,11 @@ internal fun ModernHomeRowsList(
                 .fillMaxWidth()
                 .recompositionHighlighter()
                 .height(rowsViewportHeight)
-                .clipToBounds()
                 .padding(bottom = catalogBottomPadding)
-                .graphicsLayer { alpha = trailerContentAlpha() }
+                .graphicsLayer {
+                    alpha = trailerContentAlpha()
+                    clip = true
+                }
                 .focusRequester(contentFocusRequester)
                 .onFocusChanged { onContentFocusChanged(it.hasFocus) }
                 .focusRestorer { focusRestorerRequester() }

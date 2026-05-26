@@ -915,21 +915,20 @@ private fun FollowAddonsOrderSection(
             Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
         if (!checked) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (hasRows) {
+                AutoPopulateButton(
+                    label = "Clear All",
+                    onClick = { showClearConfirm = true },
+                    containerColor = Color(0xFF5A1C1C),
+                    focusedContainerColor = Color(0xFF7A2C2C),
+                )
+            } else {
                 AutoPopulateButton(
                     label = "Populate All",
                     onClick = onAutoPopulate,
-                    containerColor = Color.White.copy(alpha = 0.10f),
-                    focusedContainerColor = Color.White.copy(alpha = 0.20f),
+                    containerColor = NuvioColors.Secondary.copy(alpha = 0.20f),
+                    focusedContainerColor = NuvioColors.Secondary.copy(alpha = 0.35f),
                 )
-                if (hasRows) {
-                    AutoPopulateButton(
-                        label = "Clear All",
-                        onClick = { showClearConfirm = true },
-                        containerColor = Color(0xFF5A1C1C),
-                        focusedContainerColor = Color(0xFF7A2C2C),
-                    )
-                }
             }
         }
     }

@@ -293,6 +293,7 @@ follow-up pass:
 - **2026-05-19 — Upstream cherry-pick marathon.** 68 upstream commits across 7 phases + 5 fix-ups (75 pushed total). Shipped Still-Watching prompt, autoplay timeout options, 5-profile support, `core/debrid/` module (Real-Debrid + Torbox), Mark previous seasons watched, More Like This source toggle, audio amplification w/ HDMI passthrough. Critical fixes: ExoPlayer resume race, un-pushed local progress wipe (data-loss prevention), ExoPlayer teardown order, A/V desync at start. 23 commits skipped (Feel-system conflicts) — see archive for hand-port queue.
 - **2026-05-20 — TopBar / Modern Feel polish marathon.** Twelve sub-fixes across nine batched task lists. Introduced `CardFocusStyle` enum, CompositionLocals (`LocalIsModernFeel`, `LocalTopBarOverlayHeight`, `LocalPosterGlowEnabled`, `LocalCardFocusStyle`), DataStore keys (`modern_top_bar_enabled`, `poster_glow_enabled`, `card_focus_style`), real-blur glassmorphism via Coil `BlurTransformation`. Shipped: Modern Top Bar toggle (default OFF), Card Focus Style cycle (Accent/Glow/Bloom — later reduced to Accent/Bloom on 05-21), 16dp edge-to-edge, carousel takeover, 6dp dot indicator, channel-pill logo fallback, 85% Profile Overlay, focusable folder-picker section headers, `CollectionsHomeScreen` wired into `NuvioNavHost`, Settings Hub left-rail focus + single-expand accordion. The "Modern Top Bar" toggle stays OFF by default — flip in Settings → Appearance → Top Bar. Skyworth TV's GPU silently no-ops `RenderEffect`; stack-blur Coil transform is the established fallback (`BlurTransformation.kt`). Full details in archive.
 - **2026-05-21 — Modern hero polish, ARVIO trace + revert, settings reorg, Spotlight layout.** ARVIO-inspired hero layout attempted then surgically reverted; kept text shadows, 72dp description cap, dynamic TopBar measurement. New `HomeLayout.SPOTLIGHT` (fourth layout) with full-bleed hero + single-row swap strip. Settings hub reorg (Appearance sub-items: Cards, Side Rail, Detail Page). `CardFocusStyle` reduced to ACCENT/BLOOM. `Modifier.shadow` for all cards (TV M3 `Card.glow` no-ops on Skyworth). `NavHostController.popBackToMainScreen()` helper.
+- **2026-05-23 — Spotlight rework, tab-nav fix, COLLECTION root-cause, Prime-style row spacing.** Spotlight reshaped from animated slide-up strip into fixed one-row container + fixed tab navigation. Movies tab first-tap no-op fixed (dropped `saveState`/`restoreState`). COLLECTION blanket filter removed (upstream `viewContext` filter already sufficient). Prime-style tight row-title→cards rhythm (2dp title bottom padding, 0dp LazyRow top) across all layouts.
 
 ---
 
@@ -392,218 +393,8 @@ Commit the `CLAUDE.md` update as part of the final push. **Do not ask
 
 ---
 
-## 📅 Session log — 2026-05-23 (Spotlight rework, tab-nav fix, COLLECTION root-cause, Prime-style row spacing)
-
-### Headline
-
-Two rounds of focused fixes (6 in total) across Spotlight, navigation,
-the COLLECTION-row filter, and a Prime-Video-style title→cards rhythm
-across every layout.  Round 1 reshaped Spotlight from an animated
-slide-up strip into a fixed one-row container + fixed tab navigation;
-Round 2 surfaced and fixed two regressions from Round 1 (Spotlight
-focus dead-end, over-aggressive collection filter) plus tightened the
-row spacing globally.  No new files; all targeted edits.
-
-### Key shipped highlights
-
-> Full details intentionally in-line below (this is the most-recent
-> session entry; will collapse to a one-liner at the next EOD).
-
-**Round 1 — fixes installed AM:**
-
-1. **Spotlight one-row fixed container** (`SpotlightHomeContent.kt`)
-   - Removed `animateDpAsState` slide-up animation entirely.
-   - Rows container = exactly one row's height, computed dynamically
-     from `posterCardStyle`:
-     `posterCardStyle.height + 24 (title) + 8 (titlePad) + 4+4 (card
-     top/bot pad) + 16+16 (breathing) = posterCardStyle.height + 72.dp`
-     (later refined to +74.dp in Round 2 to match the new tight
-     spacing).
-   - Hero height = `screenHeight − rowsContainerHeight`.
-   - Replaced `LazyColumn` with a single `CatalogRowSection` driven
-     by `currentRowIndex` mutableIntState.  Container Box uses
-     `onPreviewKeyEvent` to intercept D-pad Up/Down and swap rows
-     in place — Up on row 0 → hero; Up on row N>0 → row N−1;
-     Down on last row → consumed (no focus escape).
-   - `LaunchedEffect(currentRowIndex)` re-targets the new row's
-     first card via `firstRowEntryFocusRequester`.
-
-2. **TV / Movies COLLECTION row filter** (initial attempt —
-   `HomeViewModelCatalogPipeline.kt`).  Added blanket
-   `.filter { it.kind != LayoutRowKind.COLLECTION }` on
-   `rowsForScope(homeScope)` when scope was MOVIES or TV.  **Reverted
-   in Round 2** as over-aggressive.
-
-3. **Movies tab navigation no-op fix** (`MainActivity.kt:1284`).
-   `navigateToTopNavRoute` previously used
-   `popUpTo(start) { saveState=true }; launchSingleTop=true;
-   restoreState=true` — the bottom-nav pattern.  First Home→Movies
-   tap silently no-op'd because the navigator consults the
-   saved-state map for the target and short-circuits when the
-   target has no saved state yet.  Dropped both `saveState` and
-   `restoreState`; kept `popUpTo(start)` + `launchSingleTop` so the
-   back stack stays one layer deep.  Trade-off: per-tab scroll/focus
-   state rebuilds on each tab switch (acceptable vs. the silent
-   no-op).
-
-**Round 2 — fixes installed PM:**
-
-4. **Spotlight focus dead-ends after tab switch + broken hero→rows
-   Down** (`SpotlightHomeContent.kt`):
-   - Outer `Box` now binds `LocalContentFocusRequester` via
-     `.focusRequester(contentFr).focusRestorer(heroFocusRequester)
-     .focusGroup()`.  The TopBar's D-pad-Down handler calls
-     `contentFr.requestFocus()`; without this binding, Spotlight had
-     nowhere to land after a tab click.
-   - Hero modifier gained an explicit `.onPreviewKeyEvent` that
-     handles `DirectionDown` → `firstRowEntryFocusRequester
-     .requestFocus()`.  `focusProperties { down = ... }` is kept
-     as a fallback but no longer the load-bearing path (Compose's
-     spatial focus search wasn't reliably finding the rows since
-     hero/rows live in sibling Boxes, not a LazyColumn).
-   - Opted-in to `@ExperimentalComposeUiApi` at the function level.
-
-5. **COLLECTION blanket filter removed**
-   (`HomeViewModelCatalogPipeline.kt`).  Replaced with documented
-   trust in the upstream layers:
-   - `LayoutPreferenceDataStore.rowsForScope` already filters by
-     `viewContext == scope` (line 780).
-   - `populateAddonRowsForScope` inserts ONLY `LayoutRowKind.ADDON`
-     rows (line 287-303 in `NewLayoutSettingsViewModel.kt`).
-   - Manually-added collection rows (via the rows-settings picker)
-     get stamped with the active scope's viewContext, so they
-     surface only on that scope — which is the desired behavior.
-   - Net: users can now hand-add collection catalog rows to Movies
-     or TV scopes via Settings → Appearance → Rows and have them
-     render correctly, while no auto-populate path leaks them in.
-
-6. **Prime-style tight row-title→cards rhythm everywhere.**  Goal:
-   ~4–6dp total visible gap between title baseline and first card
-   top.
-   - `CatalogRowSection.kt` — `titleBottomPadding = 2.dp`
-     (was 8/12), LazyRow `contentPadding.top = 0.dp` (was 16).
-     Bottom kept at 16dp for focused-card glow shadow clearance.
-   - `ModernHomeRows.kt` — LazyRow `contentPadding.top = 0.dp`
-     (was 4); bottom kept at 4dp.
-   - `ModernHomeRowsList.kt` — `rowTitleBottom = 2.dp` (was 8).
-   - `CollectionRowSection.kt` — title `bottom = 2.dp` (was 12),
-     LazyRow `top = 0.dp` (was 16).
-   - `ContinueWatchingSection.kt` — title `bottom = 2.dp` (was 16),
-     LazyRow `top = 0.dp` (was 16).
-   - `SpotlightHomeContent.kt` — recomputed `rowsContainerHeight`
-     formula to match the new tight values (cardTop=0,
-     cardBottom=16, titlePad=2 → container = posterHeight + 74dp).
-
-### New files
-
-None this session — all targeted edits to existing files.
-
-### Bugs fixed
-
-- **Spotlight expansion animation hijacked the screen.** Animated
-  slide-up + multi-row LazyColumn meant the rows took over once
-  focused, occluding the hero.  Replaced with the spec'd
-  one-row-at-a-time swap.  See fix #1 above.
-- **Movies tab from Home was a silent no-op the first time.**  The
-  bottom-nav `saveState`/`restoreState` pair short-circuited
-  navigation on cold-target.  Existing `realRoute` reconciliation
-  (added in a prior session) was correct but didn't address the
-  state-map short-circuit downstream.  See fix #3.
-- **Spotlight unreachable from TopBar tap.**  No
-  `LocalContentFocusRequester` binding meant the TopBar's
-  D-pad-Down handler had no landing target on Spotlight.  See
-  fix #4.
-- **Spotlight hero→rows Down sometimes no-op'd.**  Relied on
-  `focusProperties.down` which is racy when hero lives outside a
-  LazyColumn (no spatial focus help).  Explicit `onPreviewKeyEvent`
-  is now load-bearing.  See fix #4.
-- **Over-aggressive COLLECTION filter.**  My Round-1 filter
-  stripped *all* collection rows on Movies/TV scopes, including
-  user-added ones.  Root cause never existed (autopopulate already
-  only inserts ADDON rows; rowsForScope already filters by
-  viewContext).  Filter removed in Round 2.  See fix #5.
-- **Title→cards gap was wildly inconsistent** across layouts:
-  Classic/Modern title bottom ranged 8–16dp; LazyRow top padding
-  was 4dp (Modern) or 16dp (Classic / Collection / CW).  Now a
-  consistent ~4dp visible gap across the board.  See fix #6.
-
-### Architectural decisions
-
-- **`onPreviewKeyEvent` over `focusProperties.down` for sibling-Box
-  focus traversal.**  When two focusable surfaces live in sibling
-  Boxes (not a shared LazyColumn), Compose's spatial focus search
-  + focusProperties path is racy if the target focus requester
-  hasn't been attached yet.  Explicit preview-key handling is the
-  reliable pattern; kept focusProperties as a defensive fallback.
-- **Trust the upstream `viewContext` filter.**  `LayoutPreference
-  DataStore.rowsForScope` already enforces per-scope visibility;
-  downstream pipelines should NOT re-filter by kind because that
-  drops legitimately user-added rows.  Auto-populate paths must
-  themselves stay scope-pure (current `populateAddonRowsForScope`
-  is correctly ADDON-only).
-- **No `saveState/restoreState` on TopNav navigation.**  The bottom-
-  nav pattern's state-restoration logic short-circuits on first
-  visit to a tab.  Until/unless a proper graph-nested NavController
-  setup is adopted, plain `popUpTo(start) + launchSingleTop` is
-  reliable.  Cost: scroll/focus rebuilds per tab switch.
-- **Spotlight rows: in-place swap, not vertical scroll.**  The
-  container is a fixed height; D-pad Up/Down change the displayed
-  row via index, not vertical focus traversal.  This required
-  intercepting both Up and Down on the container's
-  `onPreviewKeyEvent` (consuming Down on last row too, so focus
-  can't escape downward).
-
-### Pending follow-ups
-
-1. **On-device verification of all 6 fixes.**  APK installed on
-   JAWWY-TV-2.0 after both rounds but no manual smoke test
-   performed in-session.  Specifically verify:
-   - Spotlight one-row swap (Up/Down between rows).
-   - Spotlight focus after tab-switch (tap Home/Movies/TV → D-pad
-     Down lands on hero).
-   - Spotlight hero→rows Down (lands on first card of current
-     row, not nowhere).
-   - Tab nav from Home to Movies works on first tap.
-   - Tab state-rebuild cost on tab switch isn't jarring.
-   - Title→cards gap looks Prime-tight on Modern, Classic, Grid,
-     Spotlight, CW, Collections.
-2. **Carried over from prior sessions:**
-   - Phase 8 Localization sweep (~25 commits).
-   - 23 skipped upstream commits from 05-19.  Highest value:
-     `daf4546c` (player exit after CW), `5b2f0819` (next-episode
-     end overlay), `f8840d57` (Parental Guide), `08663af4`
-     + `1dfa38ad` (forced-subtitle scoring), DiscoverLocation
-     5-commit bundle.
-   - `SettingsScreen.kt` (Old) dual-maintenance cleanup.
-   - `SidebarNavigation.kt` stub + orphaned modern-sidebar
-     DataStore keys.
-   - Glow clearance vs title gap (the 16dp bottom in
-     `CatalogRowSection` is the current compromise — focused-card
-     shadows render but eat a bit of vertical space).
-   - Modern landscape card sizes barely change (Compact 104 →
-     Large 140 = only 20dp visible delta in landscape mode).
-
-### Notes for future sessions
-
-- **`navigateToTopNavRoute` is no longer saved-state aware.**  Per-
-  tab scroll position / focus restore is rebuilt on each switch.
-  If this becomes annoying, the proper fix is graph-nested
-  NavController scoping, NOT re-adding `saveState`/`restoreState`
-  (which silently breaks first-tap navigation).
-- **Spotlight focus chain is: TopBar → contentFr → outer Box →
-  focusRestorer → heroFocusRequester (default).**  Within the
-  screen: hero `.onPreviewKeyEvent` (Down) → first card of
-  `currentRowIndex`; rows-container `.onPreviewKeyEvent` handles
-  Up/Down to swap rows.
-- **Tight row spacing is consistent across all layouts now.**  If
-  one row title appears further from its cards than expected,
-  check for a wrapping `Spacer` or `Arrangement.spacedBy` on the
-  parent LazyColumn — those add to the visible gap and aren't
-  changed by this session's fixes.
-
----
-
 ## 📅 Session log — 2026-05-25 (Hero sizing, TopBar immersion, settings expansion, container architecture)
+
 
 ### Headline
 
@@ -719,3 +510,107 @@ picker, and populate/clear-all toggle.
   inner area.
 - **Long-press Back uses `nativeKeyEvent.repeatCount`** — accessed
   via `val native = event.nativeKeyEvent` (not a separate import).
+
+---
+
+## 📅 Session log — 2026-05-26/27 (Spotlight three-state hero, per-row card scaling, back hierarchy, TopBar brand glow)
+
+### Headline
+
+Multi-day session across four rounds of fixes (~30 total). Spotlight
+rewritten from scratch: Box→Column layout, three-state hero (Carousel /
+Constrained / Hidden), LazyColumn rows with Compose-native D-pad. Per-row
+card scaling fixed in Modern (`ModernRowSection` raw-vs-scaled unit
+mismatch). Universal back hierarchy wired for all four layouts (Classic,
+Grid, Modern, Spotlight). TopBar: `SelectionDashIndicator` removed,
+replaced with top-edge brand-color dash + glow for selected channel pill.
+
+### Features shipped
+
+- **Spotlight Column layout** — Vertical stack: hero section on top
+  (variable height via `animateDpAsState`), rows below (`weight(1f)`).
+  No overlap, no gap. State A=400dp Classic hero, State B=Modern
+  non-fullscreen hero (backdrop right, metadata left, reactive to
+  focused card), State C=hero hidden, rows full screen.
+- **Spotlight three-state hero** — `SpotlightHeroState` enum. Carousel
+  (HeroCarousel, TopBar visible), Constrained (ModernHeroScene +
+  HeroTitleBlock, TopBar hidden), Hidden (0dp, TopBar hidden). Per-row
+  detection: `constrainedHeroHeight < 250dp` → HIDDEN. Transitions:
+  `animateDpAsState`/`animateFloatAsState` 300ms tween.
+- **Spotlight rows: homeRows priority** — Swapped `catalogRows` (3 raw
+  addons) / `homeRows` (10+ configured rows) priority to match Classic.
+  Root cause of "only 3 rows" bug.
+- **Per-row card scaling in Modern** — `ModernRowSection` applied raw
+  `cardWidthDp` from per-row config without Modern's scaling factors
+  (`0.84f * 1.08f` portrait, `1.24f * 1.34f` landscape). Fixed in both
+  `ModernRowSection` and `ModernHomeRowsList` prefetch.
+- **Back hierarchy for all layouts** — Local `BackHandler` in each:
+  Classic (gated on `classicContentHasFocus`), Grid (gated on
+  `gridContentHasFocus`), Spotlight (L5→L4→L2 with per-row
+  `firstItemFocusRequester`), Modern (L5+immediate `activeItemIndex`
+  update for rapid double-Back, L4 jump to first row).
+- **TopBar brand glow** — `SelectionDashIndicator` deleted. Selected
+  channel pill now renders a Canvas overlay at the top screen edge: 3dp
+  horizontal dash + 50dp downward gradient in the channel's brand color.
+  Position tracked via `onGloballyPositioned`, animated with
+  `animateFloatAsState`/`animateColorAsState` 300ms. Color from
+  `ChannelTab.brandColor` or `rememberArtworkBackedGlowColor` fallback.
+- **Spotlight expand card** — Passed `focusedPosterBackdropExpandEnabled`,
+  `focusedPosterBackdropTrailerEnabled`, `focusedPosterBackdropTrailerMuted`,
+  `posterLabelsEnabled` etc. from `uiState` (was hardcoded `false`).
+- **Spotlight State B SideRail padding** — Legacy feel: 48dp start
+  padding on metadata. Modern: 16dp.
+- **Spotlight State B metadata clip** — `heightIn(max = heroHeight -
+  bottomPad - 16dp)` on `HeroTitleBlock` + `clipToBounds()` on hero Box.
+
+### Bugs fixed
+
+- **Spotlight only showed 3 rows** — `catalogRows` checked
+  `uiState.catalogRows.isNotEmpty()` first, using raw auto-populated
+  catalogs (~3) and skipping configured `homeRows` (~10+). Swapped
+  priority to match Classic.
+- **Modern per-row card sizes invisible** — Raw `cardWidthDp` (e.g.
+  140dp) replaced pre-scaled globals (~114dp). Applied same
+  `0.84*1.08` / `1.24*1.34` factors to per-row overrides.
+- **Classic/Grid back consumed at TopBar** — `BackHandler(enabled=true)`
+  consumed Back even at TopBar, blocking exit dialog. Gated on content
+  focus via `onFocusChanged`.
+- **Modern double-Back stuck on L5** — Rapid Back presses both hit L5
+  because `activeItemIndex` hadn't updated between them. Fixed by
+  immediately setting `activeItemIndex = 0` in L5 handler.
+- **Spotlight focus requesters stale after settings** — Added
+  `LaunchedEffect(catalogRows)` to prune `firstItemRequesters` map.
+
+### New files
+
+None — all edits to existing files.
+
+### Architectural decisions
+
+- **Column over Box for Spotlight** — Vertical stack eliminates
+  overlap/gap issues from the Box+align approach. `weight(1f)` on rows
+  gives natural remaining-space behavior. Hero height animations drive
+  layout changes automatically.
+- **Local BackHandlers over universal ViewModel plumbing** — Each layout
+  knows its own focus state best (Classic's `currentFocusSnapshot`,
+  Grid's `lastFocusedGridItemKey`, Modern's `activeItemIndex`,
+  Spotlight's `focusedRowIndex`/`focusedItemInRow`). Local handlers read
+  these directly without ViewModel round-trips.
+- **Brand glow via Canvas** — Pure `drawRect` + `Brush.verticalGradient`.
+  No shaders, no RenderEffect, works on Skyworth/Android 6+. Position
+  tracked via `onGloballyPositioned` + `positionInRoot()`.
+
+### Pending follow-ups
+
+1. **On-device verification** of all changes. APK installed but no
+   manual smoke test in-session. Key test paths: Spotlight three-state
+   transitions, per-row card size changes in Modern, Back hierarchy on
+   all four layouts, TopBar brand glow animation.
+2. **Phase 8 localization sweep** + 23 skipped upstream commits.
+3. **ContinueWatching row rendering** in Classic (pipeline dispatch
+   exists but renders empty).
+4. **SideRail reads order/display mode** from DataStore (settings UI
+   stores them but SideRail doesn't consume).
+5. **Spotlight D-pad between rows** — LazyColumn approach needs TV
+   verification. If focus escapes, the spatial-focus fallback is the
+   Column + verticalScroll approach from the spec.

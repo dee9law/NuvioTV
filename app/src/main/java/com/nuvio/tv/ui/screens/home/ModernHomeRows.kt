@@ -11,8 +11,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
@@ -463,16 +461,24 @@ internal fun ModernRowSection(
     // the layout settings yet) fall back to the inherited globals.
     val effLandscape = rowConfig?.let { it.cardStyle == LayoutCardStyle.LANDSCAPE }
     val effBaseWidth = rowConfig?.cardWidthDp?.dp
+    // Apply the same Modern scaling that ModernHomeContent applies to the
+    // global base width (0.84 * portraitModernPosterScale for portrait,
+    // 1.24 * landscapeModernPosterScale for landscape).  Without this the
+    // raw dp value from the per-row config would be in a different
+    // coordinate space than the pre-scaled globals and card size changes
+    // in Rows settings would barely register visually.
+    val modernPortraitScale = 0.84f * 1.08f
+    val modernLandscapeScale = 1.24f * 1.34f
     @Suppress("NAME_SHADOWING") val useLandscapePosters =
         effLandscape ?: useLandscapePosters
     @Suppress("NAME_SHADOWING") val portraitCatalogCardWidth =
-        effBaseWidth ?: portraitCatalogCardWidth
+        effBaseWidth?.times(modernPortraitScale) ?: portraitCatalogCardWidth
     @Suppress("NAME_SHADOWING") val portraitCatalogCardHeight =
-        effBaseWidth?.times(1.5f) ?: portraitCatalogCardHeight
+        effBaseWidth?.times(modernPortraitScale)?.times(1.5f) ?: portraitCatalogCardHeight
     @Suppress("NAME_SHADOWING") val landscapeCatalogCardWidth =
-        effBaseWidth ?: landscapeCatalogCardWidth
+        effBaseWidth?.times(modernLandscapeScale) ?: landscapeCatalogCardWidth
     @Suppress("NAME_SHADOWING") val landscapeCatalogCardHeight =
-        effBaseWidth?.div(1.77f) ?: landscapeCatalogCardHeight
+        effBaseWidth?.times(modernLandscapeScale)?.div(1.77f) ?: landscapeCatalogCardHeight
     val rowKey = row.key
     // Blocks vertical focus exit during placeholder→data transition.
     val blockingFocusExit = remember { mutableStateOf(false) }
@@ -492,43 +498,17 @@ internal fun ModernRowSection(
         }
         val rowTitle = row.title
         val textColor = remember { NuvioColors.TextPrimary }
-        // Modern feel: 16dp title inset matches the row / TopBar buffer.
-        // Legacy: 52dp historical clearance.
         val rowTitleStartInset = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 52.dp
-        // Row titles are focusable + clickable (Fix 3). Addon catalog
-        // rows (catalogId / addonId / apiType all non-blank) navigate
-        // to the Catalog "See all" grid on Select. Non-addon rows
-        // (Continue Watching, collections, Trakt/TMDB) stay focusable
-        // for D-pad reachability but no-op on press.
-        val rowCatalogId = row.catalogId
-        val rowAddonId = row.addonId
-        val rowApiType = row.apiType
-        val isAddonCatalogRow = !rowCatalogId.isNullOrBlank() &&
-            !rowAddonId.isNullOrBlank() &&
-            !rowApiType.isNullOrBlank() &&
-            row.key != MODERN_CONTINUE_WATCHING_ROW_KEY
-        var titleFocused by remember { mutableStateOf(false) }
-        val focusedTitleColor = NuvioColors.Secondary
         Box(
             modifier = Modifier
                 .padding(start = rowTitleStartInset, bottom = rowTitleBottom)
                 .height(28.dp)
                 .wrapContentHeight(Alignment.CenterVertically)
-                .onFocusChanged { state -> titleFocused = state.isFocused || state.hasFocus }
-                .then(
-                    if (isAddonCatalogRow) {
-                        Modifier.clickable {
-                            onNavigateToCatalogSeeAll(rowCatalogId!!, rowAddonId!!, rowApiType!!)
-                        }
-                    } else {
-                        Modifier.focusable()
-                    }
-                )
         ) {
             Text(
                 text = rowTitle,
                 style = rowTitleStyle,
-                color = if (titleFocused) focusedTitleColor else textColor,
+                color = textColor,
             )
         }
 

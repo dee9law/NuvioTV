@@ -12,6 +12,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
@@ -41,6 +42,7 @@ import coil3.compose.AsyncImage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,8 +56,13 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -267,12 +274,37 @@ fun TopNavigationBar(
     val isModernFeelForTopBar = com.nuvio.tv.LocalIsModernFeel.current
     val topBarLeading = if (isModernFeelForTopBar) 16.dp else 36.dp
     val topBarTrailing = if (isModernFeelForTopBar) 16.dp else 0.dp
+
+    // ── Brand glow state for selected channel pill ──────────────────────
+    var glowRootX by remember { mutableFloatStateOf(0f) }
+    var glowWidthPx by remember { mutableFloatStateOf(0f) }
+    var glowRawColor by remember { mutableStateOf(Color.Transparent) }
+    var barRootX by remember { mutableFloatStateOf(0f) }
+    val animatedGlowX by animateFloatAsState(
+        targetValue = glowRootX - barRootX,
+        animationSpec = tween(300),
+        label = "glowX"
+    )
+    val animatedGlowWidth by animateFloatAsState(
+        targetValue = glowWidthPx,
+        animationSpec = tween(300),
+        label = "glowW"
+    )
+    val animatedGlowColor by animateColorAsState(
+        targetValue = glowRawColor,
+        animationSpec = tween(300),
+        label = "glowColor"
+    )
+    val showGlow = selectedChannelIndex != null && glowWidthPx > 0f
+
+    Box(modifier = modifier.fillMaxWidth()) {
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .height(NavBarHeight)
             .background(NavBarBg)
             .padding(start = topBarLeading, end = topBarTrailing)
+            .onGloballyPositioned { barRootX = it.positionInRoot().x }
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
                     runCatching { contentFr.requestFocus() }.isSuccess
@@ -492,6 +524,11 @@ fun TopNavigationBar(
                         onClick = { onChannelSelected(index) },
                         onWrapRight = if (isLastChannel) wrapToFirstChannel else null,
                         onWrapLeft = if (isFirstChannel) wrapToLastChannel else null,
+                        onGlowPositionReported = if (isActiveChannel) { rootX, widthPx, color ->
+                            glowRootX = rootX
+                            glowWidthPx = widthPx
+                            glowRawColor = color
+                        } else null,
                     )
                 }
             }
@@ -501,7 +538,42 @@ fun TopNavigationBar(
         // channel-pill LazyRow now extends to the right screen edge.
         // Pill-channels management now lives in the Profile Overlay
         // (Modern feel) and SideRail (Legacy feel).
+    } // Row
+
+    // ── Brand glow overlay at top screen edge (channel pills only) ──
+    if (showGlow && animatedGlowWidth > 0f) {
+        val glowHeightDp = 50.dp
+        val dashHeightDp = 3.dp
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(glowHeightDp)
+                .align(Alignment.TopStart)
+        ) {
+            val dashH = dashHeightDp.toPx()
+            val glowH = glowHeightDp.toPx()
+            // Horizontal dash at y=0
+            drawRect(
+                color = animatedGlowColor,
+                topLeft = Offset(animatedGlowX, 0f),
+                size = Size(animatedGlowWidth, dashH)
+            )
+            // Soft downward glow gradient
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        animatedGlowColor.copy(alpha = 0.6f),
+                        Color.Transparent
+                    ),
+                    startY = dashH,
+                    endY = glowH
+                ),
+                topLeft = Offset(animatedGlowX, dashH),
+                size = Size(animatedGlowWidth, glowH - dashH)
+            )
+        }
     }
+    } // Box
 }
 
 // ── Private sub-composables ──────────────────────────────────────────────────
@@ -727,10 +799,6 @@ private fun CategoryTabItem(
             }
         }
     } // Card
-    // Resting selected indicator — hidden in edit mode (where the
-    // accent border already signals the grabbed pill) and while
-    // focused (focus highlight already obvious).
-    SelectionDashIndicator(visible = isSelected && !isFocused && !editMode)
     } // Column
 }
 
@@ -754,11 +822,9 @@ private fun ChannelTabItem(
      * hides the logo. Falls back to text when there's no logo to show.
      */
     displayMode: CategoryPillDisplayMode = CategoryPillDisplayMode.ICON_AND_TEXT,
+    onGlowPositionReported: ((rootX: Float, widthPx: Float, color: Color) -> Unit)? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    // Track logo load outcome so a 404 / broken URL gracefully degrades
-    // to a text-only pill instead of leaving a blank or broken-image
-    // gap. Resets whenever the URL itself changes.
     var logoLoadFailed by remember(channel.titleLogoUrl) { mutableStateOf(false) }
 
     // Resting "selected" state uses a thin underline dash (rendered as a
@@ -802,11 +868,33 @@ private fun ChannelTabItem(
         else PillFocusBorder
     val pillFocusedBorderWidth = if (pillIsBloom) 2.dp else 1.5.dp
 
+    // Resolve brand color for the top-edge glow indicator.
+    // Prefer brandColor if it's not fully transparent; else extract from logo.
+    val brandGlowColor = if (channel.brandColor != Color.Transparent) {
+        channel.brandColor
+    } else {
+        rememberArtworkBackedGlowColor(
+            imageUrl = channel.titleLogoUrl,
+            fallbackSeed = channel.id,
+            enabled = true,
+            fallbackColor = NuvioColors.Secondary,
+        )
+    }
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
     Card(
         onClick = onClick,
         modifier = Modifier
             .scale(scale)
+            .then(
+                if (onGlowPositionReported != null) Modifier.onGloballyPositioned { coords ->
+                    onGlowPositionReported(
+                        coords.positionInRoot().x,
+                        coords.size.width.toFloat(),
+                        brandGlowColor
+                    )
+                } else Modifier
+            )
             .then(
                 if (showPillGlow) {
                     Modifier.shadow(
@@ -916,34 +1004,7 @@ private fun ChannelTabItem(
             )
         }
     } // Card
-    SelectionDashIndicator(visible = isSelected && !isFocused)
     } // Column
-}
-
-/**
- * Tiny circular indicator dot that sits directly below a pill to mark
- * the resting "selected" state. Sized in absolute dp so it's scoped to
- * its parent Column (one pill) — not the bar — and renders even when
- * the pill's own width is wider than the dot. Hidden when focused so
- * the focus highlight isn't muddled, and not painted at all when off
- * (an empty `Spacer` so layout doesn't shift).
- */
-@Composable
-private fun SelectionDashIndicator(visible: Boolean) {
-    val alpha by animateFloatAsState(
-        targetValue = if (visible) 0.8f else 0f,
-        animationSpec = tween(160),
-        label = "selectionDashAlpha",
-    )
-    Box(
-        modifier = Modifier
-            .padding(top = 2.dp)
-            .size(6.dp)
-            .background(
-                color = Color.White.copy(alpha = alpha),
-                shape = androidx.compose.foundation.shape.CircleShape,
-            ),
-    )
 }
 
 /**

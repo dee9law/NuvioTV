@@ -649,7 +649,9 @@ private fun TopNavBarScaffold(
             Screen.CollectionsHome.route,
         )
     }
-    val showTopNav = (isModernFeel || topBarEnabled) && currentRoute in layoutRoutes
+    val isOnLayoutRoute = currentRoute in layoutRoutes
+    val showTopNav = (isModernFeel || topBarEnabled) && isOnLayoutRoute
+    val showSideRail = !isModernFeel && isOnLayoutRoute
 
     // Whenever the user lands on a layout route, force the immersion
     // state back to visible so the TopBar reappears immediately (no
@@ -1115,7 +1117,7 @@ private fun TopNavBarScaffold(
             // Modern feel skips the rail entirely — content runs edge-to-edge
             // and the profile/Search/Discover entry points live in the
             // Profile Overlay opened from the avatar (added in F4–F6).
-            if (showTopNav && !isModernFeel) {
+            if (showSideRail) {
                 SideRail(
                     onSearchClick = {
                         onNavigate(Screen.Search.route)

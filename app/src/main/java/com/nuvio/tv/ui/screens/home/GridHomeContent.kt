@@ -1,8 +1,10 @@
 package com.nuvio.tv.ui.screens.home
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.State
 import androidx.compose.foundation.lazy.grid.items
 import com.nuvio.tv.LocalContentFocusRequester
+import com.nuvio.tv.LocalNavBarFocusRequester
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -203,6 +205,8 @@ fun GridHomeContent(
         runCatching { gridFirstContentFocusRequester.requestFocus() }
     }
 
+    val gridNavBarFr = LocalNavBarFocusRequester.current
+
     LaunchedEffect(
         shouldRequestInitialFocus,
         hasHero,
@@ -264,6 +268,21 @@ fun GridHomeContent(
         else emptyList()
     }
 
+    // Back hierarchy: card → first card → hero (if exists) → TopBar
+    var gridContentHasFocus by remember { mutableStateOf(false) }
+    val firstFocusableKey = remember(hasHero, gridItemsWithKeys) {
+        if (hasHero) "hero"
+        else gridItemsWithKeys.firstOrNull { it.first is GridItem.Content || it.first is GridItem.SeeAll }?.second
+    }
+    BackHandler(enabled = gridContentHasFocus) {
+        if (lastFocusedGridItemKey.value != firstFocusableKey) {
+            if (hasHero) runCatching { heroFocusRequester.requestFocus() }
+            else runCatching { gridFirstContentFocusRequester.requestFocus() }
+        } else {
+            runCatching { gridNavBarFr.requestFocus() }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         val contentFocusRequester = LocalContentFocusRequester.current
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -274,6 +293,7 @@ fun GridHomeContent(
             modifier = Modifier
                 .fillMaxSize()
                 .focusRequester(contentFocusRequester)
+                .onFocusChanged { gridContentHasFocus = it.hasFocus }
                 .focusRestorer()
                 // Hero focus chain: when the user is on the first content row
                 // (or on the hero card itself) and presses Up, natural

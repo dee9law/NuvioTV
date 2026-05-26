@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import androidx.activity.compose.BackHandler
 import com.nuvio.tv.LocalContentFocusRequester
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -226,6 +227,9 @@ fun ClassicHomeContent(
             uiState.catalogRows.filter { it.items.isNotEmpty() }.map { HomeRow.Catalog(it) }
         }
     }
+    val cwInRowList = remember(visibleHomeRows) {
+        visibleHomeRows.any { it is HomeRow.ContinueWatching }
+    }
     val visibleRowKeys = remember(visibleHomeRows) {
         visibleHomeRows.mapTo(mutableSetOf()) { row ->
             when (row) {
@@ -280,6 +284,23 @@ fun ClassicHomeContent(
     }
 
     val heroVisible = uiState.heroSectionEnabled && uiState.heroItems.isNotEmpty()
+
+    var classicContentHasFocus by remember { mutableStateOf(false) }
+    // Back hierarchy: L5 → L4 → L2 (only when content has focus)
+    BackHandler(enabled = classicContentHasFocus) {
+        when {
+            currentFocusSnapshot.itemIndex > 0 -> {
+                val fr = currentFocusSnapshot.rowKey?.let { rowFirstItemFocusRequesters[it] }
+                    ?: currentFocusSnapshot.rowKey?.let { rowEntryFocusRequesters[it] }
+                if (fr != null) runCatching { fr.requestFocus() }
+            }
+            currentFocusSnapshot.rowIndex > 0 -> {
+                if (heroVisible) runCatching { heroFocusRequester.requestFocus() }
+                else runCatching { classicNavBarFr.requestFocus() }
+            }
+            else -> runCatching { classicNavBarFr.requestFocus() }
+        }
+    }
 
     val heroExpected = uiState.heroSectionEnabled
     val heroResolved = !heroExpected || heroVisible
@@ -405,6 +426,7 @@ fun ClassicHomeContent(
         modifier = Modifier
             .fillMaxSize()
             .focusRequester(contentFocusRequester)
+            .onFocusChanged { classicContentHasFocus = it.hasFocus }
             .focusRestorer()
             .dpadVerticalFastScroll(
                 scrollableState = columnListState,
@@ -480,8 +502,8 @@ fun ClassicHomeContent(
             }
         }
 
-        if (uiState.continueWatchingItems.isNotEmpty()) {
-            item(key = "continue_watching", contentType = "continue_watching") {
+        if (uiState.continueWatchingItems.isNotEmpty() && !cwInRowList) {
+            item(key = "continue_watching_standalone", contentType = "continue_watching") {
                 val firstRowKey = visibleHomeRows.firstOrNull()?.let { row ->
                     when (row) {
                         is HomeRow.Catalog -> "${row.row.addonId}_${row.row.apiType}_${row.row.catalogId}"
@@ -704,7 +726,41 @@ fun ClassicHomeContent(
                     )
                 }
 
-                is HomeRow.ContinueWatching -> { }
+                is HomeRow.ContinueWatching -> {
+                    if (uiState.continueWatchingItems.isNotEmpty()) {
+                        ContinueWatchingSection(
+                            items = uiState.continueWatchingItems,
+                            onItemClick = { item -> onContinueWatchingClick(item) },
+                            onStartFromBeginning = onContinueWatchingStartFromBeginning,
+                            showManualPlayOption = showContinueWatchingManualPlayOption,
+                            onPlayManually = onContinueWatchingPlayManually,
+                            onDetailsClick = { item ->
+                                onNavigateToDetail(
+                                    item.contentId(), item.contentType(), ""
+                                )
+                            },
+                            onRemoveItem = { item ->
+                                onRemoveContinueWatching(
+                                    item.contentId(), item.season(), item.episode(),
+                                    item is ContinueWatchingItem.NextUp
+                                )
+                            },
+                            focusedItemIndex = -1,
+                            onItemFocused = { itemIndex ->
+                                currentFocusSnapshot.rowIndex = index
+                                currentFocusSnapshot.itemIndex = itemIndex
+                                if (uiState.classicFocusGradientEnabled) {
+                                    focusedArtwork = uiState.continueWatchingItems.getOrNull(itemIndex)
+                                        ?.toClassicFocusArtwork(uiState.focusedPosterBackdropExpandEnabled)
+                                }
+                            },
+                            blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
+                            useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
+                            cardWidth = classicContinueWatchingCardWidth,
+                            imageHeight = classicContinueWatchingImageHeight
+                        )
+                    }
+                }
 
                 is HomeRow.PlaceholderCatalog -> { }
             }

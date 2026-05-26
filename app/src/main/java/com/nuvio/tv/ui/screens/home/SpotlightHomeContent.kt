@@ -1,38 +1,51 @@
 package com.nuvio.tv.ui.screens.home
 
+import android.util.Log
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.LocalNavBarFocusRequester
+import com.nuvio.tv.domain.model.LayoutCardStyle
+import com.nuvio.tv.domain.model.LayoutRowKey
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.CatalogRowSection
 import com.nuvio.tv.ui.components.HeroCarousel
@@ -40,24 +53,78 @@ import com.nuvio.tv.ui.components.PosterCardStyle
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.util.asStable
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
+
+private enum class SpotlightHeroState { CAROUSEL, CONSTRAINED, HIDDEN }
+
+private const val SPOTLIGHT_HERO_MIN_DP = 250
+private const val SPOTLIGHT_TRANSITION_MS = 300
+private const val SPOTLIGHT_FOCUS_DEBOUNCE_MS = 140L
+
+private fun resolveRowCardHeight(
+    row: com.nuvio.tv.domain.model.CatalogRow?,
+    rowConfigLookup: Map<String, com.nuvio.tv.domain.model.LayoutRowConfig>,
+    posterCardStyle: PosterCardStyle,
+): Dp {
+    if (row == null) return posterCardStyle.height
+    val config = rowConfigLookup[LayoutRowKey.forAddon(row.addonId, row.apiType, row.catalogId)]
+        ?: return posterCardStyle.height
+    val w = config.cardWidthDp.dp
+    val style = com.nuvio.tv.domain.model.resolveLayoutSetting(
+        config.cardStyle, null, LayoutCardStyle.POSTER
+    )
+    return if (style == LayoutCardStyle.LANDSCAPE) w / 1.77f else w * 1.5f
+}
+
+private fun resolveRowPosterCardStyle(
+    row: com.nuvio.tv.domain.model.CatalogRow,
+    rowConfigLookup: Map<String, com.nuvio.tv.domain.model.LayoutRowConfig>,
+    basePosterCardStyle: PosterCardStyle,
+): PosterCardStyle {
+    val config = rowConfigLookup[LayoutRowKey.forAddon(row.addonId, row.apiType, row.catalogId)]
+        ?: return basePosterCardStyle
+    val w = config.cardWidthDp.dp
+    val style = com.nuvio.tv.domain.model.resolveLayoutSetting(
+        config.cardStyle, null, LayoutCardStyle.POSTER
+    )
+    val h = if (style == LayoutCardStyle.LANDSCAPE) w / 1.77f else w * 1.5f
+    return basePosterCardStyle.copy(width = w, height = h)
+}
+
+private fun MetaPreview.toSpotlightHeroPreview(): HeroPreview = HeroPreview(
+    title = name,
+    logo = logo,
+    description = description,
+    contentTypeText = null,
+    isSeries = isSeriesType(apiType),
+    yearText = null,
+    runtimeText = null,
+    imdbText = imdbRating?.let { String.format(java.util.Locale.US, "%.1f", it) },
+    ageRatingText = null,
+    statusText = null,
+    countryText = null,
+    languageText = null,
+    genres = genres.take(3).asStable(),
+    poster = poster,
+    backdrop = backdropUrl ?: poster,
+    imageUrl = poster ?: backdropUrl,
+    frozenBackdropUrl = null,
+    frozenLogoUrl = null
+)
 
 /**
- * Spotlight Home — fixed full-bleed hero + fixed-height row strip at
- * the bottom. The rows container is exactly **one row tall** (sized
- * dynamically from the active [PosterCardStyle]) and never resizes;
- * D-pad Down/Up swap the visible row in place, keeping the hero
- * always visible at the top.
+ * Spotlight Home — Column layout with three-state hero + LazyColumn rows.
  *
- *  - Hero height = `screenHeight - rowsContainerHeight` (no animation).
- *  - Rows container = one row's height computed from card size.
- *  - D-pad Down from card → next row (or no-op on last row).
- *  - D-pad Up from card on first row → hero. Up on row 1+ → previous row.
- *  - D-pad Down from hero → first card of the currently-displayed row.
+ * Layout is a simple vertical stack: Hero section on top (variable height),
+ * rows section below (fills remaining space via `weight(1f)`).
  *
- * When the row strip has focus, the hero recomposes (via `key()`) with
- * a single-item list = the focused card, mirroring Modern's
- * focused-poster preview. A 140ms debounce keeps rapid horizontal
- * scrolling from thrashing the backdrop.
+ * **State A (CAROUSEL):** HeroCarousel at 400dp — same as Classic.
+ * **State B (CONSTRAINED):** Modern non-fullscreen hero style. Hero takes
+ *   its constrained height. Rows start directly below — no overlap, no gap.
+ * **State C (HIDDEN):** Hero 0dp. Rows fill screen.
+ *
+ * D-pad between rows handled by Compose's spatial focus system (LazyColumn).
+ * ALL catalogRows passed — no row limit.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -74,72 +141,165 @@ fun SpotlightHomeContent(
 ) {
     // ── Data sources ────────────────────────────────────────────────
     val catalogRows = remember(uiState.catalogRows, uiState.homeRows) {
-        when {
-            uiState.catalogRows.isNotEmpty() -> uiState.catalogRows
+        // Prefer homeRows (configured layout from settings) over raw catalogRows,
+        // matching Classic's priority. homeRows includes user-added rows and
+        // respects the Rows settings — catalogRows is only the auto-populated set.
+        val rows = when {
             uiState.homeRows.isNotEmpty() -> uiState.homeRows
                 .mapNotNull { (it as? HomeRow.Catalog)?.row }
+            uiState.catalogRows.isNotEmpty() -> uiState.catalogRows
             else -> emptyList()
         }
+        Log.d("SpotlightNav", "rows=${rows.size} (homeRows=${uiState.homeRows.size} catalogRows=${uiState.catalogRows.size})")
+        rows
     }
     val heroCarouselItems = uiState.heroItems
-
-    // ── Sizing ──────────────────────────────────────────────────────
-    val configuration = LocalConfiguration.current
-    val screenHeight = configuration.screenHeightDp.dp
-    val rowsContainerHeight = remember(posterCardStyle.height) {
-        singleRowContainerHeight(posterCardStyle.height)
-    }
-    val heroHeight = remember(screenHeight, rowsContainerHeight) {
-        heroHeightForRowsContainer(screenHeight, rowsContainerHeight)
-    }
-
-    // ── State: hero focus mirror + one-row-at-a-time index ──────────
-    var rowsAreaHasFocus by remember { mutableStateOf(false) }
-    var focusedRowItem by remember { mutableStateOf<MetaPreview?>(null) }
-    var pendingFocusedRowItem by remember { mutableStateOf<MetaPreview?>(null) }
-    LaunchedEffect(pendingFocusedRowItem) {
-        delay(140L) // mirrors MODERN_HORIZONTAL_FOCUS_DEBOUNCE_MS
-        if (pendingFocusedRowItem != focusedRowItem) {
-            focusedRowItem = pendingFocusedRowItem
-        }
-    }
-
-    var currentRowIndex by remember { mutableIntStateOf(0) }
-    // Clamp index if catalogRows shrinks underneath us.
-    LaunchedEffect(catalogRows.size) {
-        if (catalogRows.isNotEmpty() && currentRowIndex > catalogRows.lastIndex) {
-            currentRowIndex = catalogRows.lastIndex
-        }
-    }
-
-    val heroDisplayItems: List<MetaPreview> = when {
-        rowsAreaHasFocus && focusedRowItem != null -> listOf(focusedRowItem!!)
+    val heroDisplayItems = when {
         heroCarouselItems.isNotEmpty() -> heroCarouselItems
         else -> listOfNotNull(catalogRows.firstOrNull()?.items?.firstOrNull())
     }
 
-    // ── TopBar immersion: hide when rows have focus, show on hero ──
-    LaunchedEffect(rowsAreaHasFocus) {
-        com.nuvio.tv.ui.components.TopBarImmersionState.setVisible(!rowsAreaHasFocus)
+    // ── Screen sizing ───────────────────────────────────────────────
+    val configuration = LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp.dp
+    val screenHeight = configuration.screenHeightDp.dp
+    val density = LocalDensity.current
+
+    // ── Focus tracking ──────────────────────────────────────────────
+    var rowsAreaHasFocus by remember { mutableStateOf(false) }
+    var focusedRowIndex by remember { mutableIntStateOf(0) }
+    var focusedItemInRow by remember { mutableIntStateOf(0) }
+    var pendingFocusedItem by remember { mutableStateOf<MetaPreview?>(null) }
+    var debouncedFocusedItem by remember { mutableStateOf<MetaPreview?>(null) }
+    val firstItemRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+
+    // Clean up stale focus requesters when rows data changes (e.g. after settings)
+    LaunchedEffect(catalogRows) {
+        firstItemRequesters.keys.retainAll((0 until catalogRows.size).toSet())
+    }
+
+    LaunchedEffect(pendingFocusedItem) {
+        delay(SPOTLIGHT_FOCUS_DEBOUNCE_MS)
+        if (pendingFocusedItem != debouncedFocusedItem) {
+            debouncedFocusedItem = pendingFocusedItem
+        }
+    }
+
+    // ── Per-row hero sizing (Fix 4: recalculated per focused row) ──
+    val focusedRowCardHeight by remember {
+        derivedStateOf {
+            resolveRowCardHeight(
+                catalogRows.getOrNull(focusedRowIndex),
+                uiState.rowConfigLookup,
+                posterCardStyle,
+            )
+        }
+    }
+    val focusedRowContainerHeight = remember(focusedRowCardHeight) {
+        singleRowContainerHeight(focusedRowCardHeight)
+    }
+    val constrainedHeroHeight = remember(screenHeight, focusedRowContainerHeight) {
+        heroHeightForRowsContainer(screenHeight, focusedRowContainerHeight)
+    }
+    val showHeroForFocusedRow = constrainedHeroHeight >= SPOTLIGHT_HERO_MIN_DP.dp
+
+    val carouselHeroHeight = 400.dp
+
+    // ── Hero state machine ──────────────────────────────────────────
+    val heroState by remember {
+        derivedStateOf {
+            when {
+                !rowsAreaHasFocus -> SpotlightHeroState.CAROUSEL
+                showHeroForFocusedRow -> SpotlightHeroState.CONSTRAINED
+                else -> SpotlightHeroState.HIDDEN
+            }
+        }
+    }
+
+    // ── Animated hero height ────────────────────────────────────────
+    val targetHeroHeight = when (heroState) {
+        SpotlightHeroState.CAROUSEL -> carouselHeroHeight
+        SpotlightHeroState.CONSTRAINED -> constrainedHeroHeight
+        SpotlightHeroState.HIDDEN -> 0.dp
+    }
+    val animatedHeroHeight by animateDpAsState(
+        targetValue = targetHeroHeight,
+        animationSpec = tween(SPOTLIGHT_TRANSITION_MS),
+        label = "spotlightHeroHeight"
+    )
+
+    val carouselAlpha by animateFloatAsState(
+        targetValue = if (heroState == SpotlightHeroState.CAROUSEL) 1f else 0f,
+        animationSpec = tween(SPOTLIGHT_TRANSITION_MS),
+        label = "carouselAlpha"
+    )
+    val constrainedAlpha by animateFloatAsState(
+        targetValue = if (heroState == SpotlightHeroState.CONSTRAINED) 1f else 0f,
+        animationSpec = tween(SPOTLIGHT_TRANSITION_MS),
+        label = "constrainedAlpha"
+    )
+
+    // ── Constrained hero data (State B) ─────────────────────────────
+    val spotlightHeroPreview = remember(debouncedFocusedItem) {
+        debouncedFocusedItem?.toSpotlightHeroPreview()
+    }
+    val latestHeroPreview by rememberUpdatedState(spotlightHeroPreview)
+    val spotlightHeroBackdrop = remember(debouncedFocusedItem) {
+        debouncedFocusedItem?.let { firstNonBlank(it.backdropUrl, it.poster) }
+    }
+    val spotlightHeroSceneState = remember(spotlightHeroBackdrop, spotlightHeroPreview) {
+        ModernHeroSceneState(
+            heroBackdrop = spotlightHeroBackdrop,
+            preview = spotlightHeroPreview,
+            enrichmentActive = false,
+            shouldPlayTrailer = false,
+            trailerFirstFrameRendered = false,
+            trailerUrl = null,
+            trailerAudioUrl = null,
+            trailerPlaybackKey = null,
+            trailerMuted = true,
+            fullScreenBackdrop = false
+        )
+    }
+    val latestHeroSceneState by rememberUpdatedState(spotlightHeroSceneState)
+    val heroSceneStateLambda = remember { { latestHeroSceneState } }
+    val heroMediaWidthPx = remember(screenWidth, density) {
+        with(density) { (screenWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION).roundToPx() }
+    }
+    val heroMediaHeightPx = remember(constrainedHeroHeight, density) {
+        with(density) { constrainedHeroHeight.roundToPx().coerceAtLeast(1) }
+    }
+
+    // ── TopBar immersion ────────────────────────────────────────────
+    LaunchedEffect(heroState) {
+        com.nuvio.tv.ui.components.TopBarImmersionState.setVisible(
+            heroState == SpotlightHeroState.CAROUSEL
+        )
     }
     DisposableEffect(Unit) {
         onDispose { com.nuvio.tv.ui.components.TopBarImmersionState.setVisible(true) }
     }
 
+    // ── Focus requesters ────────────────────────────────────────────
     val navBarFr = LocalNavBarFocusRequester.current
-    // Bound to the outer Box via `Modifier.focusRequester` below — this
-    // is the requester the TopBar's D-pad-Down handler invokes when the
-    // user taps Down from a pill. Without this binding, returning to the
-    // Spotlight screen from another tab leaves no entry point: D-pad Down
-    // from the TopBar would no-op because contentFr.requestFocus() had
-    // nothing to land on.
     val contentFocusRequester = LocalContentFocusRequester.current
     val heroFocusRequester = remember { FocusRequester() }
-    // Attached to the first card of whichever row is currently visible.
-    // Same instance across row swaps so Hero's `down` and parent-level
-    // Up-from-row-N can both target it.
-    val firstRowEntryFocusRequester = remember { FocusRequester() }
+    val rowsContainerFr = remember { FocusRequester() }
+    val rowsListState = rememberLazyListState()
 
+    // ── Back hierarchy: L5 → L4 → L2 ───────────────────────────────
+    BackHandler(enabled = rowsAreaHasFocus || heroState == SpotlightHeroState.CAROUSEL) {
+        when {
+            rowsAreaHasFocus && focusedItemInRow > 0 -> {
+                val fr = firstItemRequesters[focusedRowIndex]
+                if (fr != null) runCatching { fr.requestFocus() }
+            }
+            rowsAreaHasFocus -> runCatching { heroFocusRequester.requestFocus() }
+            else -> runCatching { navBarFr.requestFocus() }
+        }
+    }
+
+    // ── Initial focus ───────────────────────────────────────────────
     val shouldRequestInitialFocus = remember(focusState) {
         !focusState.hasSavedFocus &&
             focusState.verticalScrollIndex == 0 &&
@@ -153,7 +313,7 @@ fun SpotlightHomeContent(
                 if (heroDisplayItems.isNotEmpty()) {
                     heroFocusRequester.requestFocus()
                 } else {
-                    firstRowEntryFocusRequester.requestFocus()
+                    rowsContainerFr.requestFocus()
                 }
                 true
             }.getOrDefault(false)
@@ -161,149 +321,145 @@ fun SpotlightHomeContent(
         }
     }
 
-    // When the user swaps rows via D-pad, re-target focus onto the new
-    // row's first card. Gated by `rowsAreaHasFocus` so the initial-focus
-    // request (hero on first mount) isn't fought.
-    LaunchedEffect(currentRowIndex) {
-        if (!rowsAreaHasFocus) return@LaunchedEffect
-        repeat(15) {
-            withFrameNanos { }
-            val ok = runCatching {
-                firstRowEntryFocusRequester.requestFocus(); true
-            }.getOrDefault(false)
-            if (ok) return@LaunchedEffect
-        }
-    }
-
-    Box(
+    // ── Layout: Column (hero on top, rows below) ────────────────────
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            // Bind LocalContentFocusRequester to this outer Box + provide a
-            // focusRestorer that lands on the hero by default.  This is what
-            // makes "tap a tab pill, press D-pad Down" reach the Spotlight
-            // content — the TopBar's Down handler calls `contentFr
-            // .requestFocus()`, which routes here.  Without it, returning
-            // from another tab leaves the screen un-enterable.
             .focusRequester(contentFocusRequester)
             .focusRestorer(heroFocusRequester)
             .focusGroup()
     ) {
-        // ── 1. Hero — fixed at top, never resizes or moves. ─────────
-        key(rowsAreaHasFocus, focusedRowItem?.id) {
-            HeroCarousel(
-                items = heroDisplayItems.asStable(),
-                onItemClick = { item ->
-                    onNavigateToDetail(item.id, item.apiType, "")
-                },
-                focusRequester = heroFocusRequester,
-                heroHeight = heroHeight,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    // Explicit Down handler.  The hero lives outside any
-                    // LazyColumn here, so Compose's spatial focus search
-                    // doesn't reliably find the rows below; pointing
-                    // `focusProperties.down` at the row's first-card
-                    // requester was also racy when the row hadn't measured
-                    // yet.  Intercepting Down here is the reliable path.
-                    .onPreviewKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown &&
-                            event.key == Key.DirectionDown
-                        ) {
-                            runCatching { firstRowEntryFocusRequester.requestFocus() }
-                                .getOrDefault(false)
-                            true
-                        } else false
-                    }
-                    .focusProperties {
-                        up = navBarFr
-                        // Kept as a defensive fallback in case the preview
-                        // handler above doesn't fire (e.g. on some focus
-                        // search paths Compose bypasses preview).
-                        down = firstRowEntryFocusRequester
-                    }
-            )
-        }
-
-        // ── 2. Rows — FIXED one-row-tall container at the bottom. ───
-        // D-pad Up/Down intercepted at parent level via onPreviewKeyEvent
-        // so the row-strip swaps in place instead of moving focus
-        // outside the container or scrolling vertically.
+        // ── Hero section: height varies by state ────────────────────
         Box(
             modifier = Modifier
-                .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .height(rowsContainerHeight)
+                .height(animatedHeroHeight)
                 .clipToBounds()
-                .onFocusChanged { state -> rowsAreaHasFocus = state.hasFocus }
-                .onPreviewKeyEvent { event ->
-                    when (event.key) {
-                        Key.DirectionDown -> {
-                            if (event.type == KeyEventType.KeyDown) {
-                                android.util.Log.d("SpotlightNav", "Down pressed, currentRowIndex=$currentRowIndex, totalRows=${catalogRows.size}")
-                                if (currentRowIndex < catalogRows.lastIndex) {
-                                    currentRowIndex++
-                                }
-                            }
-                            true
-                        }
-                        Key.DirectionUp -> {
-                            if (event.type == KeyEventType.KeyDown) {
-                                android.util.Log.d("SpotlightNav", "Up pressed, currentRowIndex=$currentRowIndex")
-                                if (currentRowIndex == 0) {
-                                    runCatching { heroFocusRequester.requestFocus() }
-                                } else {
-                                    currentRowIndex--
-                                }
-                            }
-                            true
-                        }
-                        else -> false
-                    }
-                }
         ) {
-            val currentRow = catalogRows.getOrNull(currentRowIndex)
-            if (currentRow != null) {
-                key(currentRowIndex) {
+            // State A: HeroCarousel — always in tree for focusability
+            HeroCarousel(
+                items = heroDisplayItems.asStable(),
+                onItemClick = { item -> onNavigateToDetail(item.id, item.apiType, "") },
+                focusRequester = heroFocusRequester,
+                heroHeight = carouselHeroHeight,
+                modifier = Modifier
+                    .graphicsLayer { alpha = carouselAlpha }
+                    .focusProperties {
+                        up = navBarFr
+                        down = rowsContainerFr
+                    }
+            )
+
+            // State B: Constrained hero (Modern non-fullscreen style).
+            // Metadata is capped to fit within the hero height so it
+            // never bleeds past the bottom edge.
+            if (constrainedAlpha > 0f) {
+                val rowHorizontalPadding = if (com.nuvio.tv.LocalIsModernFeel.current) 16.dp else 48.dp
+                ModernHeroScene(
+                    state = heroSceneStateLambda,
+                    isFullScreen = { false },
+                    bgColor = NuvioColors.Background,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 56.dp)
+                        .fillMaxWidth(MODERN_HERO_MEDIA_WIDTH_FRACTION)
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = constrainedAlpha },
+                    requestWidthPx = heroMediaWidthPx,
+                    requestHeightPx = heroMediaHeightPx,
+                    onTrailerEnded = {},
+                    onFirstFrameRendered = {}
+                )
+                val metaBottomPad = (animatedHeroHeight.value * 0.12f).coerceIn(16f, 48f).dp
+                val metaMaxHeight = (animatedHeroHeight - metaBottomPad - 16.dp).coerceAtLeast(0.dp)
+                HeroTitleBlock(
+                    previewProvider = { latestHeroPreview },
+                    portraitMode = true,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = rowHorizontalPadding, end = 48.dp, bottom = metaBottomPad)
+                        .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
+                        .heightIn(max = metaMaxHeight)
+                        .graphicsLayer { alpha = constrainedAlpha }
+                )
+            }
+        }
+
+        // ── Rows section: fills remaining space ─────────────────────
+        if (catalogRows.isNotEmpty()) {
+            LazyColumn(
+                state = rowsListState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clipToBounds()
+                    .focusRequester(rowsContainerFr)
+                    .onFocusChanged { state ->
+                        val hadFocus = rowsAreaHasFocus
+                        rowsAreaHasFocus = state.hasFocus
+                        if (hadFocus != state.hasFocus) {
+                            Log.d("SpotlightNav", "rowsAreaHasFocus=${state.hasFocus}")
+                        }
+                    }
+                    .focusRestorer()
+            ) {
+                itemsIndexed(
+                    items = catalogRows,
+                    key = { _, row -> "${row.addonId}_${row.apiType}_${row.catalogId}" }
+                ) { index, row ->
+                    val rowPosterStyle = remember(row, uiState.rowConfigLookup) {
+                        resolveRowPosterCardStyle(row, uiState.rowConfigLookup, posterCardStyle)
+                    }
+                    val rowFirstItemFr = firstItemRequesters.getOrPut(index) { FocusRequester() }
                     CatalogRowSection(
-                        catalogRow = currentRow,
-                        posterCardStyle = posterCardStyle,
-                        showPosterLabels = false,
-                        showAddonName = false,
-                        showCatalogTypeSuffix = false,
-                        focusedPosterBackdropExpandEnabled = false,
-                        focusedPosterBackdropTrailerEnabled = false,
+                        catalogRow = row,
+                        posterCardStyle = rowPosterStyle,
+                        showPosterLabels = uiState.posterLabelsEnabled,
+                        showAddonName = uiState.catalogAddonNameEnabled,
+                        showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled,
+                        focusedPosterBackdropExpandEnabled = uiState.focusedPosterBackdropExpandEnabled,
+                        focusedPosterBackdropExpandDelaySeconds = uiState.focusedPosterBackdropExpandDelaySeconds,
+                        focusedPosterBackdropTrailerEnabled = uiState.focusedPosterBackdropTrailerEnabled,
+                        focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
                         compactTitle = true,
                         onItemClick = { id, type, addonBaseUrl ->
                             onNavigateToDetail(id, type, addonBaseUrl)
                         },
                         onSeeAll = {
                             onNavigateToCatalogSeeAll(
-                                currentRow.catalogId,
-                                currentRow.addonId,
-                                currentRow.apiType,
+                                row.catalogId,
+                                row.addonId,
+                                row.apiType,
                             )
                         },
-                        showSeeAll = currentRow.items.size >= 15,
+                        showSeeAll = row.items.size >= 15,
                         onItemFocus = { item ->
-                            pendingFocusedRowItem = item
+                            if (focusedRowIndex != index) {
+                                focusedRowIndex = index
+                            }
+                            pendingFocusedItem = item
                             onItemFocus(item)
                         },
+                        onItemFocused = { itemIndex -> focusedItemInRow = itemIndex },
                         isItemWatched = isCatalogItemWatched,
                         onItemLongPress = onCatalogItemLongPress,
-                        entryFocusRequester = firstRowEntryFocusRequester,
-                        // upFocusRequester intentionally null — the parent
-                        // Box's onPreviewKeyEvent owns all Up/Down handling.
-                        upFocusRequester = null,
+                        upFocusRequester = if (index == 0) heroFocusRequester else null,
+                        firstItemFocusRequester = rowFirstItemFr,
                     )
                 }
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    androidx.tv.material3.Text(
-                        text = "No rows configured",
-                        style = androidx.tv.material3.MaterialTheme.typography.bodyLarge,
-                        color = NuvioColors.TextSecondary,
-                    )
-                }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                androidx.tv.material3.Text(
+                    text = "No rows configured",
+                    style = androidx.tv.material3.MaterialTheme.typography.bodyLarge,
+                    color = NuvioColors.TextSecondary,
+                )
             }
         }
     }

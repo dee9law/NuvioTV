@@ -293,6 +293,13 @@ class NewLayoutSettingsViewModel @Inject constructor(
                 .filter { catalog ->
                     !catalog.extra.any { it.name.equals("search", ignoreCase = true) && it.isRequired }
                 }
+                .filter { catalog ->
+                    when (scope) {
+                        LayoutScreenScope.MOVIES -> catalog.apiType.equals("movie", ignoreCase = true)
+                        LayoutScreenScope.TV -> catalog.apiType.equals("series", ignoreCase = true)
+                        else -> true
+                    }
+                }
                 .map { catalog ->
                     LayoutRowConfig(
                         id = "addon|${addon.id}|${catalog.apiType}|${catalog.id}",

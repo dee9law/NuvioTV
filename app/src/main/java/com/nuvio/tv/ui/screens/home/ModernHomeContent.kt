@@ -760,17 +760,31 @@ fun ModernHomeContent(
                 expandedCatalogFocusKey.value = null
             }
 
-            // Back while content rows are focused:
-            //   • at item > 0  → scroll/focus the first item of the current row
-            //   • at item 0    → move focus up to the top navigation bar
+            // Back hierarchy (L5 → L4 → L2):
+            //   L5: item > 0 → snap to first card in current row
+            //   L4: item 0, not first row → jump to first row (hero position)
+            //   L2: item 0, first row → TopBar
             val navBarFr = LocalNavBarFocusRequester.current
             BackHandler(enabled = contentHasFocus.value && !isTrailerPlayingFullscreenState.value) {
-                if (activeItemIndex.intValue > 0) {
-                    pendingRowFocusKey.value   = activeRowKey.value
-                    pendingRowFocusIndex.value = 0
-                    pendingRowFocusNonce.intValue++
-                } else {
-                    runCatching { navBarFr.requestFocus() }
+                val firstRowKey = carouselRows.list.firstOrNull()?.key
+                when {
+                    activeItemIndex.intValue > 0 -> {
+                        pendingRowFocusKey.value = activeRowKey.value
+                        pendingRowFocusIndex.value = 0
+                        pendingRowFocusNonce.intValue++
+                        // Immediately reflect the intent so a rapid second
+                        // Back press evaluates L4 instead of repeating L5.
+                        focusHolder.activeItemIndex = 0
+                        activeItemIndex.intValue = 0
+                    }
+                    activeRowKey.value != firstRowKey && firstRowKey != null -> {
+                        pendingRowFocusKey.value = firstRowKey
+                        pendingRowFocusIndex.value = 0
+                        pendingRowFocusNonce.intValue++
+                        focusHolder.activeRowKey = firstRowKey
+                        activeRowKey.value = firstRowKey
+                    }
+                    else -> runCatching { navBarFr.requestFocus() }
                 }
             }
 
