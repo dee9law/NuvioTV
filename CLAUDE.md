@@ -614,3 +614,101 @@ None — all edits to existing files.
 5. **Spotlight D-pad between rows** — LazyColumn approach needs TV
    verification. If focus escapes, the spatial-focus fallback is the
    Column + verticalScroll approach from the spec.
+
+---
+
+## 📅 Session log — 2026-05-29/30 (Brand-glow revert, Spotlight lazy-load + back-nav + State B scrim fixes)
+
+### Headline
+
+Removed the TopBar brand-glow Canvas (it broke channel back-nav), then
+fixed several Spotlight issues across multiple rounds: back-from-3rd+-card,
+rows 4+ shimmer, channel-carousel back-nav, and the State B row-title chop.
+Several attempts rode **incorrect initial hypotheses** (the title chop took
+four tries — zIndex, top padding, dark plate, then the real fix: lifting the
+hero bottom scrim off the seam). The gotchas below capture what was actually
+true so they don't recur.
+
+### Bugs fixed
+
+- **Channel carousel glow reverted** (`TopNavigationBar.kt`) — removed the
+  `onGlowPositionReported` callback, glow state, animated glow position/
+  color, the `Canvas` overlay + `Box` wrapper, and the `onGloballyPositioned`
+  reporters. Kept `SelectionDashIndicator` deleted (no dot/dash under pills).
+- **Spotlight back from 3rd+ poster didn't snap to first card**
+  (`SpotlightHomeContent.kt`) — from card 3+, the inner LazyRow had recycled
+  card 0, detaching its `FocusRequester`, so `requestFocus()` silently
+  failed. Fix: register each row's inner `LazyListState` in `rowListStatesMap`;
+  the Back handler now `scrollToItem(0)` → `withFrameNanos` → `requestFocus()`.
+- **Spotlight rows 4+ stuck as shimmer placeholders**
+  (`SpotlightHomeContent.kt` + `HomeScreen.kt`) — Spotlight had no lazy-load
+  trigger. Added a `snapshotFlow`-on-scroll-settle effect (cloned from
+  Classic) firing `onRequestLazyCatalogLoad(key)` for visible/next
+  placeholder rows; added the param and wired it to
+  `viewModel.requestLazyCatalogLoad`.
+- **Channel-pill carousel back-nav broken in Spotlight**
+  (`SpotlightHomeContent.kt`) — see gotcha #1.
+- **Spotlight State B row title "chopped" — REAL root cause: the hero
+  bottom scrim, not layout** (`ModernHomeHero.kt` + `SpotlightHomeContent.kt`).
+  Three wrong attempts first: `zIndex(2f)` on the title Row, then
+  `padding(top=12dp)` on the rows LazyColumn (Fix A), then a
+  `background(Color.Black.copy(alpha=0.5f))` plate behind the title text
+  (Fix B). Fix A + Fix B were reverted. On-device `SpotlightSize` logging
+  proved `overlap = 0dp` (hero/rows abut cleanly — no layout overlap at all).
+  The title was rendered but invisible: `ModernHeroGradientLayer`'s bottom
+  vertical scrim ended at `endY = size.height` with its darkest stop
+  (`bgColor`) landing exactly on the hero/rows seam, drowning the row title
+  just below. **Fix:** added `bottomScrimLiftDp: Dp = 0.dp` to
+  `ModernHeroScene` / `ModernHeroGradientLayer`; the scrim now ends at
+  `scrimBottomY = (size.height - lift).coerceAtLeast(bottomStripStartY)` for
+  BOTH the gradient `endY` and the draw rect, leaving the bottom `lift`-dp
+  clean. Spotlight State B passes `40.dp`; default `0.dp` keeps Modern home
+  (the other caller of that same non-fullscreen branch) byte-identical.
+  NOTE: the leftover `zIndex(2f)` on the title Row is harmless and was left
+  in place (out of scope for the Fix A/B revert).
+
+### ⚠️ Gotchas / notes for future sessions
+
+1. **Spotlight's BackHandler must gate on real content focus, never on the
+   `heroState` proxy.** `heroState == CAROUSEL` is just `!rowsAreaHasFocus`,
+   so it is ALSO true when focus is up on the TopBar channel pills. Because
+   content composes after the TopBar, Spotlight's BackHandler wins the
+   `OnBackPressedDispatcher` LIFO and steals Back from the TopBar's own
+   two-step channel-carousel chain (mid-carousel → first pill → category
+   pills). Fix was a dedicated `heroHasFocus` flag (`onFocusChanged` on the
+   hero `Box`) → `BackHandler(enabled = rowsAreaHasFocus || heroHasFocus)`.
+   Classic/Grid/Modern already gate on `*ContentHasFocus`, so only Spotlight
+   had this bug. **Corollary:** the channel back-chain lives entirely in
+   `TopNavigationBar.kt` (`BackHandler(enabled = focusInCarousel)`); it was
+   never touched by the glow revert — don't go looking for it there.
+
+2. **A row title that looks "chopped" in Spotlight State B is a SCRIM
+   contrast problem, not layout/z-order.** Confirmed empirically: temporary
+   `SpotlightSize` logging (`onGloballyPositioned` on the hero Box + rows
+   LazyColumn) showed `overlap = heroBottomY - rowsTopY = 0dp`. The Column
+   structurally cannot overlap — a fixed-`height(animatedHeroHeight)` hero
+   child + a `weight(1f)` rows child abut exactly; `clipToBounds` on the hero
+   only clips the hero's own content. The culprit was `ModernHeroGradientLayer`
+   fading to opaque `bgColor` right at the seam. Two corollaries that misled
+   the earlier attempts: (a) `Modifier.zIndex` only reorders siblings of the
+   SAME parent, so it can never lift a row title above the hero (different
+   parents) — and the rows LazyColumn already draws above the hero anyway;
+   (b) when adjusting a `verticalGradient` scrim, moving only `endY` makes the
+   region past it CLAMP to the last color stop (here opaque `bgColor`) — you
+   must move the draw rect's bottom too, or the "fix" darkens instead of
+   lightens.
+
+### New files
+
+None — all edits to existing files.
+
+### Pending follow-ups
+
+- **On-device verification** of all fixes (installed, not smoke-tested by
+  Claude): Spotlight back from 3rd+ card, rows 4+ loading, channel-pill
+  carousel back-nav, the in-content Spotlight back chain (regression check),
+  and the State B row-title readability after the scrim lift. If 40dp of
+  `bottomScrimLiftDp` reads as too little/too much, it's a one-line dial at
+  the Spotlight `ModernHeroScene` call site.
+- Prior follow-ups (Phase 8 localization, 23 skipped upstream commits,
+  ContinueWatching render in Classic, SideRail order consumption) still open.

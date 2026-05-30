@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -89,7 +90,15 @@ internal fun ModernHeroScene(
     requestWidthPx: Int,
     requestHeightPx: Int,
     onTrailerEnded: () -> Unit,
-    onFirstFrameRendered: () -> Unit
+    onFirstFrameRendered: () -> Unit,
+    /**
+     * Raises the bottom vertical scrim's darkest point this many dp above the
+     * hero's bottom edge, leaving a clean (un-darkened) strip at the very
+     * bottom. Default 0.dp = original behavior. Spotlight State B passes 40.dp
+     * so the scrim's darkest point doesn't land on the hero/rows seam and
+     * drown the row title sitting just below it.
+     */
+    bottomScrimLiftDp: Dp = 0.dp
 ) {
     ModernHeroMediaLayer(
         heroBackdrop = { state().heroBackdrop },
@@ -109,6 +118,7 @@ internal fun ModernHeroScene(
     ModernHeroGradientLayer(
         bgColor = bgColor,
         isFullScreen = isFullScreen,
+        bottomScrimLiftDp = bottomScrimLiftDp,
         modifier = modifier
     )
 }
@@ -220,6 +230,7 @@ internal fun ModernHeroMediaLayer(
 internal fun ModernHeroGradientLayer(
     bgColor: Color,
     isFullScreen: () -> Boolean,
+    bottomScrimLiftDp: Dp = 0.dp,
     modifier: Modifier
 ) {
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -260,6 +271,10 @@ internal fun ModernHeroGradientLayer(
                 }
 
                 val bottomStripStartY = size.height * if (fullScreen) 0.64f else 0.82f
+                // Lift the scrim's bottom edge (darkest point) above the hero's
+                // bottom edge so the seam isn't pitch-black. 0px = original.
+                val scrimBottomY =
+                    (size.height - bottomScrimLiftDp.toPx()).coerceAtLeast(bottomStripStartY)
                 val verticalGradient = Brush.verticalGradient(
                     colorStops = if (fullScreen) {
                         arrayOf(
@@ -277,7 +292,7 @@ internal fun ModernHeroGradientLayer(
                         )
                     },
                     startY = bottomStripStartY,
-                    endY = size.height
+                    endY = scrimBottomY
                 )
 
                 onDrawBehind {
@@ -288,12 +303,13 @@ internal fun ModernHeroGradientLayer(
                         topLeft = Offset(rectLeft, 0f),
                         size = Size(horizontalFadeEndX, size.height)
                     )
-                    
-                    // 2. Bottom vertical strip
+
+                    // 2. Bottom vertical strip — ends at scrimBottomY so the
+                    //    bottom `bottomScrimLiftDp` stays clean (no scrim).
                     drawRect(
                         brush = verticalGradient,
                         topLeft = Offset(0f, bottomStripStartY),
-                        size = Size(size.width, size.height - bottomStripStartY)
+                        size = Size(size.width, scrimBottomY - bottomStripStartY)
                     )
                 }
             }

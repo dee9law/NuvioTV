@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -25,8 +26,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -53,6 +56,7 @@ import com.nuvio.tv.ui.components.PosterCardStyle
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.util.asStable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 private enum class SpotlightHeroState { CAROUSEL, CONSTRAINED, HIDDEN }
@@ -138,6 +142,7 @@ fun SpotlightHomeContent(
     isCatalogItemWatched: (MetaPreview) -> Boolean = { false },
     onCatalogItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
     onItemFocus: (MetaPreview) -> Unit = {},
+    onRequestLazyCatalogLoad: (String) -> Unit = {},
 ) {
     // ── Data sources ────────────────────────────────────────────────
     val catalogRows = remember(uiState.catalogRows, uiState.homeRows) {
@@ -167,15 +172,28 @@ fun SpotlightHomeContent(
 
     // ── Focus tracking ──────────────────────────────────────────────
     var rowsAreaHasFocus by remember { mutableStateOf(false) }
+    // Tracks whether focus is actually inside the hero section. Distinct from
+    // `heroState == CAROUSEL`, which is merely `!rowsAreaHasFocus` and is also
+    // true when focus is up on the TopBar channel pills. The Back handler must
+    // gate on real hero focus so it doesn't steal Back from the TopBar's own
+    // carousel back-chain (snap-to-first-pill → category pills).
+    var heroHasFocus by remember { mutableStateOf(false) }
     var focusedRowIndex by remember { mutableIntStateOf(0) }
     var focusedItemInRow by remember { mutableIntStateOf(0) }
     var pendingFocusedItem by remember { mutableStateOf<MetaPreview?>(null) }
     var debouncedFocusedItem by remember { mutableStateOf<MetaPreview?>(null) }
     val firstItemRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+    // Per-row inner LazyRow states, keyed by row index. Registered by each
+    // CatalogRowSection while it's composed (see itemsIndexed below) so the
+    // Back handler can scroll a row's first card back into composition before
+    // requesting focus on it.
+    val rowListStatesMap = remember { mutableMapOf<Int, LazyListState>() }
+    val backScope = rememberCoroutineScope()
 
     // Clean up stale focus requesters when rows data changes (e.g. after settings)
     LaunchedEffect(catalogRows) {
         firstItemRequesters.keys.retainAll((0 until catalogRows.size).toSet())
+        rowListStatesMap.keys.retainAll((0 until catalogRows.size).toSet())
     }
 
     LaunchedEffect(pendingFocusedItem) {
@@ -287,12 +305,60 @@ fun SpotlightHomeContent(
     val rowsContainerFr = remember { FocusRequester() }
     val rowsListState = rememberLazyListState()
 
+    // ── Lazy catalog loading ────────────────────────────────────────
+    // Parity with Classic/Modern: rows past the eager-load count arrive as
+    // shimmer placeholders (isLoading + "__placeholder_" item ids). Without
+    // a trigger they stay placeholders forever. After scroll settles, request
+    // a real load for every visible-or-next placeholder row.
+    val latestOnRequestLazyCatalogLoad = rememberUpdatedState(onRequestLazyCatalogLoad)
+    val latestCatalogRows = rememberUpdatedState(catalogRows)
+    LaunchedEffect(rowsListState) {
+        val prefetchAhead = 1
+        snapshotFlow {
+            val scrolling = rowsListState.isScrollInProgress
+            val info = rowsListState.layoutInfo
+            val firstVisible = info.visibleItemsInfo.firstOrNull()?.index ?: -1
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            Triple(scrolling, firstVisible, lastVisible)
+        }.collect { (scrolling, firstVisible, lastVisible) ->
+            if (scrolling || lastVisible < 0) return@collect
+            delay(150)
+            if (rowsListState.isScrollInProgress) return@collect
+            val rows = latestCatalogRows.value
+            for (idx in firstVisible.coerceAtLeast(0)..(lastVisible + prefetchAhead)) {
+                val row = rows.getOrNull(idx) ?: continue
+                if (row.isLoading &&
+                    row.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
+                ) {
+                    latestOnRequestLazyCatalogLoad.value(
+                        "${row.addonId}_${row.apiType}_${row.catalogId}"
+                    )
+                }
+            }
+        }
+    }
+
     // ── Back hierarchy: L5 → L4 → L2 ───────────────────────────────
-    BackHandler(enabled = rowsAreaHasFocus || heroState == SpotlightHeroState.CAROUSEL) {
+    // Enable ONLY when Spotlight's own content (rows or hero) has focus —
+    // never when focus is up on the TopBar, otherwise this handler preempts
+    // the TopBar's channel-carousel back-chain (LIFO: content composes after
+    // the TopBar, so it would win). Mirrors how Classic/Grid/Modern gate on
+    // their own content focus.
+    BackHandler(enabled = rowsAreaHasFocus || heroHasFocus) {
         when {
             rowsAreaHasFocus && focusedItemInRow > 0 -> {
+                // Snap to the first card of the CURRENTLY focused row. From the
+                // 3rd+ card the inner LazyRow has recycled card 0 (its
+                // FocusRequester is detached), so scroll the row back to index 0
+                // first — that re-composes card 0 and re-attaches its requester —
+                // then request focus on the next frame.
                 val fr = firstItemRequesters[focusedRowIndex]
-                if (fr != null) runCatching { fr.requestFocus() }
+                val rowState = rowListStatesMap[focusedRowIndex]
+                backScope.launch {
+                    runCatching { rowState?.scrollToItem(0) }
+                    withFrameNanos { }
+                    if (fr != null) runCatching { fr.requestFocus() }
+                }
             }
             rowsAreaHasFocus -> runCatching { heroFocusRequester.requestFocus() }
             else -> runCatching { navBarFr.requestFocus() }
@@ -335,6 +401,7 @@ fun SpotlightHomeContent(
                 .fillMaxWidth()
                 .height(animatedHeroHeight)
                 .clipToBounds()
+                .onFocusChanged { heroHasFocus = it.hasFocus }
         ) {
             // State A: HeroCarousel — always in tree for focusability
             HeroCarousel(
@@ -368,7 +435,10 @@ fun SpotlightHomeContent(
                     requestWidthPx = heroMediaWidthPx,
                     requestHeightPx = heroMediaHeightPx,
                     onTrailerEnded = {},
-                    onFirstFrameRendered = {}
+                    onFirstFrameRendered = {},
+                    // State B: pull the scrim's darkest point 40dp off the
+                    // hero/rows seam so the row title below stays readable.
+                    bottomScrimLiftDp = 40.dp
                 )
                 val metaBottomPad = (animatedHeroHeight.value * 0.12f).coerceIn(16f, 48f).dp
                 val metaMaxHeight = (animatedHeroHeight - metaBottomPad - 16.dp).coerceAtLeast(0.dp)
@@ -411,7 +481,19 @@ fun SpotlightHomeContent(
                         resolveRowPosterCardStyle(row, uiState.rowConfigLookup, posterCardStyle)
                     }
                     val rowFirstItemFr = firstItemRequesters.getOrPut(index) { FocusRequester() }
+                    // Register this row's inner LazyRow state so the Back
+                    // handler can scroll it to card 0 before requesting focus.
+                    val rowInnerListState = rememberLazyListState()
+                    DisposableEffect(index, rowInnerListState) {
+                        rowListStatesMap[index] = rowInnerListState
+                        onDispose {
+                            if (rowListStatesMap[index] === rowInnerListState) {
+                                rowListStatesMap.remove(index)
+                            }
+                        }
+                    }
                     CatalogRowSection(
+                        listState = rowInnerListState,
                         catalogRow = row,
                         posterCardStyle = rowPosterStyle,
                         showPosterLabels = uiState.posterLabelsEnabled,

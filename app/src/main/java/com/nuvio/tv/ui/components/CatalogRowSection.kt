@@ -32,6 +32,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -238,6 +239,12 @@ fun CatalogRowSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // Spotlight (compactTitle): float the title above its sibling
+                // LazyRow / any hero metadata that bleeds toward the title band,
+                // so the row title is never visually chopped. zIndex only
+                // reorders draw among siblings of the same parent, so it lives on
+                // the title Row (the LazyRow's direct sibling), not the inner Text.
+                .then(if (compactTitle) Modifier.zIndex(2f) else Modifier)
                 .height(if (compactTitle) 28.dp else 36.dp)
                 .padding(start = titleStartInset, end = 48.dp, bottom = titleBottomPadding),
             horizontalArrangement = Arrangement.SpaceBetween,

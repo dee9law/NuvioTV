@@ -690,6 +690,9 @@ private fun SpotlightHomeRoute(
         isCatalogItemWatched = isCatalogItemWatched,
         onCatalogItemLongPress = onCatalogItemLongPress,
         onItemFocus = onItemFocus,
+        onRequestLazyCatalogLoad = remember(viewModel) {
+            { catalogKey: String -> viewModel.requestLazyCatalogLoad(catalogKey) }
+        },
     )
 }
 
