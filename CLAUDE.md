@@ -294,6 +294,8 @@ follow-up pass:
 - **2026-05-20 — TopBar / Modern Feel polish marathon.** Twelve sub-fixes across nine batched task lists. Introduced `CardFocusStyle` enum, CompositionLocals (`LocalIsModernFeel`, `LocalTopBarOverlayHeight`, `LocalPosterGlowEnabled`, `LocalCardFocusStyle`), DataStore keys (`modern_top_bar_enabled`, `poster_glow_enabled`, `card_focus_style`), real-blur glassmorphism via Coil `BlurTransformation`. Shipped: Modern Top Bar toggle (default OFF), Card Focus Style cycle (Accent/Glow/Bloom — later reduced to Accent/Bloom on 05-21), 16dp edge-to-edge, carousel takeover, 6dp dot indicator, channel-pill logo fallback, 85% Profile Overlay, focusable folder-picker section headers, `CollectionsHomeScreen` wired into `NuvioNavHost`, Settings Hub left-rail focus + single-expand accordion. The "Modern Top Bar" toggle stays OFF by default — flip in Settings → Appearance → Top Bar. Skyworth TV's GPU silently no-ops `RenderEffect`; stack-blur Coil transform is the established fallback (`BlurTransformation.kt`). Full details in archive.
 - **2026-05-21 — Modern hero polish, ARVIO trace + revert, settings reorg, Spotlight layout.** ARVIO-inspired hero layout attempted then surgically reverted; kept text shadows, 72dp description cap, dynamic TopBar measurement. New `HomeLayout.SPOTLIGHT` (fourth layout) with full-bleed hero + single-row swap strip. Settings hub reorg (Appearance sub-items: Cards, Side Rail, Detail Page). `CardFocusStyle` reduced to ACCENT/BLOOM. `Modifier.shadow` for all cards (TV M3 `Card.glow` no-ops on Skyworth). `NavHostController.popBackToMainScreen()` helper.
 - **2026-05-23 — Spotlight rework, tab-nav fix, COLLECTION root-cause, Prime-style row spacing.** Spotlight reshaped from animated slide-up strip into fixed one-row container + fixed tab navigation. Movies tab first-tap no-op fixed (dropped `saveState`/`restoreState`). COLLECTION blanket filter removed (upstream `viewContext` filter already sufficient). Prime-style tight row-title→cards rhythm (2dp title bottom padding, 0dp LazyRow top) across all layouts.
+- **2026-05-25 — Hero sizing, TopBar immersion, settings expansion, container architecture.** 22 fixes: hero description 3-line/`bodySmall`, proportional hero metadata padding, TopBar immersion fade (400/300ms), `clipToBounds` on rows, fixed 28dp row-title height, channel-pill loop isolation, TopBar master toggle (`top_bar_enabled`, Legacy-only), full SideRail management (reorder/display-mode/visibility), Continue Watching as addable row, catalog scope filtering, populate/clear-all. New files: `HomeLayoutSizing.kt`, `UniversalHomeNavigation.kt`. Skyworth confirmed 960×540dp (1080p @2x).
+- **2026-05-26/27 — Spotlight three-state hero, per-row card scaling, back hierarchy, TopBar brand glow.** Spotlight rewritten Box→Column with three-state hero (Carousel/Constrained/Hidden) + LazyColumn rows. Per-row card scaling fixed in Modern (`ModernRowSection` raw-vs-scaled mismatch). Universal Back hierarchy wired for all four layouts via local `BackHandler`s. TopBar `SelectionDashIndicator` removed → brand-color dash+glow Canvas (later reverted 05-29/30).
 
 ---
 
@@ -393,230 +395,6 @@ Commit the `CLAUDE.md` update as part of the final push. **Do not ask
 
 ---
 
-## 📅 Session log — 2026-05-25 (Hero sizing, TopBar immersion, settings expansion, container architecture)
-
-
-### Headline
-
-Three rounds of focused fixes (22 total) across hero presentation,
-TopBar immersion, navigation loop scoping, settings management, and
-the row configuration pipeline. Skyworth screen confirmed at 960×540dp
-(1080p at 2x density). Spotlight hero sizing root-caused to 277dp
-(vs Classic's 400dp default). Major new settings infrastructure:
-TopBar master toggle, full SideRail management (reorder + display mode
-+ visibility), Continue Watching as addable row, scope-filtered catalog
-picker, and populate/clear-all toggle.
-
-### Features shipped
-
-- **Hero description: 3 lines + bodySmall** — `maxLines` 4→3,
-  `bodyMedium`→`bodySmall`, `heightIn(max=72dp)`→`56dp` in both
-  `HeroCarousel.kt` and `ModernHomeHero.kt`.
-- **Proportional hero metadata padding** — `HeroCarousel` bottom
-  padding now `(heroHeight * 0.12).coerceIn(16dp, 48dp)`.
-  Classic (400dp) → 48dp (unchanged). Spotlight (277dp) → ~33dp.
-- **TopBar immersion fade** — Fade out 400ms, fade in 300ms (was
-  snap/600ms). Spotlight now toggles immersion from
-  `rowsAreaHasFocus`. Long-press Back from rows → shows TopBar +
-  focuses TopBar pill.
-- **Removed LocalTopBarOverlayHeight from hero metadata** — TopBar
-  fades out in rows, so clearance padding unnecessary.
-- **clipToBounds on rows containers** — Spotlight + Modern both clip
-  at the rows boundary. Modern: moved clipToBounds before padding +
-  added on parent modifier.
-- **Row title fixed height** — `Box(height=28dp, wrapContentHeight)`
-  in Modern titles; `height(28/36dp)` in CatalogRowSection. Focus
-  chrome stays within the fixed slot.
-- **Channel pills loop isolation** — Loop scrolling only within
-  channel pills. Category Left = hard stop (or avatar in Modern).
-  Avatar Left = hard stop.
-- **TopBar master toggle** — `top_bar_enabled` DataStore key.
-  Toggle in Settings → Appearance → Top Bar (Legacy only). Modern
-  always shows TopBar.
-- **SideRail full management** — Per-item reorder (↑/↓), display
-  mode cycle (Icon+Text / Icon / Text), visibility toggle. Profile
-  and Home always visible. Order + display modes stored in DataStore.
-- **Continue Watching as addable row** — `LayoutRowKind.CONTINUE_WATCHING`
-  + `HomeRow.ContinueWatching`. Appears in add-row bar; reorderable
-  and removable. Pipeline inserts at user's chosen position.
-- **Catalog scope filtering** — `CatalogPickerDialog` filters by
-  scope: Movies → movie-type only, TV → series-type only, Home → all.
-- **Populate/Clear All toggle** — Side-by-side buttons in Rows
-  settings. Clear shows confirmation dialog. `clearAllRows()` on VM.
-- **HomeLayoutSizing.kt** — Shared sizing helpers
-  (`singleRowContainerHeight`, `multiRowContainerHeight`,
-  `heroHeightForRowsContainer`) extracted from per-layout inline math.
-- **UniversalHomeNavigation.kt** — Shared Back-Level-Up hierarchy
-  (L0–L5) wired once at HomeScreen dispatch level.
-
-### New files
-
-- `ui/screens/home/HomeLayoutSizing.kt` — shared hero/row sizing
-- `ui/screens/home/UniversalHomeNavigation.kt` — universal Back handler
-
-### Bugs fixed
-
-- **Spotlight D-pad Down escaping to TopBar** — `onPreviewKeyEvent`
-  only consumed `KeyDown`; `KeyUp` leaked through to spatial focus.
-  Now consumes both. Removed inline `requestFocus()` (timing race
-  with `key()` recomposition) — `LaunchedEffect(currentRowIndex)`
-  with frame waits is the reliable path. Debug logging added.
-- **Movies tab first-tap no-op** — `saveState`/`restoreState`
-  dropped in prior session; carried forward.
-
-### Architectural decisions
-
-- **Proportional padding over fixed** — Hero metadata bottom padding
-  scales with `heroHeight` so shorter heroes (Spotlight 277dp) get
-  more backdrop visible while taller heroes (Classic 400dp) keep
-  their existing spacing.
-- **TopBar always visible in Modern** — The toggle only gates Legacy
-  feel. Modern has no SideRail alternative, so hiding the TopBar
-  would trap the user.
-- **Channel-only loop scroll** — Category pills are a fixed set
-  that doesn't benefit from wrapping. Channel pills are a potentially
-  long scrollable list where wrap improves navigation.
-- **ContinueWatching as HomeRow** — Data object variant in the sealed
-  class. Pipeline recognizes `continue_watching` key and inserts
-  `HomeRow.ContinueWatching`. Rendering delegated to existing
-  `ContinueWatchingSection` (Classic currently no-ops the render;
-  next step is wiring the actual section).
-
-### Pending follow-ups
-
-1. **ContinueWatching row rendering** — `HomeRow.ContinueWatching`
-   is recognized in the pipeline and dispatched in Classic's `when`
-   block but currently renders nothing (empty `{ }` branch). Needs
-   wiring to the actual `ContinueWatchingSection` composable with
-   the correct callbacks.
-2. **SideRail reads order/display mode** — Settings UI stores order
-   and display modes but `SideRail.kt` doesn't yet read the order
-   from DataStore to reorder its items. The visibility toggles work.
-3. **Spotlight D-pad Down** — Debug logging deployed (`SpotlightNav`
-   tag). Check `adb logcat -s SpotlightNav` to verify the handler
-   is intercepting events. If it still escapes, investigate whether
-   `CatalogRowSection`'s internal `onPreviewKeyEvent` consumes Down
-   before the parent Box sees it.
-4. **Phase 8 localization sweep** + 23 skipped upstream commits
-   still pending from prior sessions.
-
-### Notes for future sessions
-
-- **Skyworth JAWWY-TV-2.0 confirmed at 960×540dp** (1080p at 2x
-  density). Hero sizing math: `singleRowContainerHeight` = cardHeight
-  + 74dp; Spotlight heroHeight = 540 − containerHeight.
-- **clipToBounds order matters** — must come before `padding()` in
-  the modifier chain to clip to the outer bounds, not the padded
-  inner area.
-- **Long-press Back uses `nativeKeyEvent.repeatCount`** — accessed
-  via `val native = event.nativeKeyEvent` (not a separate import).
-
----
-
-## 📅 Session log — 2026-05-26/27 (Spotlight three-state hero, per-row card scaling, back hierarchy, TopBar brand glow)
-
-### Headline
-
-Multi-day session across four rounds of fixes (~30 total). Spotlight
-rewritten from scratch: Box→Column layout, three-state hero (Carousel /
-Constrained / Hidden), LazyColumn rows with Compose-native D-pad. Per-row
-card scaling fixed in Modern (`ModernRowSection` raw-vs-scaled unit
-mismatch). Universal back hierarchy wired for all four layouts (Classic,
-Grid, Modern, Spotlight). TopBar: `SelectionDashIndicator` removed,
-replaced with top-edge brand-color dash + glow for selected channel pill.
-
-### Features shipped
-
-- **Spotlight Column layout** — Vertical stack: hero section on top
-  (variable height via `animateDpAsState`), rows below (`weight(1f)`).
-  No overlap, no gap. State A=400dp Classic hero, State B=Modern
-  non-fullscreen hero (backdrop right, metadata left, reactive to
-  focused card), State C=hero hidden, rows full screen.
-- **Spotlight three-state hero** — `SpotlightHeroState` enum. Carousel
-  (HeroCarousel, TopBar visible), Constrained (ModernHeroScene +
-  HeroTitleBlock, TopBar hidden), Hidden (0dp, TopBar hidden). Per-row
-  detection: `constrainedHeroHeight < 250dp` → HIDDEN. Transitions:
-  `animateDpAsState`/`animateFloatAsState` 300ms tween.
-- **Spotlight rows: homeRows priority** — Swapped `catalogRows` (3 raw
-  addons) / `homeRows` (10+ configured rows) priority to match Classic.
-  Root cause of "only 3 rows" bug.
-- **Per-row card scaling in Modern** — `ModernRowSection` applied raw
-  `cardWidthDp` from per-row config without Modern's scaling factors
-  (`0.84f * 1.08f` portrait, `1.24f * 1.34f` landscape). Fixed in both
-  `ModernRowSection` and `ModernHomeRowsList` prefetch.
-- **Back hierarchy for all layouts** — Local `BackHandler` in each:
-  Classic (gated on `classicContentHasFocus`), Grid (gated on
-  `gridContentHasFocus`), Spotlight (L5→L4→L2 with per-row
-  `firstItemFocusRequester`), Modern (L5+immediate `activeItemIndex`
-  update for rapid double-Back, L4 jump to first row).
-- **TopBar brand glow** — `SelectionDashIndicator` deleted. Selected
-  channel pill now renders a Canvas overlay at the top screen edge: 3dp
-  horizontal dash + 50dp downward gradient in the channel's brand color.
-  Position tracked via `onGloballyPositioned`, animated with
-  `animateFloatAsState`/`animateColorAsState` 300ms. Color from
-  `ChannelTab.brandColor` or `rememberArtworkBackedGlowColor` fallback.
-- **Spotlight expand card** — Passed `focusedPosterBackdropExpandEnabled`,
-  `focusedPosterBackdropTrailerEnabled`, `focusedPosterBackdropTrailerMuted`,
-  `posterLabelsEnabled` etc. from `uiState` (was hardcoded `false`).
-- **Spotlight State B SideRail padding** — Legacy feel: 48dp start
-  padding on metadata. Modern: 16dp.
-- **Spotlight State B metadata clip** — `heightIn(max = heroHeight -
-  bottomPad - 16dp)` on `HeroTitleBlock` + `clipToBounds()` on hero Box.
-
-### Bugs fixed
-
-- **Spotlight only showed 3 rows** — `catalogRows` checked
-  `uiState.catalogRows.isNotEmpty()` first, using raw auto-populated
-  catalogs (~3) and skipping configured `homeRows` (~10+). Swapped
-  priority to match Classic.
-- **Modern per-row card sizes invisible** — Raw `cardWidthDp` (e.g.
-  140dp) replaced pre-scaled globals (~114dp). Applied same
-  `0.84*1.08` / `1.24*1.34` factors to per-row overrides.
-- **Classic/Grid back consumed at TopBar** — `BackHandler(enabled=true)`
-  consumed Back even at TopBar, blocking exit dialog. Gated on content
-  focus via `onFocusChanged`.
-- **Modern double-Back stuck on L5** — Rapid Back presses both hit L5
-  because `activeItemIndex` hadn't updated between them. Fixed by
-  immediately setting `activeItemIndex = 0` in L5 handler.
-- **Spotlight focus requesters stale after settings** — Added
-  `LaunchedEffect(catalogRows)` to prune `firstItemRequesters` map.
-
-### New files
-
-None — all edits to existing files.
-
-### Architectural decisions
-
-- **Column over Box for Spotlight** — Vertical stack eliminates
-  overlap/gap issues from the Box+align approach. `weight(1f)` on rows
-  gives natural remaining-space behavior. Hero height animations drive
-  layout changes automatically.
-- **Local BackHandlers over universal ViewModel plumbing** — Each layout
-  knows its own focus state best (Classic's `currentFocusSnapshot`,
-  Grid's `lastFocusedGridItemKey`, Modern's `activeItemIndex`,
-  Spotlight's `focusedRowIndex`/`focusedItemInRow`). Local handlers read
-  these directly without ViewModel round-trips.
-- **Brand glow via Canvas** — Pure `drawRect` + `Brush.verticalGradient`.
-  No shaders, no RenderEffect, works on Skyworth/Android 6+. Position
-  tracked via `onGloballyPositioned` + `positionInRoot()`.
-
-### Pending follow-ups
-
-1. **On-device verification** of all changes. APK installed but no
-   manual smoke test in-session. Key test paths: Spotlight three-state
-   transitions, per-row card size changes in Modern, Back hierarchy on
-   all four layouts, TopBar brand glow animation.
-2. **Phase 8 localization sweep** + 23 skipped upstream commits.
-3. **ContinueWatching row rendering** in Classic (pipeline dispatch
-   exists but renders empty).
-4. **SideRail reads order/display mode** from DataStore (settings UI
-   stores them but SideRail doesn't consume).
-5. **Spotlight D-pad between rows** — LazyColumn approach needs TV
-   verification. If focus escapes, the spatial-focus fallback is the
-   Column + verticalScroll approach from the spec.
-
----
-
 ## 📅 Session log — 2026-05-29/30 (Brand-glow revert, Spotlight lazy-load + back-nav + State B scrim fixes)
 
 ### Headline
@@ -712,3 +490,113 @@ None — all edits to existing files.
   the Spotlight `ModernHeroScene` call site.
 - Prior follow-ups (Phase 8 localization, 23 skipped upstream commits,
   ContinueWatching render in Classic, SideRail order consumption) still open.
+
+---
+
+## 📅 Session log — 2026-05-30/31 (State B scrim saga, TopBar pill redesign, Spotlight nav + Show All)
+
+### Headline
+
+Two-day session. Iterated the Spotlight State B hero bottom-scrim fix to a
+clean end-state, redesigned the TopBar channel pills (capsule → dynamic
+underline) plus six other TopBar tweaks, then landed three Spotlight nav/
+content fixes (Up-flood throttle, full catalog rows, leading "Show All" card).
+All changes compiled green and installed on the Skyworth TV.
+
+### Features shipped
+
+- **Spotlight State B uses ModernHeroScene exactly like Modern.** Final state
+  of the scrim saga: State B's `ModernHeroScene` modifier switched from
+  `.fillMaxSize()` to `.height(animatedHeroHeight)` and dropped all scrim
+  customization — renders identically to Modern's non-fullscreen hero. The
+  expand/shrink dynamics (`animatedHeroHeight`, `constrainedAlpha` cross-fade)
+  are untouched.
+- **TopBar channel-pill redesign (7 changes, `TopNavigationBar.kt`):**
+  1. Removed the channel-pill capsule — `containerColor`/`focusedContainerColor`
+     → `Transparent`, `focusedBorder` → `Border.None`, deleted the focus-glow
+     shadow + all glow vals.
+  2. Dynamic-color underline under selected/focused channel text — 2.5dp,
+     width = measured text width (via `onGloballyPositioned`), color from
+     `rememberArtworkBackedGlowColor(enabled = hasLogoUrl, fallbackColor =
+     channel.brandColor)`. Reserved height (transparent when idle) = no vertical
+     jump.
+  3. Category pills untouched.
+  4. Channel pills edge-to-edge — moved the bar's `start` inset off the outer
+     Row onto the Main Section inner Row; Legacy LazyRow `contentPadding` start
+     2dp→0dp.
+  5. `NavBarHeight` 60dp→54dp (floor for logo+caption+underline pills; lower
+     clips logos).
+  6. Uniform channel logos — every logo in a fixed `Box(48×24)` + `ContentScale.Fit`.
+  7. Profile avatar shrunk — Card 36→26dp, circle 32→22dp.
+- **Spotlight row title breathing room** — `compactTitle` rows give the title
+  `Text` an 8dp top padding (`CatalogRowSection.kt`).
+- **Fix 1 — held D-pad Up no longer floods/skips rows** (`SpotlightHomeContent.kt`).
+  (1a) `onPreviewKeyEvent` on the rows `LazyColumn` throttles Up autorepeats to
+  one step / 200ms (initial press passes through). (1b)
+  `LaunchedEffect(heroHasFocus){ if (heroHasFocus) rowsAreaHasFocus = false }`
+  clears a stale rows-focus flag so the next Down re-enters State B.
+- **Fix 2 — Spotlight shows the full catalog** (`HomeViewModelCatalogPipeline.kt`).
+  The pipeline truncated non-Modern rows to 25 items; extended the Modern
+  full-row exemption (`shouldKeepFullRow`) to `HomeLayout.SPOTLIGHT`.
+- **Fix 3 — leading "Show All" card on D-pad Left from first poster**
+  (`CatalogRowSection.kt`, gated by new `leadingSeeAllEnabled`; Spotlight passes
+  `true`). Hidden 1dp/alpha-0 sliver left of the first poster; Left from poster 0
+  reveals + focuses it (replacing the profile-menu gesture there), collapses on
+  blur; Select → `onSeeAll` → `Screen.CatalogSeeAll`. `Icons.Default.GridView` +
+  "Show All". Classic/Grid/Search/FolderDetail default `false` → unchanged.
+
+### Bugs fixed
+
+- **Channel-pill underline showed static sky blue.** `rememberArtworkBackedGlowColor`
+  was deleted with the capsule; underline fell back to a flat color. Restored it
+  wired to the underline with `enabled = hasLogoUrl` (not the old glow/bloom gate)
+  so artwork extraction always runs when a logo exists.
+- **Spotlight nav "regression" investigation** — confirmed via `git diff` that the
+  focus/back wiring was byte-identical to the last commit; the only delta was the
+  State B hero modifier. No wiring was lost; user re-tested.
+
+### New files
+
+None — all edits to existing files.
+
+### Architectural decisions
+
+- **State B = Modern parity over bespoke scrim.** After three scrim approaches
+  (`bottomScrimLiftDp`, `backdropRightOnly`, `bottomScrimMaxAlpha`), settled on
+  rendering State B identically to Modern's non-fullscreen hero. Simpler and
+  consistent; any future title-readability tuning happens in one place.
+- **Channel focus = underline + scale, not capsule.** Per redesign; the artwork-
+  backed dynamic color ties the indicator to each channel's logo.
+- **Fix 1b keyed on `heroHasFocus`, not `heroState == CAROUSEL`.** `heroState ==
+  CAROUSEL` is *defined as* `!rowsAreaHasFocus`, so the literal request was a
+  no-op; keying on the real hero-focus signal achieves the stated goal.
+- **Fix 2 lives in the ViewModel pipeline, not the `CatalogRowSection` call.** The
+  25-item cap was upstream in `computedDisplayRows`; fixing it there gives true
+  Modern parity (the row carries the full list).
+
+### Pending follow-ups
+
+1. **Dead `bottomScrimMaxAlpha` param in `ModernHomeHero.kt`.** `ModernHeroScene`/
+   `ModernHeroGradientLayer` still carry `bottomScrimMaxAlpha: Float = 1.0f`,
+   now unused by every caller (default 1.0f = `bgColor.copy(alpha=1f)` = original
+   behavior, so harmless). Remove for cleanliness next pass.
+- **On-device verification** of all of today's changes (installed, not smoke-tested
+  by Claude): Fix 1 Up-throttle + Down-return, Fix 2 long catalogs, Fix 3 Show All
+  reveal, TopBar `NavBarHeight=54dp`/avatar `26dp` (most likely to need a dial),
+  underline artwork color per channel.
+2. **Fix 3 details to eyeball:** the revealed Show All card keeps
+   `tvLeftFromFirstItemToSideRail` (one more Left still opens the profile menu —
+   change to a hard stop if undesired); collapsed sliver pushes poster 0 ~17dp right.
+3. Prior follow-ups (Phase 8 localization, 23 skipped upstream commits,
+   ContinueWatching render in Classic, SideRail order consumption) still open.
+
+### Notes for future sessions
+
+- **`nativeKeyEvent` is a member property** of `KeyEvent` — accessed as
+  `event.nativeKeyEvent.repeatCount`, **no separate import** (importing
+  `androidx.compose.ui.input.key.nativeKeyEvent` fails to resolve).
+- **`material-icons-extended` is on the classpath** (`Icons.Default.Tune`,
+  `Icons.Default.GridView`, etc. resolve).
+- **TopBar sits at `y=0`** in `MainActivity` (no top padding there); the only
+  vertical lever is `NavBarHeight` in `TopNavigationBar.kt`. The bar can't go much
+  under 54dp without clipping the logo+caption channel pills.

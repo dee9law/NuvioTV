@@ -35,8 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxSize
 import coil3.compose.AsyncImage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -49,12 +48,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -84,7 +84,10 @@ private val PillFocusBorder  = Color.White.copy(alpha = 0.45f)
 private val TextIdle         = Color.White.copy(alpha = 0.75f)
 
 private val PillShape     = RoundedCornerShape(20.dp)
-private val NavBarHeight  = 60.dp
+// Reduced from 60.dp to sit the bar closer to the top edge (Change 5). 54.dp is
+// the floor: the tallest pill (channel logo + caption + underline) measures
+// ~52.5dp, so anything lower risks clipping fetched channel logos.
+private val NavBarHeight  = 54.dp
 
 // ── Public data class ────────────────────────────────────────────────────────
 
@@ -273,7 +276,11 @@ fun TopNavigationBar(
             .fillMaxWidth()
             .height(NavBarHeight)
             .background(NavBarBg)
-            .padding(start = topBarLeading, end = topBarTrailing)
+            // Change 4: no start padding on the bar itself — the leading inset
+            // moves onto the Main Section (avatar + categories) only, so the
+            // channel-pill LazyRow can run edge-to-edge from the screen's left
+            // edge during a carousel takeover.
+            .padding(end = topBarTrailing)
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
                     runCatching { contentFr.requestFocus() }.isSuccess
@@ -298,7 +305,10 @@ fun TopNavigationBar(
                 targetOffsetX = { -it / 2 },
             ) + fadeOut(tween(300)),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = topBarLeading),
+            ) {
         // ── Zone 0 (Modern only): Profile avatar ─────────────────────────────
         if (isModernFeel) {
             ProfileAvatarButton(
@@ -473,7 +483,10 @@ fun TopNavigationBar(
                 contentPadding = if (isModernFeelForTopBar) {
                     PaddingValues(start = 0.dp, end = 0.dp)
                 } else {
-                    PaddingValues(start = 2.dp, end = 12.dp)
+                    // Change 4: no leading inset so channel pills start flush
+                    // with the screen edge. Keep the 12dp trailing inset so the
+                    // last pill doesn't kiss the bezel.
+                    PaddingValues(start = 0.dp, end = 12.dp)
                 },
             ) {
                 itemsIndexed(
@@ -755,15 +768,13 @@ private fun ChannelTabItem(
     var isFocused by remember { mutableStateOf(false) }
     var logoLoadFailed by remember(channel.titleLogoUrl) { mutableStateOf(false) }
 
-    // Resting "selected" state uses a thin underline dash (rendered as a
-    // sibling Box below the Card) instead of the previous solid brand-
-    // colour pill — far less visually cluttering. Focus still tints the
-    // background so the D-pad position stays obvious.
-    val bgColor by animateColorAsState(
-        targetValue = if (isFocused) PillFocusedBg else Color.Transparent,
-        animationSpec = tween(160),
-        label = "channelBg",
-    )
+    // Change 1+2: no pill/capsule background or border on any state. Selection
+    // and focus are signalled by a thin dynamic-colour (brand) underline drawn
+    // directly beneath the channel text, plus the scale bump on focus. The
+    // underline width tracks the measured text width.
+    val density = LocalDensity.current
+    var underlineWidth by remember { mutableStateOf(0.dp) }
+    val underlineActive = isSelected || isFocused
     val textAlpha by animateFloatAsState(
         targetValue = if (isSelected || isFocused) 1f else 0.65f,
         animationSpec = tween(150),
@@ -775,42 +786,23 @@ private fun ChannelTabItem(
         label = "channelScale",
     )
     val hasLogoUrl = !channel.titleLogoUrl.isNullOrBlank() && !logoLoadFailed
-    // Channel-pill focus treatment mirrors the split content-card
-    // settings: Poster Glow toggle (shadow) is orthogonal to Card
-    // Focus Style (Accent | Bloom). Numbers are tuned smaller than
-    // poster cards — pills are tiny, so a 6-8dp shadow + 0.25 alpha
-    // reads as a subtle halo.
-    val pillFocusStyle = com.nuvio.tv.LocalCardFocusStyle.current
-    val pillGlowEnabled = com.nuvio.tv.LocalPosterGlowEnabled.current
-    val pillIsBloom = pillFocusStyle == com.nuvio.tv.domain.model.CardFocusStyle.BLOOM
-    val pillNeedsArtworkColor = pillGlowEnabled || pillIsBloom
-    val glowColor = rememberArtworkBackedGlowColor(
+    // Change 2 (fix): dynamic underline colour. Extract the dominant colour
+    // from the channel logo (the same artwork extraction the old capsule used);
+    // enabled whenever a logo exists so it's not gated behind the glow/bloom
+    // settings, and falls back to the channel's brand colour when there's no
+    // logo to sample.
+    val underlineColor = rememberArtworkBackedGlowColor(
         imageUrl = channel.titleLogoUrl,
         fallbackSeed = channel.id,
-        enabled = pillNeedsArtworkColor && hasLogoUrl,
+        enabled = hasLogoUrl,
+        fallbackColor = channel.brandColor,
     )
-    val showPillGlow = hasLogoUrl && isFocused && pillGlowEnabled
-    val pillShadowElevation = if (pillIsBloom) 6.dp else 8.dp
-    val pillShadowColor = glowColor.copy(alpha = 0.25f)
-    val pillFocusedBorderColor = if (pillIsBloom && hasLogoUrl) glowColor
-        else PillFocusBorder
-    val pillFocusedBorderWidth = if (pillIsBloom) 2.dp else 1.5.dp
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
     Card(
         onClick = onClick,
         modifier = Modifier
             .scale(scale)
-            .then(
-                if (showPillGlow) {
-                    Modifier.shadow(
-                        elevation = pillShadowElevation,
-                        shape = PillShape,
-                        ambientColor = pillShadowColor,
-                        spotColor = pillShadowColor,
-                    )
-                } else Modifier
-            )
             .focusRequester(focusRequester)
             .then(
                 if (secondaryFocusRequester != null) Modifier.focusRequester(secondaryFocusRequester)
@@ -839,51 +831,27 @@ private fun ChannelTabItem(
             },
         shape = CardDefaults.shape(PillShape),
         colors = CardDefaults.colors(
-            containerColor = bgColor,
-            focusedContainerColor = bgColor,
+            // Change 1: no capsule background on any state.
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent,
         ),
         border = CardDefaults.border(
+            // Change 1: no capsule border/outline on any state either.
             border = Border.None,
-            focusedBorder = Border(
-                border = BorderStroke(pillFocusedBorderWidth, pillFocusedBorderColor),
-                shape = PillShape,
-            ),
+            focusedBorder = Border.None,
         ),
         scale = CardDefaults.scale(focusedScale = 1f),
     ) {
         val showLogo = hasLogoUrl && displayMode != CategoryPillDisplayMode.TEXT_ONLY
         val showText = !(hasLogoUrl && displayMode == CategoryPillDisplayMode.ICON_ONLY)
-        if (showLogo && showText) {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                AsyncImage(
-                    model = channel.titleLogoUrl,
-                    contentDescription = channel.name,
-                    contentScale = ContentScale.Fit,
-                    onState = { state ->
-                        if (state is coil3.compose.AsyncImagePainter.State.Error) {
-                            logoLoadFailed = true
-                        }
-                    },
-                    modifier = Modifier
-                        .heightIn(max = 20.dp)
-                        .widthIn(max = 60.dp),
-                )
-                Text(
-                    text = channel.name,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = textAlpha),
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                )
-            }
-        } else if (showLogo) {
-            // Icon-only: logo alone in a slightly taller pill to match the
-            // icon-and-text variant's vertical rhythm.
+        // Change 6: every channel logo renders inside the SAME 48×24 box with
+        // ContentScale.Fit — small logos scale up, large logos scale down, all
+        // to one uniform footprint.
+        val uniformLogo: @Composable () -> Unit = {
             Box(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .width(48.dp)
+                    .height(24.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 AsyncImage(
@@ -895,19 +863,70 @@ private fun ChannelTabItem(
                             logoLoadFailed = true
                         }
                     },
-                    modifier = Modifier
-                        .heightIn(max = 24.dp)
-                        .widthIn(max = 72.dp),
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
-        } else {
-            Text(
-                text = channel.name,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                style = MaterialTheme.typography.titleSmall,
-                color = Color.White.copy(alpha = textAlpha),
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+        }
+        // Change 2: thin dynamic-colour underline directly beneath the text.
+        // Height is always reserved (drawn transparent when idle) so focus
+        // never nudges the pill vertically; only the colour toggles.
+        val underline: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { w ->
+            Box(
+                modifier = Modifier
+                    .width(if (w > 0.dp) w else 1.dp)
+                    .height(2.5.dp)
+                    .background(
+                        color = if (underlineActive) underlineColor else Color.Transparent,
+                        shape = RoundedCornerShape(1.5.dp),
+                    ),
             )
+        }
+        if (showLogo && showText) {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                uniformLogo()
+                Text(
+                    text = channel.name,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = textAlpha),
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    modifier = Modifier.onGloballyPositioned {
+                        underlineWidth = with(density) { it.size.width.toDp() }
+                    },
+                )
+                underline(underlineWidth)
+            }
+        } else if (showLogo) {
+            // Logo-only: no caption, so the underline tracks the logo box
+            // width (48dp) to keep selection visible without a capsule.
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                uniformLogo()
+                underline(48.dp)
+            }
+        } else {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = channel.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White.copy(alpha = textAlpha),
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    modifier = Modifier.onGloballyPositioned {
+                        underlineWidth = with(density) { it.size.width.toDp() }
+                    },
+                )
+                underline(underlineWidth)
+            }
         }
     } // Card
     } // Column
@@ -971,7 +990,9 @@ private fun ProfileAvatarButton(
     Card(
         onClick = onClick,
         modifier = Modifier
-            .size(36.dp)
+            // Change 7: shrunk from 36dp so the avatar visually matches the
+            // category nav icons instead of dominating the left side.
+            .size(26.dp)
             .then(
                 if (focusRequester != null) Modifier.focusRequester(focusRequester)
                 else Modifier
@@ -1002,7 +1023,9 @@ private fun ProfileAvatarButton(
         ProfileAvatarCircle(
             name = name,
             colorHex = colorHex,
-            size = 32.dp,
+            // Change 7: 22dp circle inside the 26dp card (2dp inset all round)
+            // so the avatar sits at roughly nav-icon size.
+            size = 22.dp,
             avatarImageUrl = avatarUrl,
             modifier = Modifier.padding(2.dp),
         )

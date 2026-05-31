@@ -18,8 +18,12 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,6 +36,12 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -111,6 +121,14 @@ fun CatalogRowSection(
      * `false` so Classic / Grid keep their existing look.
      */
     compactTitle: Boolean = false,
+    /**
+     * When `true` (Spotlight only), a hidden "Show All" card sits to the LEFT
+     * of the first poster. D-pad Left from the first poster reveals + focuses
+     * it (instead of opening the profile menu); it collapses/hides again when
+     * focus leaves. Selecting it fires [onSeeAll]. Default `false` so Classic /
+     * Grid / Search keep the original "Left from first item → profile" gesture.
+     */
+    leadingSeeAllEnabled: Boolean = false,
     listState: LazyListState = rememberLazyListState(initialFirstVisibleItemIndex = initialScrollIndex)
 ) {
     fun rowItemFocusKey(index: Int, item: MetaPreview): String {
@@ -118,6 +136,8 @@ fun CatalogRowSection(
     }
 
     val seeAllCardShape = RoundedCornerShape(posterCardStyle.cornerRadius)
+    // Fix 3: focus target for the hidden leading "Show All" card (Spotlight).
+    val seeAllLeadingFr = remember { FocusRequester() }
     val internalRowFocusRequester = remember { FocusRequester() }
     val resolvedRowFocusRequester = rowFocusRequester ?: internalRowFocusRequester
     val itemFocusRequestersByKey = remember { mutableMapOf<String, FocusRequester>() }
@@ -256,7 +276,11 @@ fun CatalogRowSection(
                     style = rowTitleStyle,
                     color = NuvioColors.TextPrimary,
                     maxLines = if (compactTitle) 1 else 3,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    // Spotlight (compactTitle): nudge the title text down 8dp so
+                    // it has breathing room from the hero scrim above. Title text
+                    // only — not the LazyRow or section container.
+                    modifier = if (compactTitle) Modifier.padding(top = 8.dp) else Modifier
                 )
                 if (showAddonName) {
                     Text(
@@ -327,6 +351,71 @@ fun CatalogRowSection(
             ),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Fix 3 (Spotlight): hidden leading "Show All" card. Collapsed to a
+            // 1dp/alpha-0 sliver until focused (reached via D-pad Left from the
+            // first poster), then animates open. Select → onSeeAll (grid view).
+            if (leadingSeeAllEnabled) {
+                item(key = "${catalogRow.type}_${catalogRow.catalogId}_leading_see_all") {
+                    var leadingFocused by remember { mutableStateOf(false) }
+                    val leadingWidth by animateDpAsState(
+                        targetValue = if (leadingFocused) posterCardStyle.width else 1.dp,
+                        animationSpec = tween(200),
+                        label = "leadingSeeAllWidth",
+                    )
+                    val leadingAlpha by animateFloatAsState(
+                        targetValue = if (leadingFocused) 1f else 0f,
+                        animationSpec = tween(200),
+                        label = "leadingSeeAllAlpha",
+                    )
+                    Card(
+                        onClick = latestOnSeeAll,
+                        modifier = Modifier
+                            .width(leadingWidth)
+                            .height(posterCardStyle.height)
+                            .alpha(leadingAlpha)
+                            .focusRequester(seeAllLeadingFr)
+                            .onFocusChanged { leadingFocused = it.isFocused || it.hasFocus }
+                            // A further D-pad Left from the revealed card still
+                            // opens the profile menu (preserves that entry point).
+                            .tvLeftFromFirstItemToSideRail(),
+                        shape = CardDefaults.shape(shape = seeAllCardShape),
+                        colors = CardDefaults.colors(
+                            containerColor = NuvioColors.BackgroundCard,
+                            focusedContainerColor = NuvioColors.BackgroundCard
+                        ),
+                        border = CardDefaults.border(
+                            focusedBorder = Border(
+                                border = BorderStroke(posterCardStyle.focusedBorderWidth, NuvioColors.FocusRing),
+                                shape = seeAllCardShape
+                            )
+                        ),
+                        scale = CardDefaults.scale(focusedScale = posterCardStyle.focusedScale)
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.GridView,
+                                    contentDescription = "Show All",
+                                    modifier = Modifier.size(32.dp),
+                                    tint = NuvioColors.TextSecondary
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Show All",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = NuvioColors.TextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             itemsIndexed(
                 items = catalogRow.items,
                 key = { index, item ->
@@ -378,9 +467,19 @@ fun CatalogRowSection(
                         // Nav-spec: D-pad Left from index 0 of a horizontal
                         // carousel invokes the SideRail. From any other index
                         // Compose's natural left-traversal moves to index-1.
+                        // Fix 3 (Spotlight): instead reveal + focus the hidden
+                        // leading "Show All" card on Left from the first poster.
                         .then(
-                            if (index == 0) Modifier.tvLeftFromFirstItemToSideRail()
-                            else Modifier
+                            when {
+                                index == 0 && leadingSeeAllEnabled -> Modifier.onPreviewKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                                        runCatching { seeAllLeadingFr.requestFocus() }
+                                        true
+                                    } else false
+                                }
+                                index == 0 -> Modifier.tvLeftFromFirstItemToSideRail()
+                                else -> Modifier
+                            }
                         )
                         .then(
                             if (isEntryTarget) Modifier.focusRequester(entryFocusRequester!!) else Modifier

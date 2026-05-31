@@ -812,8 +812,13 @@ internal suspend fun BaseHomeViewModel.updateCatalogRowsPipeline() {
         }
 
         val computedDisplayRows = orderedRows.map { row ->
-            val shouldKeepFullRowInModern = currentLayout == HomeLayout.MODERN && row.supportsSkip
-            if (row.items.size > 25 && !shouldKeepFullRowInModern) {
+            // Fix 2: Spotlight gets the same full-row treatment as Modern so its
+            // carousels show the complete catalog instead of being truncated to
+            // 25. Other layouts (Classic/Grid) keep the truncation.
+            val shouldKeepFullRow =
+                (currentLayout == HomeLayout.MODERN || currentLayout == HomeLayout.SPOTLIGHT) &&
+                    row.supportsSkip
+            if (row.items.size > 25 && !shouldKeepFullRow) {
                 val key = "${row.addonId}_${row.apiType}_${row.catalogId}"
                 val cachedEntry = getTruncatedRowCacheEntry(key)
                 if (cachedEntry != null && cachedEntry.sourceRow === row) {

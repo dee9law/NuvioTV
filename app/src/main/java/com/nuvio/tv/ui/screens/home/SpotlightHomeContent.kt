@@ -24,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -41,6 +42,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -189,6 +195,11 @@ fun SpotlightHomeContent(
     // requesting focus on it.
     val rowListStatesMap = remember { mutableMapOf<Int, LazyListState>() }
     val backScope = rememberCoroutineScope()
+    // Fix 1a: throttle D-pad Up autorepeat. Holding Up fires a flood of repeat
+    // events that skip multiple rows in one frame and shoot straight to the
+    // TopBar. We let the initial press through, then allow only ONE Up step per
+    // 200ms while the key is held, consuming the rest.
+    var lastUpNavMs by remember { mutableLongStateOf(0L) }
 
     // Clean up stale focus requesters when rows data changes (e.g. after settings)
     LaunchedEffect(catalogRows) {
@@ -256,6 +267,15 @@ fun SpotlightHomeContent(
         animationSpec = tween(SPOTLIGHT_TRANSITION_MS),
         label = "constrainedAlpha"
     )
+
+    // Fix 1b: when focus genuinely returns to the hero (State A / CAROUSEL),
+    // force the rows-focus flag false. `heroState == CAROUSEL` is by definition
+    // `!rowsAreaHasFocus`, so keying on the real hero-focus signal is what
+    // clears any stale `true` left behind by a fast D-pad-Up flood — without it,
+    // the next D-pad Down can't re-enter the rows to transition back to State B.
+    LaunchedEffect(heroHasFocus) {
+        if (heroHasFocus) rowsAreaHasFocus = false
+    }
 
     // ── Constrained hero data (State B) ─────────────────────────────
     val spotlightHeroPreview = remember(debouncedFocusedItem) {
@@ -430,15 +450,12 @@ fun SpotlightHomeContent(
                         .align(Alignment.TopEnd)
                         .offset(x = 56.dp)
                         .fillMaxWidth(MODERN_HERO_MEDIA_WIDTH_FRACTION)
-                        .fillMaxSize()
+                        .height(animatedHeroHeight)
                         .graphicsLayer { alpha = constrainedAlpha },
                     requestWidthPx = heroMediaWidthPx,
                     requestHeightPx = heroMediaHeightPx,
                     onTrailerEnded = {},
-                    onFirstFrameRendered = {},
-                    // State B: pull the scrim's darkest point 40dp off the
-                    // hero/rows seam so the row title below stays readable.
-                    bottomScrimLiftDp = 40.dp
+                    onFirstFrameRendered = {}
                 )
                 val metaBottomPad = (animatedHeroHeight.value * 0.12f).coerceIn(16f, 48f).dp
                 val metaMaxHeight = (animatedHeroHeight - metaBottomPad - 16.dp).coerceAtLeast(0.dp)
@@ -464,6 +481,24 @@ fun SpotlightHomeContent(
                     .fillMaxWidth()
                     .clipToBounds()
                     .focusRequester(rowsContainerFr)
+                    // Fix 1a: throttle held D-pad Up so it steps one row at a
+                    // time instead of flooding focus up to the TopBar.
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                            if (event.nativeKeyEvent.repeatCount > 0) {
+                                val now = System.currentTimeMillis()
+                                if (now - lastUpNavMs < 200L) {
+                                    true // swallow autorepeat inside the window
+                                } else {
+                                    lastUpNavMs = now
+                                    false // allow one step
+                                }
+                            } else {
+                                lastUpNavMs = System.currentTimeMillis()
+                                false // initial press always passes through
+                            }
+                        } else false
+                    }
                     .onFocusChanged { state ->
                         val hadFocus = rowsAreaHasFocus
                         rowsAreaHasFocus = state.hasFocus
@@ -504,6 +539,7 @@ fun SpotlightHomeContent(
                         focusedPosterBackdropTrailerEnabled = uiState.focusedPosterBackdropTrailerEnabled,
                         focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
                         compactTitle = true,
+                        leadingSeeAllEnabled = true,
                         onItemClick = { id, type, addonBaseUrl ->
                             onNavigateToDetail(id, type, addonBaseUrl)
                         },
