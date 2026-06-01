@@ -199,6 +199,13 @@ class LayoutPreferenceDataStore @Inject constructor(
         prefs[heroSectionEnabledKey] ?: true
     }
 
+    // Preserved alongside the new DiscoverLocation enum: existing Feel/SideRail
+    // call sites still read this global boolean. Phase 4 migrates them to
+    // discoverLocation; until then we keep the flow + setter live.
+    val searchDiscoverEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[searchDiscoverEnabledKey] ?: true
+    }
+
     val discoverLocation: Flow<DiscoverLocation> = profileFlow { prefs ->
         val stored = prefs[discoverLocationKey] ?: DiscoverLocation.IN_SEARCH.name
         runCatching { DiscoverLocation.valueOf(stored) }
@@ -587,6 +594,10 @@ class LayoutPreferenceDataStore @Inject constructor(
             }
             prefs.remove(legacySearchDiscoverEnabledKey)
         }
+    }
+
+    suspend fun setSearchDiscoverEnabled(enabled: Boolean) {
+        store().edit { it[searchDiscoverEnabledKey] = enabled }
     }
 
     suspend fun setPosterLabelsEnabled(enabled: Boolean) {

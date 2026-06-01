@@ -2466,7 +2466,6 @@ private suspend fun BaseHomeViewModel.applyContinueWatchingEnrichmentOverlay(
         }
         if (sortChanged) sortContinueWatchingItems(mapped, continueWatchingSortMode) else mapped
     }
-    }
 }
 
 private fun BaseHomeViewModel.publishBadgeUpdate(
