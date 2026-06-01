@@ -841,9 +841,11 @@ private fun TopNavBarScaffold(
     CompositionLocalProvider(
         LocalContentFocusRequester provides contentFocusRequester,
         LocalNavBarFocusRequester  provides navBarFr,
-        // Modern feel reuses the SideRail D-pad-Left mechanism to open the
-        // Profile Overlay instead — same trigger, new destination.
-        LocalSideRailController   provides if (isModernFeel) openProfileOverlay else openSideRail,
+        // Modern feel: D-pad Left from the first content item hard-stops
+        // (no Profile Overlay). The avatar Select still opens the overlay
+        // directly. Legacy keeps the SideRail entry. The Profile Overlay is
+        // now reachable only via the avatar, not the Left gesture.
+        LocalSideRailController   provides if (isModernFeel) null else openSideRail,
         // Modern feel has no SideRail; content composables drop their
         // left buffer when they see this. Legacy keeps the existing
         // padding because the SideRail needs that clearance.
