@@ -760,30 +760,24 @@ fun ModernHomeContent(
                 expandedCatalogFocusKey.value = null
             }
 
-            // Back hierarchy (L5 → L4 → L2):
+            // Back hierarchy (Modern — the hero is a reactive backdrop with
+            // nothing to focus, so it is NOT a back stop):
             //   L5: item > 0 → snap to first card in current row
-            //   L4: item 0, not first row → jump to first row (hero position)
-            //   L2: item 0, first row → TopBar
+            //   L1: item 0 (any row) → TopBar directly (skip the hero)
             val navBarFr = LocalNavBarFocusRequester.current
             BackHandler(enabled = contentHasFocus.value && !isTrailerPlayingFullscreenState.value) {
-                val firstRowKey = carouselRows.list.firstOrNull()?.key
                 when {
                     activeItemIndex.intValue > 0 -> {
                         pendingRowFocusKey.value = activeRowKey.value
                         pendingRowFocusIndex.value = 0
                         pendingRowFocusNonce.intValue++
                         // Immediately reflect the intent so a rapid second
-                        // Back press evaluates L4 instead of repeating L5.
+                        // Back press evaluates the first-poster case below.
                         focusHolder.activeItemIndex = 0
                         activeItemIndex.intValue = 0
                     }
-                    activeRowKey.value != firstRowKey && firstRowKey != null -> {
-                        pendingRowFocusKey.value = firstRowKey
-                        pendingRowFocusIndex.value = 0
-                        pendingRowFocusNonce.intValue++
-                        focusHolder.activeRowKey = firstRowKey
-                        activeRowKey.value = firstRowKey
-                    }
+                    // First poster of ANY row → straight to the TopBar. The
+                    // Modern hero is a backdrop only, never a focus target.
                     else -> runCatching { navBarFr.requestFocus() }
                 }
             }

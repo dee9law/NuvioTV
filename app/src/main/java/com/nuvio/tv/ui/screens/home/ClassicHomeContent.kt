@@ -286,19 +286,30 @@ fun ClassicHomeContent(
     val heroVisible = uiState.heroSectionEnabled && uiState.heroItems.isNotEmpty()
 
     var classicContentHasFocus by remember { mutableStateOf(false) }
-    // Back hierarchy: L5 → L4 → L2 (only when content has focus)
+    // Tracks whether the HeroCarousel itself currently holds focus. The hero
+    // is not a content row and never updates currentFocusSnapshot, so this
+    // dedicated flag is the only reliable "am I on the hero" signal for Back.
+    var heroHasFocus by remember { mutableStateOf(false) }
+    // Back hierarchy (Classic — the HeroCarousel IS interactive, so it is a
+    // back stop between the first poster and the TopBar):
+    //   middle of row (item > 0) → first poster of that row
+    //   first poster (item 0, any row) → hero (when visible)
+    //   hero → TopBar
     BackHandler(enabled = classicContentHasFocus) {
         when {
+            // On the hero → up to the TopBar.
+            heroHasFocus -> runCatching { classicNavBarFr.requestFocus() }
+            // Deep in a row → snap back to the first poster of that row.
             currentFocusSnapshot.itemIndex > 0 -> {
                 val fr = currentFocusSnapshot.rowKey?.let { rowFirstItemFocusRequesters[it] }
                     ?: currentFocusSnapshot.rowKey?.let { rowEntryFocusRequesters[it] }
                 if (fr != null) runCatching { fr.requestFocus() }
             }
-            currentFocusSnapshot.rowIndex > 0 -> {
+            // First poster of any row → the hero (when visible), else TopBar.
+            else -> {
                 if (heroVisible) runCatching { heroFocusRequester.requestFocus() }
                 else runCatching { classicNavBarFr.requestFocus() }
             }
-            else -> runCatching { classicNavBarFr.requestFocus() }
         }
     }
 
@@ -481,11 +492,16 @@ fun ClassicHomeContent(
             item(key = "hero_carousel", contentType = "hero") {
                 HeroCarousel(
                     items = uiState.heroItems.asStable(),
-                    focusRequester = if (shouldRequestInitialFocus) heroFocusRequester else null,
+                    // Always attach the requester so Back ("first poster → hero")
+                    // and Up from the first row can target the hero even after
+                    // focus has moved (initial auto-focus is driven separately
+                    // by the LaunchedEffect above, gated on shouldRequestInitialFocus).
+                    focusRequester = heroFocusRequester,
                     modifier = Modifier
                         // Hero → navBar on Up (per spec L2 chain).
                         .focusProperties { up = classicNavBarFr }
                         .onFocusChanged {
+                            heroHasFocus = it.hasFocus
                             if (it.hasFocus && uiState.classicFocusGradientEnabled) {
                                 focusedArtwork = null
                             }
