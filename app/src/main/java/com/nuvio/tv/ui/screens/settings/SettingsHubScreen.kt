@@ -87,6 +87,7 @@ fun SettingsHubScreen(
     onNavigateToAuthQrSignIn: () -> Unit,
     onNavigateToManageProfiles: () -> Unit,
     onNavigateToSupportersContributors: () -> Unit,
+    onNavigateToLicensesAttributions: () -> Unit,
     onNavigateToAddons: () -> Unit,
     onNavigateToTrakt: () -> Unit,
     onNavigateToCollections: () -> Unit,
@@ -137,6 +138,7 @@ fun SettingsHubScreen(
                 onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
                 onNavigateToManageProfiles = onNavigateToManageProfiles,
                 onNavigateToSupportersContributors = onNavigateToSupportersContributors,
+                onNavigateToLicensesAttributions = onNavigateToLicensesAttributions,
             )
         }
     }
@@ -514,6 +516,7 @@ private fun RightPane(
     onNavigateToAuthQrSignIn: () -> Unit,
     onNavigateToManageProfiles: () -> Unit,
     onNavigateToSupportersContributors: () -> Unit,
+    onNavigateToLicensesAttributions: () -> Unit,
 ) {
     // Workspace surface — gives the right pane the same enclosed-card
     // treatment as the category cards on the left. Content scrolls inside
@@ -547,6 +550,7 @@ private fun RightPane(
                 onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
                 onNavigateToManageProfiles = onNavigateToManageProfiles,
                 onNavigateToSupportersContributors = onNavigateToSupportersContributors,
+                onNavigateToLicensesAttributions = onNavigateToLicensesAttributions,
             )
         }
     }
@@ -558,6 +562,7 @@ private fun SubItemContent(
     onNavigateToAuthQrSignIn: () -> Unit,
     onNavigateToManageProfiles: () -> Unit,
     onNavigateToSupportersContributors: () -> Unit,
+    onNavigateToLicensesAttributions: () -> Unit,
 ) {
     when (contentSubId) {
         // Appearance
@@ -591,7 +596,8 @@ private fun SubItemContent(
         // Advanced
         "advanced.network" -> AdvancedSettingsContent()
         "advanced.about" -> AboutSettingsContent(
-            onNavigateToSupportersContributors = onNavigateToSupportersContributors
+            onNavigateToSupportersContributors = onNavigateToSupportersContributors,
+            onNavigateToLicensesAttributions = onNavigateToLicensesAttributions
         )
         // Initial state: nothing selected. All categories start collapsed; the
         // right pane stays empty until the user opens a category and picks

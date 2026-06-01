@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Switch
 import androidx.tv.material3.Text
+import com.nuvio.tv.domain.model.ContinueWatchingSortMode
 import com.nuvio.tv.ui.theme.NuvioColors
 
 /**
@@ -82,6 +83,24 @@ fun ContinueWatchingSettingsContent(
                 checked = uiState.showUnairedNextUp,
                 onCheckedChange = { enabled ->
                     viewModel.onEvent(LayoutSettingsEvent.SetShowUnairedNextUp(enabled))
+                },
+            )
+        }
+        item(key = "cw_sort_mode") {
+            // Binary sort mode (DEFAULT vs STREAMING_STYLE) rendered as a toggle to
+            // match this content's existing toggle style. ON = streaming-style ordering
+            // (released items first by recency, unreleased pushed to the end).
+            CwToggleRow(
+                title = "Streaming-style sorting",
+                subtitle = "Order Continue Watching like a streaming app: released items first by recency, unreleased pushed to the end. Off keeps the default order.",
+                checked = uiState.continueWatchingSortMode == ContinueWatchingSortMode.STREAMING_STYLE,
+                onCheckedChange = { enabled ->
+                    val mode = if (enabled) {
+                        ContinueWatchingSortMode.STREAMING_STYLE
+                    } else {
+                        ContinueWatchingSortMode.DEFAULT
+                    }
+                    viewModel.onEvent(LayoutSettingsEvent.SetContinueWatchingSortMode(mode))
                 },
             )
         }
