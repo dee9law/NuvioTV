@@ -351,6 +351,8 @@ open class BaseHomeViewModel(
                     _uiState.update {
                         it.copy(layoutPreferencesReady = false)
                     }
+                    clearFocusState()
+                    _gridFocusState.value = HomeScreenFocusState()
                     // Reset so the new profile's pipeline signals first completion correctly.
                     _initialCwResolved.value = false
                     loadContinueWatching()

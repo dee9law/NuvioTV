@@ -73,7 +73,7 @@ internal fun BaseHomeViewModel.observeLayoutPreferencesPipeline() {
                 currentHeroCatalogKeys = prefs.heroCatalogKeys
                 // Reset focus state when layout changes so the outgoing
                 // layout's onDispose doesn't poison the incoming layout.
-                if (previousState.homeLayout != prefs.layout) {
+                if (previousState.layoutPreferencesReady && previousState.homeLayout != prefs.layout) {
                     suppressFocusSave = true
                     clearFocusState()
                 }
