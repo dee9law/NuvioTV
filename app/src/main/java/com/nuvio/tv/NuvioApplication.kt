@@ -1,8 +1,10 @@
 package com.nuvio.tv
 
+import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.os.Build
+import android.os.Bundle
 import android.os.StrictMode
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
@@ -63,11 +65,44 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         PluginRuntimeHooks.onApplicationCreate(this)
         androidTvChannelSyncService.start()
+        registerChannelForegroundTracking()
         // Load locale synchronously so it's available before Activity.attachBaseContext.
         // SharedPreferences reads are fast (cached in memory after first access).
         val tag = getSharedPreferences("app_locale", Context.MODE_PRIVATE)
             .getString("locale_tag", null)
         LocaleCache.localeTag = tag ?: ""
+    }
+
+    /**
+     * Tracks app foreground/background via the started-activity count and forwards it to the
+     * Android TV channel sync service. The launcher's Continue Watching channel is only visible
+     * while we're backgrounded, so the service reconciles it once on the foreground→background
+     * transition rather than thrashing the provider on every in-playback progress update.
+     */
+    private fun registerChannelForegroundTracking() {
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            private var startedActivities = 0
+
+            override fun onActivityStarted(activity: Activity) {
+                if (startedActivities == 0) {
+                    androidTvChannelSyncService.onForegroundChanged(true)
+                }
+                startedActivities++
+            }
+
+            override fun onActivityStopped(activity: Activity) {
+                startedActivities = (startedActivities - 1).coerceAtLeast(0)
+                if (startedActivities == 0) {
+                    androidTvChannelSyncService.onForegroundChanged(false)
+                }
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityResumed(activity: Activity) {}
+            override fun onActivityPaused(activity: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: Activity) {}
+        })
     }
 
     override fun newImageLoader(context: android.content.Context): ImageLoader {

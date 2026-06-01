@@ -2,6 +2,7 @@ package com.nuvio.tv.core.sync.androidtv
 
 import android.content.Context
 import android.util.Log
+import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.repository.WatchProgressRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +34,26 @@ class AndroidTvChannelSyncService @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    // The launcher channel is only visible while the app is in the background. Reconciling on
+    // every in-playback progress emission (~10s during playback) thrashes the TvProvider and
+    // stops launchers like Projectivy from repainting. We instead reconcile once when the app
+    // goes to background (user returns to the launcher) — see [onForegroundChanged] — plus once
+    // on startup and on the periodic job.
+    @Volatile private var appInForeground = false
+    @Volatile private var latestItems: List<WatchProgress> = emptyList()
+    @Volatile private var hasPopulatedOnce = false
+
+    /** Called from the Application's activity-lifecycle callbacks. On the foreground→background
+     *  transition we reconcile once so the channel reflects the latest watch progress exactly as
+     *  the launcher regains foreground. */
+    fun onForegroundChanged(foreground: Boolean) {
+        val wasForeground = appInForeground
+        appInForeground = foreground
+        if (wasForeground && !foreground) {
+            scope.launch { manager.reconcile(latestItems) }
+        }
+    }
+
     @OptIn(FlowPreview::class)
     fun start() {
         if (!manager.isSupported()) {
@@ -49,8 +70,15 @@ class AndroidTvChannelSyncService @Inject constructor(
                 // No distinctUntilChanged — reconcile on every emission so metadata-enriched
                 // artwork and new Trakt entries appear as soon as the Flow re-emits.
                 .collect { items ->
-                    Log.d(TAG, "Reconciling ${items.size} items: ${items.take(5).map { "${it.contentId} pct=${it.progressPercent} pos=${it.position} dur=${it.duration}" }}")
-                    manager.reconcile(items.take(MAX_CHANNEL_ROWS))
+                    val capped = items.take(MAX_CHANNEL_ROWS)
+                    latestItems = capped
+                    // Always populate once on startup so the channel isn't empty until the first
+                    // background transition. After that, skip while foregrounded — the background
+                    // transition (onForegroundChanged) + periodic job keep it fresh.
+                    if (appInForeground && hasPopulatedOnce) return@collect
+                    hasPopulatedOnce = true
+                    Log.d(TAG, "Reconciling ${capped.size} items: ${capped.take(5).map { "${it.contentId} pct=${it.progressPercent} pos=${it.position} dur=${it.duration}" }}")
+                    manager.reconcile(capped)
                 }
         }
     }
