@@ -190,6 +190,13 @@ android {
         buildConfig = true
     }
 
+    lint {
+        // Pre-existing ExtraTranslation gaps (mostly values-fr strings missing from the
+        // default locale) are snapshotted in lint-baseline.xml so they don't fail builds.
+        // New lint errors still fail. Regenerate with `./gradlew updateLintBaseline`.
+        baseline = file("lint-baseline.xml")
+    }
+
     sourceSets {
         getByName("main") {
             jniLibs.srcDirs("src/main/jniLibs")
