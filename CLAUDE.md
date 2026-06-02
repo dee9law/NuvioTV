@@ -296,6 +296,8 @@ follow-up pass:
 - **2026-05-23 — Spotlight rework, tab-nav fix, COLLECTION root-cause, Prime-style row spacing.** Spotlight reshaped from animated slide-up strip into fixed one-row container + fixed tab navigation. Movies tab first-tap no-op fixed (dropped `saveState`/`restoreState`). COLLECTION blanket filter removed (upstream `viewContext` filter already sufficient). Prime-style tight row-title→cards rhythm (2dp title bottom padding, 0dp LazyRow top) across all layouts.
 - **2026-05-25 — Hero sizing, TopBar immersion, settings expansion, container architecture.** 22 fixes: hero description 3-line/`bodySmall`, proportional hero metadata padding, TopBar immersion fade (400/300ms), `clipToBounds` on rows, fixed 28dp row-title height, channel-pill loop isolation, TopBar master toggle (`top_bar_enabled`, Legacy-only), full SideRail management (reorder/display-mode/visibility), Continue Watching as addable row, catalog scope filtering, populate/clear-all. New files: `HomeLayoutSizing.kt`, `UniversalHomeNavigation.kt`. Skyworth confirmed 960×540dp (1080p @2x).
 - **2026-05-26/27 — Spotlight three-state hero, per-row card scaling, back hierarchy, TopBar brand glow.** Spotlight rewritten Box→Column with three-state hero (Carousel/Constrained/Hidden) + LazyColumn rows. Per-row card scaling fixed in Modern (`ModernRowSection` raw-vs-scaled mismatch). Universal Back hierarchy wired for all four layouts via local `BackHandler`s. TopBar `SelectionDashIndicator` removed → brand-color dash+glow Canvas (later reverted 05-29/30).
+- **2026-05-29/30 — Brand-glow revert, Spotlight lazy-load + back-nav + State B scrim fixes.** Removed the TopBar brand-glow Canvas (broke channel back-nav). Fixed Spotlight back-from-3rd+-card (register inner `LazyListState`s), rows 4+ shimmer (added `snapshotFlow` lazy-load trigger), channel-carousel back-nav (`heroHasFocus` gate), and the State B row-title chop — real fix was lifting the hero bottom scrim off the hero/rows seam via `bottomScrimLiftDp` (three wrong hypotheses first: zIndex, top padding, dark plate).
+- **2026-05-30/31 — State B scrim saga, TopBar pill redesign, Spotlight nav + Show All.** State B hero now renders identically to Modern's non-fullscreen hero (dropped bespoke scrim). TopBar channel-pill redesign: capsule → artwork-backed dynamic underline + 6 tweaks (`NavBarHeight` 60→54dp, avatar 36→26dp, edge-to-edge channels, uniform 48×24 logos). Spotlight: held-Up flood throttle (200ms), full catalog rows (extended `shouldKeepFullRow` to SPOTLIGHT), leading "Show All" card on D-pad Left from first poster.
 
 ---
 
@@ -395,214 +397,6 @@ Commit the `CLAUDE.md` update as part of the final push. **Do not ask
 
 ---
 
-## 📅 Session log — 2026-05-29/30 (Brand-glow revert, Spotlight lazy-load + back-nav + State B scrim fixes)
-
-### Headline
-
-Removed the TopBar brand-glow Canvas (it broke channel back-nav), then
-fixed several Spotlight issues across multiple rounds: back-from-3rd+-card,
-rows 4+ shimmer, channel-carousel back-nav, and the State B row-title chop.
-Several attempts rode **incorrect initial hypotheses** (the title chop took
-four tries — zIndex, top padding, dark plate, then the real fix: lifting the
-hero bottom scrim off the seam). The gotchas below capture what was actually
-true so they don't recur.
-
-### Bugs fixed
-
-- **Channel carousel glow reverted** (`TopNavigationBar.kt`) — removed the
-  `onGlowPositionReported` callback, glow state, animated glow position/
-  color, the `Canvas` overlay + `Box` wrapper, and the `onGloballyPositioned`
-  reporters. Kept `SelectionDashIndicator` deleted (no dot/dash under pills).
-- **Spotlight back from 3rd+ poster didn't snap to first card**
-  (`SpotlightHomeContent.kt`) — from card 3+, the inner LazyRow had recycled
-  card 0, detaching its `FocusRequester`, so `requestFocus()` silently
-  failed. Fix: register each row's inner `LazyListState` in `rowListStatesMap`;
-  the Back handler now `scrollToItem(0)` → `withFrameNanos` → `requestFocus()`.
-- **Spotlight rows 4+ stuck as shimmer placeholders**
-  (`SpotlightHomeContent.kt` + `HomeScreen.kt`) — Spotlight had no lazy-load
-  trigger. Added a `snapshotFlow`-on-scroll-settle effect (cloned from
-  Classic) firing `onRequestLazyCatalogLoad(key)` for visible/next
-  placeholder rows; added the param and wired it to
-  `viewModel.requestLazyCatalogLoad`.
-- **Channel-pill carousel back-nav broken in Spotlight**
-  (`SpotlightHomeContent.kt`) — see gotcha #1.
-- **Spotlight State B row title "chopped" — REAL root cause: the hero
-  bottom scrim, not layout** (`ModernHomeHero.kt` + `SpotlightHomeContent.kt`).
-  Three wrong attempts first: `zIndex(2f)` on the title Row, then
-  `padding(top=12dp)` on the rows LazyColumn (Fix A), then a
-  `background(Color.Black.copy(alpha=0.5f))` plate behind the title text
-  (Fix B). Fix A + Fix B were reverted. On-device `SpotlightSize` logging
-  proved `overlap = 0dp` (hero/rows abut cleanly — no layout overlap at all).
-  The title was rendered but invisible: `ModernHeroGradientLayer`'s bottom
-  vertical scrim ended at `endY = size.height` with its darkest stop
-  (`bgColor`) landing exactly on the hero/rows seam, drowning the row title
-  just below. **Fix:** added `bottomScrimLiftDp: Dp = 0.dp` to
-  `ModernHeroScene` / `ModernHeroGradientLayer`; the scrim now ends at
-  `scrimBottomY = (size.height - lift).coerceAtLeast(bottomStripStartY)` for
-  BOTH the gradient `endY` and the draw rect, leaving the bottom `lift`-dp
-  clean. Spotlight State B passes `40.dp`; default `0.dp` keeps Modern home
-  (the other caller of that same non-fullscreen branch) byte-identical.
-  NOTE: the leftover `zIndex(2f)` on the title Row is harmless and was left
-  in place (out of scope for the Fix A/B revert).
-
-### ⚠️ Gotchas / notes for future sessions
-
-1. **Spotlight's BackHandler must gate on real content focus, never on the
-   `heroState` proxy.** `heroState == CAROUSEL` is just `!rowsAreaHasFocus`,
-   so it is ALSO true when focus is up on the TopBar channel pills. Because
-   content composes after the TopBar, Spotlight's BackHandler wins the
-   `OnBackPressedDispatcher` LIFO and steals Back from the TopBar's own
-   two-step channel-carousel chain (mid-carousel → first pill → category
-   pills). Fix was a dedicated `heroHasFocus` flag (`onFocusChanged` on the
-   hero `Box`) → `BackHandler(enabled = rowsAreaHasFocus || heroHasFocus)`.
-   Classic/Grid/Modern already gate on `*ContentHasFocus`, so only Spotlight
-   had this bug. **Corollary:** the channel back-chain lives entirely in
-   `TopNavigationBar.kt` (`BackHandler(enabled = focusInCarousel)`); it was
-   never touched by the glow revert — don't go looking for it there.
-
-2. **A row title that looks "chopped" in Spotlight State B is a SCRIM
-   contrast problem, not layout/z-order.** Confirmed empirically: temporary
-   `SpotlightSize` logging (`onGloballyPositioned` on the hero Box + rows
-   LazyColumn) showed `overlap = heroBottomY - rowsTopY = 0dp`. The Column
-   structurally cannot overlap — a fixed-`height(animatedHeroHeight)` hero
-   child + a `weight(1f)` rows child abut exactly; `clipToBounds` on the hero
-   only clips the hero's own content. The culprit was `ModernHeroGradientLayer`
-   fading to opaque `bgColor` right at the seam. Two corollaries that misled
-   the earlier attempts: (a) `Modifier.zIndex` only reorders siblings of the
-   SAME parent, so it can never lift a row title above the hero (different
-   parents) — and the rows LazyColumn already draws above the hero anyway;
-   (b) when adjusting a `verticalGradient` scrim, moving only `endY` makes the
-   region past it CLAMP to the last color stop (here opaque `bgColor`) — you
-   must move the draw rect's bottom too, or the "fix" darkens instead of
-   lightens.
-
-### New files
-
-None — all edits to existing files.
-
-### Pending follow-ups
-
-- **On-device verification** of all fixes (installed, not smoke-tested by
-  Claude): Spotlight back from 3rd+ card, rows 4+ loading, channel-pill
-  carousel back-nav, the in-content Spotlight back chain (regression check),
-  and the State B row-title readability after the scrim lift. If 40dp of
-  `bottomScrimLiftDp` reads as too little/too much, it's a one-line dial at
-  the Spotlight `ModernHeroScene` call site.
-- Prior follow-ups (Phase 8 localization, 23 skipped upstream commits,
-  ContinueWatching render in Classic, SideRail order consumption) still open.
-
----
-
-## 📅 Session log — 2026-05-30/31 (State B scrim saga, TopBar pill redesign, Spotlight nav + Show All)
-
-### Headline
-
-Two-day session. Iterated the Spotlight State B hero bottom-scrim fix to a
-clean end-state, redesigned the TopBar channel pills (capsule → dynamic
-underline) plus six other TopBar tweaks, then landed three Spotlight nav/
-content fixes (Up-flood throttle, full catalog rows, leading "Show All" card).
-All changes compiled green and installed on the Skyworth TV.
-
-### Features shipped
-
-- **Spotlight State B uses ModernHeroScene exactly like Modern.** Final state
-  of the scrim saga: State B's `ModernHeroScene` modifier switched from
-  `.fillMaxSize()` to `.height(animatedHeroHeight)` and dropped all scrim
-  customization — renders identically to Modern's non-fullscreen hero. The
-  expand/shrink dynamics (`animatedHeroHeight`, `constrainedAlpha` cross-fade)
-  are untouched.
-- **TopBar channel-pill redesign (7 changes, `TopNavigationBar.kt`):**
-  1. Removed the channel-pill capsule — `containerColor`/`focusedContainerColor`
-     → `Transparent`, `focusedBorder` → `Border.None`, deleted the focus-glow
-     shadow + all glow vals.
-  2. Dynamic-color underline under selected/focused channel text — 2.5dp,
-     width = measured text width (via `onGloballyPositioned`), color from
-     `rememberArtworkBackedGlowColor(enabled = hasLogoUrl, fallbackColor =
-     channel.brandColor)`. Reserved height (transparent when idle) = no vertical
-     jump.
-  3. Category pills untouched.
-  4. Channel pills edge-to-edge — moved the bar's `start` inset off the outer
-     Row onto the Main Section inner Row; Legacy LazyRow `contentPadding` start
-     2dp→0dp.
-  5. `NavBarHeight` 60dp→54dp (floor for logo+caption+underline pills; lower
-     clips logos).
-  6. Uniform channel logos — every logo in a fixed `Box(48×24)` + `ContentScale.Fit`.
-  7. Profile avatar shrunk — Card 36→26dp, circle 32→22dp.
-- **Spotlight row title breathing room** — `compactTitle` rows give the title
-  `Text` an 8dp top padding (`CatalogRowSection.kt`).
-- **Fix 1 — held D-pad Up no longer floods/skips rows** (`SpotlightHomeContent.kt`).
-  (1a) `onPreviewKeyEvent` on the rows `LazyColumn` throttles Up autorepeats to
-  one step / 200ms (initial press passes through). (1b)
-  `LaunchedEffect(heroHasFocus){ if (heroHasFocus) rowsAreaHasFocus = false }`
-  clears a stale rows-focus flag so the next Down re-enters State B.
-- **Fix 2 — Spotlight shows the full catalog** (`HomeViewModelCatalogPipeline.kt`).
-  The pipeline truncated non-Modern rows to 25 items; extended the Modern
-  full-row exemption (`shouldKeepFullRow`) to `HomeLayout.SPOTLIGHT`.
-- **Fix 3 — leading "Show All" card on D-pad Left from first poster**
-  (`CatalogRowSection.kt`, gated by new `leadingSeeAllEnabled`; Spotlight passes
-  `true`). Hidden 1dp/alpha-0 sliver left of the first poster; Left from poster 0
-  reveals + focuses it (replacing the profile-menu gesture there), collapses on
-  blur; Select → `onSeeAll` → `Screen.CatalogSeeAll`. `Icons.Default.GridView` +
-  "Show All". Classic/Grid/Search/FolderDetail default `false` → unchanged.
-
-### Bugs fixed
-
-- **Channel-pill underline showed static sky blue.** `rememberArtworkBackedGlowColor`
-  was deleted with the capsule; underline fell back to a flat color. Restored it
-  wired to the underline with `enabled = hasLogoUrl` (not the old glow/bloom gate)
-  so artwork extraction always runs when a logo exists.
-- **Spotlight nav "regression" investigation** — confirmed via `git diff` that the
-  focus/back wiring was byte-identical to the last commit; the only delta was the
-  State B hero modifier. No wiring was lost; user re-tested.
-
-### New files
-
-None — all edits to existing files.
-
-### Architectural decisions
-
-- **State B = Modern parity over bespoke scrim.** After three scrim approaches
-  (`bottomScrimLiftDp`, `backdropRightOnly`, `bottomScrimMaxAlpha`), settled on
-  rendering State B identically to Modern's non-fullscreen hero. Simpler and
-  consistent; any future title-readability tuning happens in one place.
-- **Channel focus = underline + scale, not capsule.** Per redesign; the artwork-
-  backed dynamic color ties the indicator to each channel's logo.
-- **Fix 1b keyed on `heroHasFocus`, not `heroState == CAROUSEL`.** `heroState ==
-  CAROUSEL` is *defined as* `!rowsAreaHasFocus`, so the literal request was a
-  no-op; keying on the real hero-focus signal achieves the stated goal.
-- **Fix 2 lives in the ViewModel pipeline, not the `CatalogRowSection` call.** The
-  25-item cap was upstream in `computedDisplayRows`; fixing it there gives true
-  Modern parity (the row carries the full list).
-
-### Pending follow-ups
-
-1. **Dead `bottomScrimMaxAlpha` param in `ModernHomeHero.kt`.** `ModernHeroScene`/
-   `ModernHeroGradientLayer` still carry `bottomScrimMaxAlpha: Float = 1.0f`,
-   now unused by every caller (default 1.0f = `bgColor.copy(alpha=1f)` = original
-   behavior, so harmless). Remove for cleanliness next pass.
-- **On-device verification** of all of today's changes (installed, not smoke-tested
-  by Claude): Fix 1 Up-throttle + Down-return, Fix 2 long catalogs, Fix 3 Show All
-  reveal, TopBar `NavBarHeight=54dp`/avatar `26dp` (most likely to need a dial),
-  underline artwork color per channel.
-2. **Fix 3 details to eyeball:** the revealed Show All card keeps
-   `tvLeftFromFirstItemToSideRail` (one more Left still opens the profile menu —
-   change to a hard stop if undesired); collapsed sliver pushes poster 0 ~17dp right.
-3. Prior follow-ups (Phase 8 localization, 23 skipped upstream commits,
-   ContinueWatching render in Classic, SideRail order consumption) still open.
-
-### Notes for future sessions
-
-- **`nativeKeyEvent` is a member property** of `KeyEvent` — accessed as
-  `event.nativeKeyEvent.repeatCount`, **no separate import** (importing
-  `androidx.compose.ui.input.key.nativeKeyEvent` fails to resolve).
-- **`material-icons-extended` is on the classpath** (`Icons.Default.Tune`,
-  `Icons.Default.GridView`, etc. resolve).
-- **TopBar sits at `y=0`** in `MainActivity` (no top padding there); the only
-  vertical lever is `NavBarHeight` in `TopNavigationBar.kt`. The bar can't go much
-  under 54dp without clipping the logo+caption channel pills.
-
----
-
 ## 📅 Session log — 2026-05-31 (Hard-stop D-pad Left from first content item in Modern feel)
 
 ### Headline
@@ -678,3 +472,138 @@ None — single edit to `MainActivity.kt`.
 - **Gradle `packageFullDebug` can fail transiently** (`IncrementalSplitterRunnable`)
   even when Kotlin compiles green — a plain re-run of `installFullDebug`
   succeeded with no code change.
+
+---
+
+## 📅 Session log — 2026-06-01/02 (Phase 3 upstream review-port, build unblock, Phase 4 settings placement)
+
+### Headline
+
+Two phases plus a build-unblock detour. **Phase 3:** reviewed 8 upstream
+commits, ported the 5 that were genuinely live, skipped 3 that conflict with
+the fork's reimplemented Modern hero. **Build unblock:** a pre-existing lint-vital
+failure (translated-but-missing-from-default strings) was blocking
+`installFullDebug`; fixed the real gap + added a lint baseline. **Phase 4:**
+settings-placement pass — most features were already shipped; only 2 needed real
+work (CW sort-mode toggle, Attributions screen). All installed to the Jawwy TV.
+
+### Phase 3 — upstream review-then-port (commit `a838f4d9`)
+
+Ported (bug was live):
+- **`62b5bd119` thread-safe DateFormatter** — `ModernHomeModels.kt` held a
+  `@Volatile SimpleDateFormat` (not thread-safe). Swapped to a cached pattern
+  string + per-call `DateTimeFormatter`.
+- **`49b1d4ed5` CW Next-Up thumbnail stuck** — added the
+  `cached.season == nextUp.info.season && cached.episode == …episode` guard at
+  both apply sites in `HomeViewModelContinueWatching.kt`.
+- **`3ba3003ea` CW launcher channel refresh** — Part 1 verbatim
+  (`AndroidTvChannelManager` UPDATEs preview rows in place vs delete+re-insert).
+  Part 2 **adapted** to our flow-based `AndroidTvChannelSyncService` (upstream
+  has `reconcileFromCache`; we don't): added `appInForeground`/`latestItems`/
+  `hasPopulatedOnce`, skip-while-foreground + reconcile-on-background, wired via
+  `NuvioApplication.registerActivityLifecycleCallbacks` (our equivalent of
+  upstream's MainActivity onStart/onStop).
+- **`7a266de7c` extended posters full focus** — added the expansion
+  scroll-into-view `LaunchedEffect` + `isExpansionScrollActive` gate in
+  `ModernHomeRows.ModernRowSection`.
+- **`b1d875902` CEC long-press** — new `ui/util/LongPressKeyTracker.kt` + applied
+  the handler transform + `KEYCODE_MENU` ACTION_UP guard across 7 files
+  (ContentCard, ContinueWatchingSection, GridContentCard, EpisodesSection ×2,
+  HeroSection ×2, ModernHomeRows, ProfileSelectionScreen).
+
+Skipped (conflict with deliberate fork divergence — the fork reimplemented the
+Modern hero subsystem):
+- **`df6f1dc5a` backdrop semi-fast scroll** — already handled: the fork freezes
+  the displayed backdrop during scroll AND rapid nav via a dedicated
+  `LaunchedEffect` + the `corrected`/`HeroBackdropState.lastDisplayedUrl`
+  feedback loop in the stable-ref collector.
+- **`c91d33e97` collections backdrop** — already handled: our `ModernHomeHero`
+  updates `stableBackdrop` on any backdrop change when `!isEnriching`; the
+  upstream `latestLiveForStable` gate it patches doesn't exist here.
+- **`c5108c934` stabilize hero** — our `resolvedHeroState` **deliberately rejects**
+  upstream's `effectiveEnrichmentActive` heuristic (documented comment: it
+  "blanked the hero on the very first post-launch highlight"). Porting would
+  revert that intentional fix.
+
+### Build unblock (commits `045eb9f5`, `320bd8ed`)
+
+`installFullDebug` failed `lintVitalFullDebug` (193 `ExtraTranslation` errors) —
+**not** from Phase 3 (no `res/` files touched). Root cause: `sub_use_forced_subtitles`
+/ `_desc` were translated in ~25 locales (commit `36f327fe`) but missing from the
+default `values/strings.xml`; plus a large `values-fr` backlog (143). Fixes:
+- Added the two missing English defaults to `values/strings.xml`.
+- Added `lint { baseline = file("lint-baseline.xml") }` to `app/build.gradle.kts`
+  + generated `lint-baseline.xml` snapshotting the remaining pre-existing gaps.
+- **Gotcha:** `updateLintBaseline` writes nothing until the `lint.baseline`
+  config exists ("No baseline file is specified") — must add the config block
+  first, then re-run. Refreshed again after Phase 4 added 23 attribution strings
+  (`320bd8ed`).
+
+### Phase 4 — settings placement (commits `aadb7694`, baseline `320bd8ed`)
+
+Reviewed 9 requested settings entries; reality differed from the "each has an
+upstream settings diff to place" premise:
+- **Implemented:** **#9 CW sort-mode** — added a "Streaming-style sorting" toggle
+  to `ContinueWatchingSettingsContent.kt` (binary `ContinueWatchingSortMode`
+  enum; reuses existing `LayoutSettingsViewModel` plumbing; rendered as a toggle
+  to match that file, since the dormant `LayoutSettingsScreen.kt` dialog is
+  off-limits). **#8 Attributions** — full port of upstream `67ec9b6e`: new
+  `LicensesAttributionsScreen.kt` + 3 assets (`introdb_favicon.png`,
+  `rating_tmdb.png`, `mdblist_logo.svg`) + 23 strings + `Screen.LicensesAttributions`
+  route + NavHost wiring (SettingsHub + About call sites + composable) + About row
+  + `SettingsHubScreen` callback threading. Skipped the commit's versionCode bump.
+- **Already shipped (no-op):** #3 autoplay timeout 15/20/25/30s, #4 still-watching
+  threshold (both in `PlaybackAutoPlaySettings.kt`), #7 5 profiles
+  (`ProfileManager.MAX_PROFILES = 5`).
+- **Skipped (no upstream settings toggle to port):** #1 trailer (Playback already
+  has `audio_trailer_enabled`), #2 Parental Guide (overlay is unconditional;
+  only a runtime race-fix exists), #5 next-episode prompt (gated by the existing
+  binge-group toggle), #6 PostPlayMode (internal refactor, not a user setting).
+
+### New files
+
+- `app/src/main/java/com/nuvio/tv/ui/util/LongPressKeyTracker.kt` — CEC-aware
+  long-press detector (timeout-based), shared by all long-pressable cards.
+- `app/src/main/java/com/nuvio/tv/ui/screens/settings/LicensesAttributionsScreen.kt`
+  — two-panel Licenses & Attribution screen.
+- `app/lint-baseline.xml` — snapshots pre-existing lint debt (mostly `values-fr`
+  `ExtraTranslation` + default-only `MissingTranslation`).
+- `res/drawable/introdb_favicon.png`, `res/drawable/rating_tmdb.png`,
+  `res/raw/mdblist_logo.svg` — attribution logos.
+
+### Architectural decisions
+
+- **CW launcher reconcile lives in `NuvioApplication` lifecycle callbacks**, not
+  MainActivity (our service starts from the Application; the Application owns the
+  process-foreground signal cleanly without a new `lifecycle-process` dep).
+- **Lint debt is baselined, not fixed.** The `values-fr` backlog (Phase 8
+  localization) stays snapshotted so builds pass; new lint errors still fail.
+  Re-run `updateLintBaseline` whenever new default-only strings are added.
+- **Hero trio left to the fork's own mechanisms.** The fork's enrichment +
+  dual backdrop-freeze design supersedes upstream's; porting was rejected to
+  avoid reverting a deliberate fix.
+
+### Pending follow-ups
+
+- **On-device verification** (installed, not smoke-tested): Phase 3 — CW launcher
+  channel auto-refresh (Projectivy), extended-poster focus, CEC long-press, CW
+  thumbnail; Phase 4 — "Streaming-style sorting" toggle reorders CW, About →
+  "Licenses & Attribution" renders (logos load, URLs open).
+- Phase 8 localization backlog (143 `values-fr` gaps + default-only strings)
+  still open — currently baselined.
+- Prior follow-ups (23 skipped upstream commits, ContinueWatching render in
+  Classic, SideRail order consumption, dead `bottomScrimMaxAlpha`/`openProfileOverlay`)
+  still open.
+
+### Notes for future sessions
+
+- **`installFullDebug` runs `lintVitalFullDebug`** and will fail the whole build
+  on any new fatal lint (e.g. a default-only string → `MissingTranslation`). After
+  adding strings, re-run `./gradlew updateLintBaseline` + commit `lint-baseline.xml`,
+  or it'll block the next install.
+- **Adding a setting ≠ a code change** — most Phase 4 items already had DataStore
+  keys + ViewModel setters from the 05-19 cherry-pick marathon; the work was
+  finding the (often nonexistent) upstream settings-UI diff and wiring the entry.
+- **`SettingsHubScreen` threads nav callbacks** through `SettingsHubScreen` →
+  `RightPane` → `SubItemContent` → the content composable; adding a new About
+  navigation target means editing all four (3 signatures + 3 call-throughs).

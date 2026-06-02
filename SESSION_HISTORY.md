@@ -983,3 +983,217 @@ Plus a sizeable settings reorg and a Back-navigation rewrite.
   `posterGlowEnabled` boolean.
 - Single push at EOD again — 50+ files modified across the day. Bisect
   difficulty acknowledged; spread future days into smaller pushes.
+
+
+---
+
+# Archived full session logs (moved from CLAUDE.md on 2026-06-02)
+
+## 📅 Session log — 2026-05-29/30 (Brand-glow revert, Spotlight lazy-load + back-nav + State B scrim fixes)
+
+### Headline
+
+Removed the TopBar brand-glow Canvas (it broke channel back-nav), then
+fixed several Spotlight issues across multiple rounds: back-from-3rd+-card,
+rows 4+ shimmer, channel-carousel back-nav, and the State B row-title chop.
+Several attempts rode **incorrect initial hypotheses** (the title chop took
+four tries — zIndex, top padding, dark plate, then the real fix: lifting the
+hero bottom scrim off the seam). The gotchas below capture what was actually
+true so they don't recur.
+
+### Bugs fixed
+
+- **Channel carousel glow reverted** (`TopNavigationBar.kt`) — removed the
+  `onGlowPositionReported` callback, glow state, animated glow position/
+  color, the `Canvas` overlay + `Box` wrapper, and the `onGloballyPositioned`
+  reporters. Kept `SelectionDashIndicator` deleted (no dot/dash under pills).
+- **Spotlight back from 3rd+ poster didn't snap to first card**
+  (`SpotlightHomeContent.kt`) — from card 3+, the inner LazyRow had recycled
+  card 0, detaching its `FocusRequester`, so `requestFocus()` silently
+  failed. Fix: register each row's inner `LazyListState` in `rowListStatesMap`;
+  the Back handler now `scrollToItem(0)` → `withFrameNanos` → `requestFocus()`.
+- **Spotlight rows 4+ stuck as shimmer placeholders**
+  (`SpotlightHomeContent.kt` + `HomeScreen.kt`) — Spotlight had no lazy-load
+  trigger. Added a `snapshotFlow`-on-scroll-settle effect (cloned from
+  Classic) firing `onRequestLazyCatalogLoad(key)` for visible/next
+  placeholder rows; added the param and wired it to
+  `viewModel.requestLazyCatalogLoad`.
+- **Channel-pill carousel back-nav broken in Spotlight**
+  (`SpotlightHomeContent.kt`) — see gotcha #1.
+- **Spotlight State B row title "chopped" — REAL root cause: the hero
+  bottom scrim, not layout** (`ModernHomeHero.kt` + `SpotlightHomeContent.kt`).
+  Three wrong attempts first: `zIndex(2f)` on the title Row, then
+  `padding(top=12dp)` on the rows LazyColumn (Fix A), then a
+  `background(Color.Black.copy(alpha=0.5f))` plate behind the title text
+  (Fix B). Fix A + Fix B were reverted. On-device `SpotlightSize` logging
+  proved `overlap = 0dp` (hero/rows abut cleanly — no layout overlap at all).
+  The title was rendered but invisible: `ModernHeroGradientLayer`'s bottom
+  vertical scrim ended at `endY = size.height` with its darkest stop
+  (`bgColor`) landing exactly on the hero/rows seam, drowning the row title
+  just below. **Fix:** added `bottomScrimLiftDp: Dp = 0.dp` to
+  `ModernHeroScene` / `ModernHeroGradientLayer`; the scrim now ends at
+  `scrimBottomY = (size.height - lift).coerceAtLeast(bottomStripStartY)` for
+  BOTH the gradient `endY` and the draw rect, leaving the bottom `lift`-dp
+  clean. Spotlight State B passes `40.dp`; default `0.dp` keeps Modern home
+  (the other caller of that same non-fullscreen branch) byte-identical.
+  NOTE: the leftover `zIndex(2f)` on the title Row is harmless and was left
+  in place (out of scope for the Fix A/B revert).
+
+### ⚠️ Gotchas / notes for future sessions
+
+1. **Spotlight's BackHandler must gate on real content focus, never on the
+   `heroState` proxy.** `heroState == CAROUSEL` is just `!rowsAreaHasFocus`,
+   so it is ALSO true when focus is up on the TopBar channel pills. Because
+   content composes after the TopBar, Spotlight's BackHandler wins the
+   `OnBackPressedDispatcher` LIFO and steals Back from the TopBar's own
+   two-step channel-carousel chain (mid-carousel → first pill → category
+   pills). Fix was a dedicated `heroHasFocus` flag (`onFocusChanged` on the
+   hero `Box`) → `BackHandler(enabled = rowsAreaHasFocus || heroHasFocus)`.
+   Classic/Grid/Modern already gate on `*ContentHasFocus`, so only Spotlight
+   had this bug. **Corollary:** the channel back-chain lives entirely in
+   `TopNavigationBar.kt` (`BackHandler(enabled = focusInCarousel)`); it was
+   never touched by the glow revert — don't go looking for it there.
+
+2. **A row title that looks "chopped" in Spotlight State B is a SCRIM
+   contrast problem, not layout/z-order.** Confirmed empirically: temporary
+   `SpotlightSize` logging (`onGloballyPositioned` on the hero Box + rows
+   LazyColumn) showed `overlap = heroBottomY - rowsTopY = 0dp`. The Column
+   structurally cannot overlap — a fixed-`height(animatedHeroHeight)` hero
+   child + a `weight(1f)` rows child abut exactly; `clipToBounds` on the hero
+   only clips the hero's own content. The culprit was `ModernHeroGradientLayer`
+   fading to opaque `bgColor` right at the seam. Two corollaries that misled
+   the earlier attempts: (a) `Modifier.zIndex` only reorders siblings of the
+   SAME parent, so it can never lift a row title above the hero (different
+   parents) — and the rows LazyColumn already draws above the hero anyway;
+   (b) when adjusting a `verticalGradient` scrim, moving only `endY` makes the
+   region past it CLAMP to the last color stop (here opaque `bgColor`) — you
+   must move the draw rect's bottom too, or the "fix" darkens instead of
+   lightens.
+
+### New files
+
+None — all edits to existing files.
+
+### Pending follow-ups
+
+- **On-device verification** of all fixes (installed, not smoke-tested by
+  Claude): Spotlight back from 3rd+ card, rows 4+ loading, channel-pill
+  carousel back-nav, the in-content Spotlight back chain (regression check),
+  and the State B row-title readability after the scrim lift. If 40dp of
+  `bottomScrimLiftDp` reads as too little/too much, it's a one-line dial at
+  the Spotlight `ModernHeroScene` call site.
+- Prior follow-ups (Phase 8 localization, 23 skipped upstream commits,
+  ContinueWatching render in Classic, SideRail order consumption) still open.
+
+---
+
+## 📅 Session log — 2026-05-30/31 (State B scrim saga, TopBar pill redesign, Spotlight nav + Show All)
+
+### Headline
+
+Two-day session. Iterated the Spotlight State B hero bottom-scrim fix to a
+clean end-state, redesigned the TopBar channel pills (capsule → dynamic
+underline) plus six other TopBar tweaks, then landed three Spotlight nav/
+content fixes (Up-flood throttle, full catalog rows, leading "Show All" card).
+All changes compiled green and installed on the Skyworth TV.
+
+### Features shipped
+
+- **Spotlight State B uses ModernHeroScene exactly like Modern.** Final state
+  of the scrim saga: State B's `ModernHeroScene` modifier switched from
+  `.fillMaxSize()` to `.height(animatedHeroHeight)` and dropped all scrim
+  customization — renders identically to Modern's non-fullscreen hero. The
+  expand/shrink dynamics (`animatedHeroHeight`, `constrainedAlpha` cross-fade)
+  are untouched.
+- **TopBar channel-pill redesign (7 changes, `TopNavigationBar.kt`):**
+  1. Removed the channel-pill capsule — `containerColor`/`focusedContainerColor`
+     → `Transparent`, `focusedBorder` → `Border.None`, deleted the focus-glow
+     shadow + all glow vals.
+  2. Dynamic-color underline under selected/focused channel text — 2.5dp,
+     width = measured text width (via `onGloballyPositioned`), color from
+     `rememberArtworkBackedGlowColor(enabled = hasLogoUrl, fallbackColor =
+     channel.brandColor)`. Reserved height (transparent when idle) = no vertical
+     jump.
+  3. Category pills untouched.
+  4. Channel pills edge-to-edge — moved the bar's `start` inset off the outer
+     Row onto the Main Section inner Row; Legacy LazyRow `contentPadding` start
+     2dp→0dp.
+  5. `NavBarHeight` 60dp→54dp (floor for logo+caption+underline pills; lower
+     clips logos).
+  6. Uniform channel logos — every logo in a fixed `Box(48×24)` + `ContentScale.Fit`.
+  7. Profile avatar shrunk — Card 36→26dp, circle 32→22dp.
+- **Spotlight row title breathing room** — `compactTitle` rows give the title
+  `Text` an 8dp top padding (`CatalogRowSection.kt`).
+- **Fix 1 — held D-pad Up no longer floods/skips rows** (`SpotlightHomeContent.kt`).
+  (1a) `onPreviewKeyEvent` on the rows `LazyColumn` throttles Up autorepeats to
+  one step / 200ms (initial press passes through). (1b)
+  `LaunchedEffect(heroHasFocus){ if (heroHasFocus) rowsAreaHasFocus = false }`
+  clears a stale rows-focus flag so the next Down re-enters State B.
+- **Fix 2 — Spotlight shows the full catalog** (`HomeViewModelCatalogPipeline.kt`).
+  The pipeline truncated non-Modern rows to 25 items; extended the Modern
+  full-row exemption (`shouldKeepFullRow`) to `HomeLayout.SPOTLIGHT`.
+- **Fix 3 — leading "Show All" card on D-pad Left from first poster**
+  (`CatalogRowSection.kt`, gated by new `leadingSeeAllEnabled`; Spotlight passes
+  `true`). Hidden 1dp/alpha-0 sliver left of the first poster; Left from poster 0
+  reveals + focuses it (replacing the profile-menu gesture there), collapses on
+  blur; Select → `onSeeAll` → `Screen.CatalogSeeAll`. `Icons.Default.GridView` +
+  "Show All". Classic/Grid/Search/FolderDetail default `false` → unchanged.
+
+### Bugs fixed
+
+- **Channel-pill underline showed static sky blue.** `rememberArtworkBackedGlowColor`
+  was deleted with the capsule; underline fell back to a flat color. Restored it
+  wired to the underline with `enabled = hasLogoUrl` (not the old glow/bloom gate)
+  so artwork extraction always runs when a logo exists.
+- **Spotlight nav "regression" investigation** — confirmed via `git diff` that the
+  focus/back wiring was byte-identical to the last commit; the only delta was the
+  State B hero modifier. No wiring was lost; user re-tested.
+
+### New files
+
+None — all edits to existing files.
+
+### Architectural decisions
+
+- **State B = Modern parity over bespoke scrim.** After three scrim approaches
+  (`bottomScrimLiftDp`, `backdropRightOnly`, `bottomScrimMaxAlpha`), settled on
+  rendering State B identically to Modern's non-fullscreen hero. Simpler and
+  consistent; any future title-readability tuning happens in one place.
+- **Channel focus = underline + scale, not capsule.** Per redesign; the artwork-
+  backed dynamic color ties the indicator to each channel's logo.
+- **Fix 1b keyed on `heroHasFocus`, not `heroState == CAROUSEL`.** `heroState ==
+  CAROUSEL` is *defined as* `!rowsAreaHasFocus`, so the literal request was a
+  no-op; keying on the real hero-focus signal achieves the stated goal.
+- **Fix 2 lives in the ViewModel pipeline, not the `CatalogRowSection` call.** The
+  25-item cap was upstream in `computedDisplayRows`; fixing it there gives true
+  Modern parity (the row carries the full list).
+
+### Pending follow-ups
+
+1. **Dead `bottomScrimMaxAlpha` param in `ModernHomeHero.kt`.** `ModernHeroScene`/
+   `ModernHeroGradientLayer` still carry `bottomScrimMaxAlpha: Float = 1.0f`,
+   now unused by every caller (default 1.0f = `bgColor.copy(alpha=1f)` = original
+   behavior, so harmless). Remove for cleanliness next pass.
+- **On-device verification** of all of today's changes (installed, not smoke-tested
+  by Claude): Fix 1 Up-throttle + Down-return, Fix 2 long catalogs, Fix 3 Show All
+  reveal, TopBar `NavBarHeight=54dp`/avatar `26dp` (most likely to need a dial),
+  underline artwork color per channel.
+2. **Fix 3 details to eyeball:** the revealed Show All card keeps
+   `tvLeftFromFirstItemToSideRail` (one more Left still opens the profile menu —
+   change to a hard stop if undesired); collapsed sliver pushes poster 0 ~17dp right.
+3. Prior follow-ups (Phase 8 localization, 23 skipped upstream commits,
+   ContinueWatching render in Classic, SideRail order consumption) still open.
+
+### Notes for future sessions
+
+- **`nativeKeyEvent` is a member property** of `KeyEvent` — accessed as
+  `event.nativeKeyEvent.repeatCount`, **no separate import** (importing
+  `androidx.compose.ui.input.key.nativeKeyEvent` fails to resolve).
+- **`material-icons-extended` is on the classpath** (`Icons.Default.Tune`,
+  `Icons.Default.GridView`, etc. resolve).
+- **TopBar sits at `y=0`** in `MainActivity` (no top padding there); the only
+  vertical lever is `NavBarHeight` in `TopNavigationBar.kt`. The bar can't go much
+  under 54dp without clipping the logo+caption channel pills.
+
+---
+
