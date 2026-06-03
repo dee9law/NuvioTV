@@ -88,6 +88,7 @@ data class GlobalSettingsUiState(
     val catalogTypeSuffixEnabled: Boolean = true,
     val hideUnreleasedContent: Boolean = false,
     val searchDiscoverEnabled: Boolean = true,
+    val focusHighlightEnabled: Boolean = true,
     val posterGlowEnabled: Boolean = true,
     val cardFocusStyle: com.nuvio.tv.domain.model.CardFocusStyle =
         com.nuvio.tv.domain.model.CardFocusStyle.ACCENT,
@@ -118,10 +119,11 @@ class GlobalSettingsViewModel @Inject constructor(
             prefs.hideUnreleasedContent,
             prefs.searchDiscoverEnabled,
             prefs.posterGlowEnabled,
+            prefs.focusHighlightEnabled,
         ) { args ->
             // `combine` with > 5 sources returns Array<Boolean>; unpack
             // by index. Order must match the producer list above.
-            booleanArrayOf(args[0], args[1], args[2], args[3], args[4], args[5])
+            booleanArrayOf(args[0], args[1], args[2], args[3], args[4], args[5], args[6])
         },
         combine(
             prefs.focusedPosterBackdropExpandEnabled,
@@ -143,6 +145,7 @@ class GlobalSettingsViewModel @Inject constructor(
             hideUnreleasedContent = display[3],
             searchDiscoverEnabled = display[4],
             posterGlowEnabled = display[5],
+            focusHighlightEnabled = display[6],
             focusedPosterExpandEnabled = focusedExpand[0] as Boolean,
             focusedPosterExpandDelaySeconds = focusedExpand[1] as Int,
             focusedPosterTrailerMuted = focusedExpand[2] as Boolean,
@@ -214,6 +217,9 @@ class GlobalSettingsViewModel @Inject constructor(
     }
     fun setPosterGlowEnabled(enabled: Boolean) = viewModelScope.launch {
         prefs.setPosterGlowEnabled(enabled)
+    }
+    fun setFocusHighlightEnabled(enabled: Boolean) = viewModelScope.launch {
+        prefs.setFocusHighlightEnabled(enabled)
     }
     fun cycleCardFocusStyle() = viewModelScope.launch {
         prefs.setCardFocusStyle(uiState.value.cardFocusStyle.next())
@@ -307,9 +313,10 @@ fun GlobalSettingsContent(viewModel: GlobalSettingsViewModel = hiltViewModel()) 
                 }
             }
         }
-        // Poster Glow / Card Focus Style / Focused-poster settings moved
-        // to Settings → Appearance → Cards (Task 5). See
-        // [CardsSettingsContent].
+        // Poster Glow + Card Focus Style moved to Settings → Appearance →
+        // Theme; trailer autoplay moved to Settings → Appearance → Trailers
+        // ([TrailersSettingsContent]); expand-to-backdrop moved to the Rows
+        // Manager's per-scope/per-row expand controls. The "Cards" pane is gone.
     }
 }
 
@@ -538,13 +545,15 @@ private fun SideRailDisplayModePill(
     }
 }
 
-// ── Cards sub-item ──────────────────────────────────────────────────────────
+// ── Trailers sub-item ───────────────────────────────────────────────────────
 //
-// Holds every card-related toggle / chip that used to live in Global. Same
-// ViewModel/DataStore — just lifted into its own pane so Global stays slim.
+// Focused-poster trailer autoplay, moved out of the old "Cards" pane. Reuses
+// the same GlobalSettingsViewModel / DataStore keys — only the UI location
+// changed. (Poster Glow + Card Focus Style moved to Theme; Expand-to-backdrop
+// moved to the Rows Manager's per-scope/per-row expand controls.)
 
 @Composable
-fun CardsSettingsContent(viewModel: GlobalSettingsViewModel = hiltViewModel()) {
+fun TrailersSettingsContent(viewModel: GlobalSettingsViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     LazyColumn(
@@ -552,52 +561,14 @@ fun CardsSettingsContent(viewModel: GlobalSettingsViewModel = hiltViewModel()) {
         contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
-        item(key = "cards_header") {
+        item(key = "trailers_header") {
             SettingsDetailHeader(
-                title = "Cards",
-                subtitle = "How content cards look and behave when focused.",
+                title = "Trailers",
+                subtitle = "Autoplay a trailer preview on the focused poster.",
             )
         }
-        item(key = "cards_focus_section") {
-            GlobalSection(title = "Focus highlight") {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    GlobalToggleRow(
-                        title = "Poster Glow",
-                        subtitle = "Soft coloured halo behind focused cards, sampled from " +
-                            "the poster's dominant colour. Works with either focus border style.",
-                        checked = state.posterGlowEnabled,
-                        onCheckedChange = viewModel::setPosterGlowEnabled,
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = "Card Focus Style",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = NuvioColors.TextPrimary,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = "Border treatment for focused cards. Bloom samples the poster " +
-                                "colour for a tight luminous edge.",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = NuvioColors.TextSecondary,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            com.nuvio.tv.domain.model.CardFocusStyle.entries.forEach { style ->
-                                ChoicePill(
-                                    label = style.displayLabel,
-                                    isSelected = style == state.cardFocusStyle,
-                                    onClick = {
-                                        if (style != state.cardFocusStyle) viewModel.cycleCardFocusStyle()
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        item(key = "cards_focused_poster_section") {
-            GlobalSection(title = "Focused poster") {
+        item(key = "trailers_section") {
+            GlobalSection(title = "Focused poster trailer") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     GlobalToggleRow(
                         title = "Auto-play trailer",
@@ -626,28 +597,6 @@ fun CardsSettingsContent(viewModel: GlobalSettingsViewModel = hiltViewModel()) {
                             checked = state.focusedPosterTrailerMuted,
                             onCheckedChange = viewModel::setFocusedPosterTrailerMuted,
                         )
-                    }
-                    GlobalToggleRow(
-                        title = "Expand to backdrop",
-                        subtitle = "On focus, expand the poster into a full backdrop tile.",
-                        checked = state.focusedPosterExpandEnabled,
-                        onCheckedChange = viewModel::setFocusedPosterExpandEnabled,
-                    )
-                    if (state.focusedPosterExpandEnabled) {
-                        Text(
-                            text = "Expand delay: ${state.focusedPosterExpandDelaySeconds}s",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = NuvioColors.TextSecondary,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(0, 1, 2, 3, 5).forEach { seconds ->
-                                ChoicePill(
-                                    label = if (seconds == 0) "Instant" else "${seconds}s",
-                                    isSelected = state.focusedPosterExpandDelaySeconds == seconds,
-                                    onClick = { viewModel.setFocusedPosterExpandDelaySeconds(seconds) },
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -691,6 +640,7 @@ internal fun ChoicePill(
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(20.dp)
@@ -701,7 +651,7 @@ internal fun ChoicePill(
     }
     Card(
         onClick = onClick,
-        modifier = Modifier.onFocusChanged { focused = it.isFocused || it.hasFocus },
+        modifier = modifier.onFocusChanged { focused = it.isFocused || it.hasFocus },
         shape = CardDefaults.shape(shape),
         colors = CardDefaults.colors(
             containerColor = containerColor,

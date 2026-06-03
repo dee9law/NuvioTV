@@ -18,12 +18,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -46,6 +48,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.LayoutRowKind
 import com.nuvio.tv.ui.theme.NuvioColors
+import kotlinx.coroutines.launch
 
 /**
  * Dialog that lists every catalog source the user can add as a row, grouped
@@ -61,12 +64,26 @@ fun AddRowPickerDialog(
     existingRowIds: Set<String>,
     onSelect: (CatalogSourceOption) -> Unit,
     onDismiss: () -> Unit,
+    // Optional action bar (Populate All / Follow Order / Delete All). Rendered
+    // below the title when [onPopulateAll] + [onDeleteAll] are supplied.
+    onPopulateAll: (() -> Unit)? = null,
+    onDeleteAll: (() -> Unit)? = null,
+    deleteConfirmSubtitle: String = "This removes every row from this source.",
+    followOrder: Boolean? = null,
+    onToggleFollowOrder: (() -> Unit)? = null,
 ) {
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        BackHandler { onDismiss() }
+        // Action bar owns default focus. Back from the list returns focus to
+        // the action bar; Back from the action bar closes the picker.
+        val actionBarFr = remember { FocusRequester() }
+        var actionBarHasFocus by remember { mutableStateOf(true) }
+        BackHandler {
+            if (actionBarHasFocus) onDismiss()
+            else runCatching { actionBarFr.requestFocus() }
+        }
 
         // Group by section in stable order: Addons (by addon name), Collections, Trakt.
         val grouped = remember(sources) {
@@ -75,7 +92,7 @@ fun AddRowPickerDialog(
         val firstItemFr = remember { FocusRequester() }
         LaunchedEffect(Unit) {
             repeat(4) { withFrameNanos { } }
-            runCatching { firstItemFr.requestFocus() }
+            runCatching { actionBarFr.requestFocus() }
         }
 
         Box(
@@ -105,6 +122,18 @@ fun AddRowPickerDialog(
                     modifier = Modifier.padding(start = 20.dp, bottom = 12.dp),
                 )
 
+                if (onPopulateAll != null && onDeleteAll != null) {
+                    PickerActionBar(
+                        onPopulateAll = onPopulateAll,
+                        onDeleteAll = onDeleteAll,
+                        deleteConfirmSubtitle = deleteConfirmSubtitle,
+                        followOrder = followOrder,
+                        onToggleFollowOrder = onToggleFollowOrder,
+                        firstButtonFocusRequester = actionBarFr,
+                        onFocusChanged = { actionBarHasFocus = it },
+                    )
+                }
+
                 if (sources.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -121,7 +150,12 @@ fun AddRowPickerDialog(
                     return@Column
                 }
 
+                val listState = rememberLazyListState()
+                val scope = rememberCoroutineScope()
+                val lastItemFr = remember { FocusRequester() }
+                val lastOptionIndex = sources.lastIndex
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -138,17 +172,43 @@ fun AddRowPickerDialog(
                             key = { _, opt -> "opt_${opt.id}" },
                         ) { _, option ->
                             val isExisting = option.id in existingRowIds
-                            val isFirst = (globalIndex == 0)
+                            val idx = globalIndex
+                            val isFirst = (idx == 0)
+                            val isLast = (idx == lastOptionIndex)
                             globalIndex++
+                            // Vertical loop wrap: first item Up → last; last Down → first.
+                            val wrapMod = Modifier
+                                .then(if (isLast) Modifier.focusRequester(lastItemFr) else Modifier)
+                                .dpadLoopWrap(
+                                    onPrev = if (isFirst) {
+                                        {
+                                            scope.launch {
+                                                val total = listState.layoutInfo.totalItemsCount
+                                                listState.scrollToItem((total - 1).coerceAtLeast(0))
+                                                withFrameNanos { }
+                                                runCatching { lastItemFr.requestFocus() }
+                                            }
+                                        }
+                                    } else null,
+                                    onNext = if (isLast) {
+                                        {
+                                            scope.launch {
+                                                listState.scrollToItem(0)
+                                                withFrameNanos { }
+                                                runCatching { firstItemFr.requestFocus() }
+                                            }
+                                        }
+                                    } else null,
+                                )
                             PickerItem(
                                 option = option,
                                 isExisting = isExisting,
                                 focusRequester = if (isFirst) firstItemFr else null,
+                                modifier = wrapMod,
                                 onClick = {
-                                    if (!isExisting) {
-                                        onSelect(option)
-                                        onDismiss()
-                                    }
+                                    // Multi-select: add and stay open. The item
+                                    // flips to "Added" as existingRowIds updates.
+                                    if (!isExisting) onSelect(option)
                                 },
                             )
                         }
@@ -176,11 +236,12 @@ private fun PickerItem(
     isExisting: Boolean,
     focusRequester: FocusRequester?,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     Card(
         onClick = { if (!isExisting) onClick() },
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .alpha(if (isExisting) 0.45f else 1f)
             .then(

@@ -24,6 +24,17 @@ data class LayoutRowConfig(
     val enabled: Boolean = true,
     val viewContext: LayoutScreenScope = LayoutScreenScope.HOME,
     val metadata: Map<String, String> = emptyMap(),
+    /**
+     * Per-row expand-to-backdrop override. Resolved against the per-scope
+     * global (`focusedPosterBackdropExpandEnabledForScope`) via
+     * [resolveLayoutSetting]:
+     *  - `true`  → this row always expands, regardless of the scope setting
+     *  - `false` → this row never expands, regardless of the scope setting
+     *  - `null`  → follow the per-scope global expand setting
+     *
+     * Defaults to `null` so existing saved rows deserialize unchanged.
+     */
+    val expandEnabled: Boolean? = null,
 )
 
 enum class LayoutRowKind { ADDON, COLLECTION, TRAKT, TMDB_DISCOVER, TMDB_NETWORK, CONTINUE_WATCHING }

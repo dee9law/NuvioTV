@@ -105,6 +105,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val topBarEnabledKey = booleanPreferencesKey("top_bar_enabled")
     private val modernTopBarEnabledKey = booleanPreferencesKey("modern_top_bar_enabled")
     private val posterGlowEnabledKey = booleanPreferencesKey("poster_glow_enabled")
+    private val focusHighlightEnabledKey = booleanPreferencesKey("focus_highlight_enabled")
     private val cardFocusStyleKey = stringPreferencesKey("card_focus_style")
 
     private fun <T> profileFlow(extract: (prefs: androidx.datastore.preferences.core.Preferences) -> T): Flow<T> =
@@ -437,6 +438,20 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setPosterGlowEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[posterGlowEnabledKey] = enabled
+        }
+    }
+
+    /**
+     * Master "Focus Highlight" toggle (Theme settings). When off, the Poster
+     * Glow + Card Focus Style controls are hidden. Defaults to true.
+     */
+    val focusHighlightEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[focusHighlightEnabledKey] ?: true
+    }
+
+    suspend fun setFocusHighlightEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[focusHighlightEnabledKey] = enabled
         }
     }
 
@@ -1223,6 +1238,9 @@ class LayoutPreferenceDataStore @Inject constructor(
         // and default them to HOME for backward compatibility.
         val viewContext: String? = null,
         val metadata: Map<String, String>? = null,
+        // Per-row expand override. Null (absent in legacy JSON) → follow the
+        // per-scope global expand setting. See [LayoutRowConfig.expandEnabled].
+        val expandEnabled: Boolean? = null,
     )
 
     private fun LayoutRowConfig.toSerializable() = SerializableLayoutRow(
@@ -1234,6 +1252,7 @@ class LayoutPreferenceDataStore @Inject constructor(
         enabled = enabled,
         viewContext = viewContext.name,
         metadata = metadata.takeIf { it.isNotEmpty() },
+        expandEnabled = expandEnabled,
     )
 
     private fun SerializableLayoutRow.toDomain() = LayoutRowConfig(
@@ -1248,6 +1267,7 @@ class LayoutPreferenceDataStore @Inject constructor(
             ?.let { raw -> runCatching { LayoutScreenScope.valueOf(raw) }.getOrNull() }
             ?: LayoutScreenScope.HOME,
         metadata = metadata.orEmpty(),
+        expandEnabled = expandEnabled,
     )
 
     private fun parseRows(json: String?): List<LayoutRowConfig> {

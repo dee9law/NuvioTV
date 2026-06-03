@@ -79,11 +79,9 @@ private fun resolveRowCardHeight(
     if (row == null) return posterCardStyle.height
     val config = rowConfigLookup[LayoutRowKey.forAddon(row.addonId, row.apiType, row.catalogId)]
         ?: return posterCardStyle.height
-    val w = config.cardWidthDp.dp
-    val style = com.nuvio.tv.domain.model.resolveLayoutSetting(
-        config.cardStyle, null, LayoutCardStyle.POSTER
-    )
-    return if (style == LayoutCardStyle.LANDSCAPE) w / 1.77f else w * 1.5f
+    val resolved = resolveRowDisplayConfig(config, config.viewContext, globalExpandForScope = false)
+    val w = resolved.effectiveCardWidthDp.dp
+    return if (resolved.effectiveCardStyle == LayoutCardStyle.LANDSCAPE) w / 1.77f else w * 1.5f
 }
 
 private fun resolveRowPosterCardStyle(
@@ -93,11 +91,9 @@ private fun resolveRowPosterCardStyle(
 ): PosterCardStyle {
     val config = rowConfigLookup[LayoutRowKey.forAddon(row.addonId, row.apiType, row.catalogId)]
         ?: return basePosterCardStyle
-    val w = config.cardWidthDp.dp
-    val style = com.nuvio.tv.domain.model.resolveLayoutSetting(
-        config.cardStyle, null, LayoutCardStyle.POSTER
-    )
-    val h = if (style == LayoutCardStyle.LANDSCAPE) w / 1.77f else w * 1.5f
+    val resolved = resolveRowDisplayConfig(config, config.viewContext, globalExpandForScope = false)
+    val w = resolved.effectiveCardWidthDp.dp
+    val h = if (resolved.effectiveCardStyle == LayoutCardStyle.LANDSCAPE) w / 1.77f else w * 1.5f
     return basePosterCardStyle.copy(width = w, height = h)
 }
 
@@ -515,6 +511,9 @@ fun SpotlightHomeContent(
                     val rowPosterStyle = remember(row, uiState.rowConfigLookup) {
                         resolveRowPosterCardStyle(row, uiState.rowConfigLookup, posterCardStyle)
                     }
+                    val rowConfig = uiState.rowConfigLookup[
+                        LayoutRowKey.forAddon(row.addonId, row.apiType, row.catalogId)
+                    ]
                     val rowFirstItemFr = firstItemRequesters.getOrPut(index) { FocusRequester() }
                     // Register this row's inner LazyRow state so the Back
                     // handler can scroll it to card 0 before requesting focus.
@@ -534,7 +533,13 @@ fun SpotlightHomeContent(
                         showPosterLabels = uiState.posterLabelsEnabled,
                         showAddonName = uiState.catalogAddonNameEnabled,
                         showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled,
-                        focusedPosterBackdropExpandEnabled = uiState.focusedPosterBackdropExpandEnabled,
+                        // Per-row expand override via the shared resolver
+                        // (true/false win; null follows uiState's per-scope value).
+                        focusedPosterBackdropExpandEnabled = rowConfig?.let {
+                            resolveRowDisplayConfig(
+                                it, it.viewContext, uiState.focusedPosterBackdropExpandEnabled,
+                            ).effectiveExpands
+                        } ?: uiState.focusedPosterBackdropExpandEnabled,
                         focusedPosterBackdropExpandDelaySeconds = uiState.focusedPosterBackdropExpandDelaySeconds,
                         focusedPosterBackdropTrailerEnabled = uiState.focusedPosterBackdropTrailerEnabled,
                         focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,

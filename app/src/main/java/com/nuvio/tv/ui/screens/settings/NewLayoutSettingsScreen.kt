@@ -2,14 +2,19 @@
 
 package com.nuvio.tv.ui.screens.settings
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,14 +37,24 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.AutoMode
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.ToggleOff
+import androidx.compose.material.icons.filled.ToggleOn
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +64,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
@@ -107,7 +124,21 @@ fun NewLayoutSettingsContent(
     // The 4-button picker bar only makes sense for the content surfaces.
     val showScopedAddButtons = showRows && !isCollectionsScope
 
-    LazyColumn(
+    if (mode == NewLayoutContentMode.ROWS_ONLY) {
+        // New Rows Manager: fixed top bar (scope pills + global actions
+        // toolbar + follow-addons), a scrollable row list, and a fixed
+        // bottom "+ Add" bar. The legacy ALL / LAYOUT_ONLY modes keep the
+        // single-LazyColumn layout below.
+        RowsManagerContent(
+            uiState = uiState,
+            viewModel = viewModel,
+            initialFocusRequester = initialFocusRequester,
+            onAddCatalog = { showCatalogPicker = true },
+            onAddTmdb = { showTmdbPicker = true },
+            onAddTrakt = { showTraktPicker = true },
+            onAddCollection = { showCollectionPicker = true },
+        )
+    } else LazyColumn(
         state = rememberLazyListState(),
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
@@ -157,8 +188,6 @@ fun NewLayoutSettingsContent(
                         onToggleHeroCatalog = viewModel::toggleHeroCatalog,
                     )
                     HomeLayout.SPOTLIGHT -> SpotlightLayoutSettings(
-                        showHeroCarousel = uiState.showHeroSection,
-                        onShowHeroCarouselChange = viewModel::setShowHeroSection,
                         heroCatalogKeys = uiState.heroCatalogKeys.toSet(),
                         availableHeroCatalogs = uiState.availableHeroCatalogs,
                         onToggleHeroCatalog = viewModel::toggleHeroCatalog,
@@ -176,12 +205,6 @@ fun NewLayoutSettingsContent(
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
-            }
-            item(key = "card_orientation_row") {
-                CardOrientationToggle(
-                    landscape = uiState.landscapePostersDefault,
-                    onChange = viewModel::setLandscapePostersDefault,
-                )
             }
             if (showScopedAddButtons) {
                 // "Follow addons order" lives at the top of the Rows
@@ -253,6 +276,12 @@ fun NewLayoutSettingsContent(
             onSelect = { source -> viewModel.addRow(source) },
             onDismiss = { showCatalogPicker = false },
             scope = uiState.selectedScope,
+            onAddRows = viewModel::addRows,
+            onDeleteAll = {
+                viewModel.deleteRowsOfKinds(setOf(com.nuvio.tv.domain.model.LayoutRowKind.ADDON))
+            },
+            followOrder = uiState.followAddonsOrder,
+            onToggleFollowOrder = { viewModel.setFollowAddonsOrder(!uiState.followAddonsOrder) },
         )
     }
     if (showTmdbPicker) {
@@ -265,6 +294,15 @@ fun NewLayoutSettingsContent(
                 viewModel.addTmdbNetworkRow(id, mediaType, name)
             },
             onDismiss = { showTmdbPicker = false },
+            onAddRows = viewModel::addRows,
+            onDeleteAll = {
+                viewModel.deleteRowsOfKinds(
+                    setOf(
+                        com.nuvio.tv.domain.model.LayoutRowKind.TMDB_DISCOVER,
+                        com.nuvio.tv.domain.model.LayoutRowKind.TMDB_NETWORK,
+                    ),
+                )
+            },
         )
     }
     if (showTraktPicker) {
@@ -273,6 +311,10 @@ fun NewLayoutSettingsContent(
             existingRowIds = existingRowIds,
             onSelect = { source -> viewModel.addRow(source) },
             onDismiss = { showTraktPicker = false },
+            onAddRows = viewModel::addRows,
+            onDeleteAll = {
+                viewModel.deleteRowsOfKinds(setOf(com.nuvio.tv.domain.model.LayoutRowKind.TRAKT))
+            },
         )
     }
     if (showCollectionPicker) {
@@ -283,6 +325,773 @@ fun NewLayoutSettingsContent(
                 viewModel.addCollectionFolderRow(collectionId, folderId, name)
             },
             onDismiss = { showCollectionPicker = false },
+            onAddRows = viewModel::addRows,
+            onDeleteAll = {
+                viewModel.deleteRowsOfKinds(setOf(com.nuvio.tv.domain.model.LayoutRowKind.COLLECTION))
+            },
+        )
+    }
+}
+
+// ── Rows Manager (ROWS_ONLY) ────────────────────────────────────────────────
+//
+// Fixed top bar (scope pills + global actions toolbar + follow-addons), a
+// scrollable row list in the middle, and a fixed bottom "+ Add" bar. The old
+// standalone "Card Orientation" toggle is gone — orientation is now a global
+// toolbar action that writes every row's cardStyle.
+
+@Composable
+private fun RowsManagerContent(
+    uiState: NewLayoutUiState,
+    viewModel: NewLayoutSettingsViewModel,
+    initialFocusRequester: FocusRequester?,
+    onAddCatalog: () -> Unit,
+    onAddTmdb: () -> Unit,
+    onAddTrakt: () -> Unit,
+    onAddCollection: () -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isCollectionsScope = uiState.selectedScope == LayoutScreenScope.COLLECTIONS
+    // Collections rows are managed elsewhere; this scope shows the list only.
+    val showScopedControls = !isCollectionsScope
+    var showDeleteAllConfirm by remember { mutableStateOf(false) }
+
+    // Global orientation/size reflect the first row when rows exist, else the
+    // global landscape default / Balanced. Header taps apply to every row.
+    val globalLandscape = uiState.rows.firstOrNull()?.let {
+        it.cardStyle == LayoutCardStyle.LANDSCAPE
+    } ?: uiState.landscapePostersDefault
+    val globalWidthDp = uiState.rows.firstOrNull()?.cardWidthDp
+        ?: CardWidthOptions.first { it.first == "Balanced" }.second
+    val hasRows = uiState.rows.isNotEmpty()
+    val allEnabled = hasRows && uiState.rows.all { it.enabled }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // ── FIXED TOP ──────────────────────────────────────────────────────
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            // Row 1 — scope tabs
+            ScopePills(
+                selected = uiState.selectedScope,
+                onSelect = viewModel::selectScope,
+                firstPillFocusRequester = initialFocusRequester,
+                showDetailPage = false,
+            )
+            if (showScopedControls) {
+                // Row 2 — source pills (moved up from the old bottom bar)
+                SourcePillsRow(
+                    onAddCatalog = onAddCatalog,
+                    onAddTmdb = onAddTmdb,
+                    onAddTrakt = onAddTrakt,
+                    onAddCollection = onAddCollection,
+                    onAddContinueWatching = { viewModel.addContinueWatchingRow() },
+                    onMdbListComingSoon = {
+                        Toast.makeText(context, "MDBList rows — coming soon", Toast.LENGTH_SHORT).show()
+                    },
+                )
+                // Row 3 — column header doubling as global per-column actions
+                ColumnHeaderRow(
+                    landscape = globalLandscape,
+                    widthDp = globalWidthDp,
+                    expandEnabled = uiState.expandBackdropEnabled,
+                    allEnabled = allEnabled,
+                    hasRows = hasRows,
+                    onToggleOrientation = {
+                        val toLandscape = !globalLandscape
+                        val style = if (toLandscape) {
+                            LayoutCardStyle.LANDSCAPE
+                        } else LayoutCardStyle.POSTER
+                        viewModel.setAllRowsCardStyle(style)
+                        viewModel.setLandscapePostersDefault(toLandscape)
+                    },
+                    onSelectSize = { viewModel.setAllRowsCardWidth(it) },
+                    onToggleExpand = {
+                        viewModel.setExpandBackdropEnabled(!uiState.expandBackdropEnabled)
+                    },
+                    onToggleAll = { viewModel.setAllRowsEnabled(!allEnabled) },
+                    onDeleteAll = { showDeleteAllConfirm = true },
+                    onResortToAddonOrder = { viewModel.resortToAddonOrder() },
+                )
+                // Follow Addons Order + Clear All now live inside the Catalog
+                // picker only (its "Follow Order" toggle + "Delete All").
+            }
+        }
+
+        // ── SCROLLABLE MIDDLE ───────────────────────────────────────────────
+        val rowsListState = rememberLazyListState()
+        val rowsScope = rememberCoroutineScope()
+        val firstRowFr = remember { FocusRequester() }
+        val lastRowFr = remember { FocusRequester() }
+        val lastRowIndex = uiState.rows.lastIndex
+        // Focus retention: per-index ✕ requesters + the index pending refocus
+        // after a delete (so focus stays in the list, on the next row).
+        val removeFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+        var pendingRemoveFocusIndex by remember { mutableStateOf<Int?>(null) }
+        androidx.compose.runtime.LaunchedEffect(uiState.rows.size, pendingRemoveFocusIndex) {
+            val target = pendingRemoveFocusIndex ?: return@LaunchedEffect
+            if (uiState.rows.isEmpty()) { pendingRemoveFocusIndex = null; return@LaunchedEffect }
+            val clamped = target.coerceIn(0, uiState.rows.lastIndex)
+            withFrameNanos { }
+            runCatching { removeFocusRequesters[clamped]?.requestFocus() }
+            pendingRemoveFocusIndex = null
+        }
+        LazyColumn(
+            state = rowsListState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (uiState.rows.isEmpty()) {
+                item(key = "rows_empty") {
+                    Text(
+                        text = if (showScopedControls) {
+                            "No rows yet — add one from the bar above."
+                        } else {
+                            "No rows configured for this scope."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NuvioColors.TextSecondary,
+                    )
+                }
+            } else {
+                itemsIndexed(items = uiState.rows, key = { _, it -> it.id }) { index, row ->
+                    ManagerRowItem(
+                        row = row,
+                        canMoveUp = index != 0,
+                        canMoveDown = index != lastRowIndex,
+                        onMoveUp = { viewModel.moveRow(row.id, -1) },
+                        onMoveDown = { viewModel.moveRow(row.id, +1) },
+                        onToggleStyle = {
+                            val next = if (row.cardStyle == LayoutCardStyle.POSTER) {
+                                LayoutCardStyle.LANDSCAPE
+                            } else LayoutCardStyle.POSTER
+                            viewModel.setRowCardStyle(row.id, next)
+                        },
+                        onWidthChange = { viewModel.setRowCardWidth(row.id, it) },
+                        onCycleExpand = {
+                            viewModel.setRowExpandEnabled(row.id, nextExpandState(row.expandEnabled))
+                        },
+                        onToggleEnabled = { viewModel.toggleRowEnabled(row.id) },
+                        onRemove = {
+                            // Keep focus in the list: the row that shifts into
+                            // this index regains focus after the delete.
+                            pendingRemoveFocusIndex = index
+                            viewModel.removeRow(row.id)
+                        },
+                        removeFocusRequester = removeFocusRequesters.getOrPut(index) { FocusRequester() },
+                        // Vertical loop wrap via each edge row's orientation chip.
+                        onWrapPrev = if (index == 0) {
+                            {
+                                rowsScope.launch {
+                                    rowsListState.scrollToItem(lastRowIndex)
+                                    withFrameNanos { }
+                                    runCatching { lastRowFr.requestFocus() }
+                                }
+                            }
+                        } else null,
+                        onWrapNext = if (index == lastRowIndex) {
+                            {
+                                rowsScope.launch {
+                                    rowsListState.scrollToItem(0)
+                                    withFrameNanos { }
+                                    runCatching { firstRowFr.requestFocus() }
+                                }
+                            }
+                        } else null,
+                        orientationFocusRequester = when (index) {
+                            0 -> firstRowFr
+                            lastRowIndex -> lastRowFr
+                            else -> null
+                        },
+                    )
+                }
+            }
+        }
+        // Source pills moved to the fixed top (Row 2) — no bottom bar.
+    }
+
+    if (showDeleteAllConfirm) {
+        com.nuvio.tv.ui.components.NuvioDialog(
+            onDismiss = { showDeleteAllConfirm = false },
+            title = "Delete all rows?",
+            subtitle = "This removes every row from this scope.",
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        viewModel.clearAllRows()
+                        showDeleteAllConfirm = false
+                    },
+                    colors = ButtonDefaults.colors(
+                        containerColor = Color(0xFF7A2C2C),
+                        focusedContainerColor = Color(0xFFAA3C3C),
+                    ),
+                ) { Text("Delete All") }
+                Button(
+                    onClick = { showDeleteAllConfirm = false },
+                    colors = ButtonDefaults.colors(containerColor = NuvioColors.BackgroundCard),
+                ) { Text("Cancel") }
+            }
+        }
+    }
+}
+
+// ── Row Manager column widths ───────────────────────────────────────────────
+//
+// Shared by [ColumnHeaderRow] and [ManagerRowItem] so the header labels/actions
+// line up vertically with each row's controls (the header IS the column).
+
+private val RowOrderColWidth = 84.dp
+private val RowShapeColWidth = 42.dp
+private val RowToggleColWidth = 56.dp
+private val RowRemoveColWidth = 42.dp
+
+// ── Row 2 — source pills ────────────────────────────────────────────────────
+
+@Composable
+private fun SourcePillsRow(
+    onAddCatalog: () -> Unit,
+    onAddTmdb: () -> Unit,
+    onAddTrakt: () -> Unit,
+    onAddCollection: () -> Unit,
+    onAddContinueWatching: () -> Unit,
+    onMdbListComingSoon: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AddRowChip(label = "Catalog", onClick = onAddCatalog)
+        AddRowChip(label = "TMDB", onClick = onAddTmdb)
+        AddRowChip(label = "Trakt", onClick = onAddTrakt)
+        // MDBList rows have no backing source yet — visible placeholder only.
+        ComingSoonChip(label = "MDBList", onClick = onMdbListComingSoon)
+        AddRowChip(label = "Collection", onClick = onAddCollection)
+        // Always visible; the add is a no-op when a CW row already exists.
+        AddRowChip(label = "CW", onClick = onAddContinueWatching)
+    }
+}
+
+@Composable
+private fun ComingSoonChip(label: String, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(19.dp)
+    Button(
+        onClick = onClick,
+        modifier = Modifier.height(38.dp),
+        shape = ButtonDefaults.shape(shape = shape),
+        colors = ButtonDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.04f),
+            focusedContainerColor = Color.White.copy(alpha = 0.10f),
+        ),
+        border = ButtonDefaults.border(
+            focusedBorder = Border(border = BorderStroke(1.5.dp, NuvioColors.FocusRing), shape = shape),
+        ),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                tint = NuvioColors.TextSecondary.copy(alpha = 0.6f),
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = NuvioColors.TextSecondary.copy(alpha = 0.6f),
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "Coming Soon",
+                style = MaterialTheme.typography.labelSmall,
+                color = NuvioColors.TextSecondary.copy(alpha = 0.45f),
+            )
+        }
+    }
+}
+
+// ── Row 3 — column header (label + per-column global action) ────────────────
+
+@Composable
+private fun ColumnHeaderRow(
+    landscape: Boolean,
+    widthDp: Int,
+    expandEnabled: Boolean,
+    allEnabled: Boolean,
+    hasRows: Boolean,
+    onToggleOrientation: () -> Unit,
+    onSelectSize: (Int) -> Unit,
+    onToggleExpand: () -> Unit,
+    onToggleAll: () -> Unit,
+    onDeleteAll: () -> Unit,
+    onResortToAddonOrder: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Row A — text labels, one per column.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            HeaderLabel(text = "Name", modifier = Modifier.weight(1f))
+            HeaderLabelCell(text = "Order", width = RowOrderColWidth)
+            HeaderLabelCell(text = "Orient", width = RowShapeColWidth)
+            HeaderLabelCell(text = "Size", width = RowShapeColWidth)
+            HeaderLabelCell(text = "Expand", width = RowShapeColWidth)
+            HeaderLabelCell(text = "On/Off", width = RowToggleColWidth)
+            HeaderLabelCell(text = "Delete", width = RowRemoveColWidth)
+        }
+        // Row B — global action buttons under their labels.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Spacer(modifier = Modifier.weight(1f))
+            Box(modifier = Modifier.width(RowOrderColWidth), contentAlignment = Alignment.Center) {
+                IconChipButton(
+                    icon = Icons.Default.Sort,
+                    contentDesc = "Sort all rows to addon order",
+                    enabled = hasRows,
+                    onClick = onResortToAddonOrder,
+                )
+            }
+            Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
+                OrientationShapeButton(landscape = landscape, enabled = hasRows, onClick = onToggleOrientation)
+            }
+            Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
+                SizeShapeButton(widthDp = widthDp, enabled = hasRows, onSelect = onSelectSize)
+            }
+            Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
+                // Header expand is the per-scope on/off floor (no "follow" state).
+                ExpandShapeButton(state = expandEnabled, onClick = onToggleExpand)
+            }
+            Box(modifier = Modifier.width(RowToggleColWidth), contentAlignment = Alignment.Center) {
+                ToggleAllHeaderChip(allEnabled = allEnabled, enabled = hasRows, onClick = onToggleAll)
+            }
+            Box(modifier = Modifier.width(RowRemoveColWidth), contentAlignment = Alignment.Center) {
+                IconChipButton(
+                    icon = Icons.Default.DeleteSweep,
+                    contentDesc = "Delete all rows",
+                    enabled = hasRows,
+                    onClick = onDeleteAll,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeaderLabel(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        modifier = modifier,
+        style = MaterialTheme.typography.labelMedium,
+        color = NuvioColors.TextSecondary,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
+private fun HeaderLabelCell(text: String, width: Dp) {
+    Box(modifier = Modifier.width(width), contentAlignment = Alignment.Center) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = NuvioColors.TextSecondary,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 9.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun ToggleAllHeaderChip(allEnabled: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    ShapeChip(onClick = onClick, enabled = enabled, active = allEnabled) {
+        Icon(
+            imageVector = if (allEnabled) Icons.Default.ToggleOn else Icons.Default.ToggleOff,
+            contentDescription = "Toggle all rows",
+            tint = if (!enabled) {
+                NuvioColors.TextSecondary.copy(alpha = 0.4f)
+            } else if (allEnabled) NuvioColors.Secondary else NuvioColors.TextSecondary,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+// ── Per-row item (manager) ──────────────────────────────────────────────────
+
+@Composable
+private fun ManagerRowItem(
+    row: LayoutRowConfig,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onToggleStyle: () -> Unit,
+    onWidthChange: (Int) -> Unit,
+    onCycleExpand: () -> Unit,
+    onToggleEnabled: () -> Unit,
+    onRemove: () -> Unit,
+    // Edge-wrap: supplied only on the first row (onWrapPrev) and last row
+    // (onWrapNext); [orientationFocusRequester] is the wrap target for this row.
+    onWrapPrev: (() -> Unit)? = null,
+    onWrapNext: (() -> Unit)? = null,
+    orientationFocusRequester: FocusRequester? = null,
+    // Per-index requester on the ✕ button, used to restore focus into the list
+    // after a delete (the row that shifts into this slot regains focus).
+    removeFocusRequester: FocusRequester? = null,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(NuvioColors.BackgroundCard)
+            .dpadLoopWrap(onPrev = onWrapPrev, onNext = onWrapNext),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = row.name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (row.enabled) NuvioColors.TextPrimary else NuvioColors.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            // Columns align with ColumnHeaderRow via the shared width constants.
+            Box(modifier = Modifier.width(RowOrderColWidth), contentAlignment = Alignment.Center) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    IconChipButton(
+                        icon = Icons.Default.ArrowUpward,
+                        contentDesc = "Move up",
+                        enabled = canMoveUp,
+                        onClick = onMoveUp,
+                    )
+                    IconChipButton(
+                        icon = Icons.Default.ArrowDownward,
+                        contentDesc = "Move down",
+                        enabled = canMoveDown,
+                        onClick = onMoveDown,
+                    )
+                }
+            }
+            Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
+                OrientationShapeButton(
+                    landscape = row.cardStyle == LayoutCardStyle.LANDSCAPE,
+                    enabled = true,
+                    onClick = onToggleStyle,
+                    focusRequester = orientationFocusRequester,
+                )
+            }
+            Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
+                SizeShapeButton(widthDp = row.cardWidthDp, enabled = true, onSelect = onWidthChange)
+            }
+            Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
+                ExpandShapeButton(state = row.expandEnabled, onClick = onCycleExpand)
+            }
+            Box(modifier = Modifier.width(RowToggleColWidth), contentAlignment = Alignment.Center) {
+                // Accent focus ring so the toggle reads as focused under D-pad,
+                // matching the expand/delete chips (a bare Switch shows none).
+                var switchFocused by remember { mutableStateOf(false) }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .then(
+                            if (switchFocused) {
+                                Modifier.border(2.dp, NuvioColors.FocusRing, RoundedCornerShape(20.dp))
+                            } else Modifier,
+                        )
+                        .padding(3.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Switch(
+                        checked = row.enabled,
+                        onCheckedChange = { onToggleEnabled() },
+                        modifier = Modifier.onFocusChanged {
+                            switchFocused = it.isFocused || it.hasFocus
+                        },
+                    )
+                }
+            }
+            Box(modifier = Modifier.width(RowRemoveColWidth), contentAlignment = Alignment.Center) {
+                IconChipButton(
+                    icon = Icons.Default.Close,
+                    contentDesc = "Remove row",
+                    enabled = true,
+                    onClick = onRemove,
+                    focusRequester = removeFocusRequester,
+                )
+            }
+        }
+    }
+}
+
+// ── Shape controls (orientation / size / expand) ────────────────────────────
+
+/** Cycle order for the per-row expand chip: follow-global → on → off. */
+private fun nextExpandState(current: Boolean?): Boolean? = when (current) {
+    null -> true
+    true -> false
+    false -> null
+}
+
+/** Focusable square chip hosting a drawn glyph (no text), shared by all shape buttons. */
+@Composable
+private fun ShapeChip(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    active: Boolean = false,
+    chipSize: Dp = 38.dp,
+    focusRequester: FocusRequester? = null,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val container = when {
+        !enabled -> Color.White.copy(alpha = 0.04f)
+        isFocused -> Color.White.copy(alpha = 0.18f)
+        active -> NuvioColors.Secondary.copy(alpha = 0.20f)
+        else -> Color.White.copy(alpha = 0.08f)
+    }
+    Card(
+        onClick = { if (enabled) onClick() },
+        modifier = Modifier
+            .size(chipSize)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus },
+        shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = CardDefaults.colors(containerColor = container, focusedContainerColor = container),
+        border = CardDefaults.border(
+            border = if (active) Border(
+                border = BorderStroke(1.dp, NuvioColors.Secondary),
+                shape = RoundedCornerShape(12.dp),
+            ) else Border.None,
+            focusedBorder = Border(
+                border = BorderStroke(1.5.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(12.dp),
+            ),
+        ),
+        scale = CardDefaults.scale(focusedScale = 1f),
+    ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center, content = content)
+    }
+}
+
+@Composable
+private fun OrientationGlyph(landscape: Boolean, tint: Color) {
+    Box(
+        modifier = Modifier
+            .size(
+                width = if (landscape) 22.dp else 14.dp,
+                height = if (landscape) 14.dp else 21.dp,
+            )
+            .clip(RoundedCornerShape(3.dp))
+            .background(tint),
+    )
+}
+
+@Composable
+private fun OrientationShapeButton(
+    landscape: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+) {
+    ShapeChip(onClick = onClick, enabled = enabled, focusRequester = focusRequester) {
+        OrientationGlyph(
+            landscape = landscape,
+            tint = if (enabled) NuvioColors.TextPrimary else NuvioColors.TextSecondary.copy(alpha = 0.4f),
+        )
+    }
+}
+
+@Composable
+private fun SizeGlyph(widthDp: Int, tint: Color) {
+    val minW = CardWidthOptions.first().second
+    val maxW = CardWidthOptions.last().second
+    val frac = ((widthDp - minW).toFloat() / (maxW - minW).coerceAtLeast(1)).coerceIn(0f, 1f)
+    val vw = (11 + frac * 12).dp
+    Box(
+        modifier = Modifier
+            .size(width = vw, height = vw * 1.4f)
+            .clip(RoundedCornerShape(3.dp))
+            .background(tint),
+    )
+}
+
+@Composable
+private fun SizeShapeButton(widthDp: Int, enabled: Boolean, onSelect: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        ShapeChip(onClick = { if (enabled) expanded = true }, enabled = enabled) {
+            SizeGlyph(
+                widthDp = widthDp,
+                tint = if (enabled) NuvioColors.TextPrimary else NuvioColors.TextSecondary.copy(alpha = 0.4f),
+            )
+        }
+        if (expanded) {
+            SizePopover(
+                selectedWidthDp = widthDp,
+                onSelect = { onSelect(it); expanded = false },
+                onDismiss = { expanded = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SizePopover(
+    selectedWidthDp: Int,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Popup(
+        alignment = Alignment.TopStart,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true),
+    ) {
+        BackHandler { onDismiss() }
+        // Vertical loop wrap among the size options (all visible — no scroll).
+        val firstFr = remember { FocusRequester() }
+        val lastFr = remember { FocusRequester() }
+        val lastIndex = CardWidthOptions.lastIndex
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF101418).copy(alpha = 0.96f))
+                .padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            CardWidthOptions.forEachIndexed { index, (label, value) ->
+                SizePopoverItem(
+                    label = label,
+                    widthDp = value,
+                    selected = value == selectedWidthDp,
+                    onClick = { onSelect(value) },
+                    modifier = Modifier
+                        .then(if (index == 0) Modifier.focusRequester(firstFr) else Modifier)
+                        .then(if (index == lastIndex) Modifier.focusRequester(lastFr) else Modifier)
+                        .dpadLoopWrap(
+                            onPrev = if (index == 0) {
+                                { runCatching { lastFr.requestFocus() } }
+                            } else null,
+                            onNext = if (index == lastIndex) {
+                                { runCatching { firstFr.requestFocus() } }
+                            } else null,
+                        ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SizePopoverItem(
+    label: String,
+    widthDp: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Card(
+        onClick = onClick,
+        modifier = modifier
+            .widthIn(min = 150.dp)
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus },
+        shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
+        colors = CardDefaults.colors(
+            containerColor = if (isFocused) Color.White.copy(alpha = 0.16f) else Color.Transparent,
+            focusedContainerColor = Color.White.copy(alpha = 0.16f),
+        ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border(
+                border = BorderStroke(1.2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(8.dp),
+            ),
+        ),
+        scale = CardDefaults.scale(focusedScale = 1f),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(modifier = Modifier.size(26.dp), contentAlignment = Alignment.Center) {
+                SizeGlyph(
+                    widthDp = widthDp,
+                    tint = if (selected) NuvioColors.FocusRing else NuvioColors.TextPrimary,
+                )
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuvioColors.TextPrimary,
+                modifier = Modifier.weight(1f),
+            )
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = NuvioColors.FocusRing,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Expand state glyph. Global toolbar passes a non-null [state] (on/off); per-row
+ * chips pass nullable [state] where null = "follow the per-scope global".
+ */
+@Composable
+private fun ExpandShapeButton(state: Boolean?, onClick: () -> Unit) {
+    val icon = when (state) {
+        true -> Icons.Default.OpenInFull
+        false -> Icons.Default.CloseFullscreen
+        null -> Icons.Default.AutoMode
+    }
+    val tint = when (state) {
+        true -> NuvioColors.Secondary
+        false -> NuvioColors.TextSecondary
+        null -> NuvioColors.TextSecondary.copy(alpha = 0.7f)
+    }
+    ShapeChip(onClick = onClick, active = state == true) {
+        Icon(
+            imageVector = icon,
+            contentDescription = "Expand",
+            tint = tint,
+            modifier = Modifier.size(18.dp),
         )
     }
 }
@@ -375,10 +1184,13 @@ private fun LayoutSection(
             style = MaterialTheme.typography.titleSmall,
             color = NuvioColors.TextSecondary,
         )
-        // 4 layouts side by side — width tightened from 180dp → 156dp
-        // so Classic / Grid / Modern / Spotlight all fit inside the
-        // settings right pane without horizontal scroll.
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 4 layouts evenly distributed across the full pane width — each card
+        // gets equal weight so Classic / Grid / Modern / Spotlight are the same
+        // size (Spotlight was previously clipped by fixed-width overflow).
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             HomeLayout.entries.forEach { layout ->
                 LayoutCard(
                     layout = layout,
@@ -386,7 +1198,7 @@ private fun LayoutSection(
                     showLivePreview = true,
                     onClick = { onSelect(layout) },
                     onFocused = {},
-                    modifier = Modifier.width(156.dp),
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -450,27 +1262,19 @@ private fun GridLayoutSettings(
 
 @Composable
 private fun SpotlightLayoutSettings(
-    showHeroCarousel: Boolean,
-    onShowHeroCarouselChange: (Boolean) -> Unit,
     heroCatalogKeys: Set<String>,
     availableHeroCatalogs: List<HeroCatalogChoice>,
     onToggleHeroCatalog: (String) -> Unit,
 ) {
+    // "Show Hero Carousel" is hidden for Spotlight — the hero carousel is
+    // intrinsic to the layout, so the toggle is redundant. Hero Catalogs
+    // picker stays so the user can still choose which catalogs feed it.
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        LayoutSettingsToggleRow(
-            title = "Show Hero Carousel",
-            subtitle = "When on, the mapped hero catalogs become the default view at launch. " +
-                "When off, the first row is focused immediately.",
-            checked = showHeroCarousel,
-            onCheckedChange = onShowHeroCarouselChange,
+        HeroCatalogsPicker(
+            selectedKeys = heroCatalogKeys,
+            catalogs = availableHeroCatalogs,
+            onToggle = onToggleHeroCatalog,
         )
-        if (showHeroCarousel) {
-            HeroCatalogsPicker(
-                selectedKeys = heroCatalogKeys,
-                catalogs = availableHeroCatalogs,
-                onToggle = onToggleHeroCatalog,
-            )
-        }
     }
 }
 
@@ -551,15 +1355,46 @@ private fun HeroCatalogsPicker(
                 color = NuvioColors.TextSecondary,
             )
         } else {
+            // Horizontal loop wrap: last pill + Right → first; first + Left → last.
+            val scope = rememberCoroutineScope()
+            val rowState = rememberLazyListState()
+            val firstFr = remember { FocusRequester() }
+            val lastFr = remember { FocusRequester() }
+            val lastIndex = catalogs.lastIndex
             androidx.compose.foundation.lazy.LazyRow(
+                state = rowState,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(end = 8.dp),
             ) {
-                items(items = catalogs, key = { it.key }) { catalog ->
+                itemsIndexed(items = catalogs, key = { _, c -> c.key }) { index, catalog ->
                     ChoicePill(
                         label = catalog.name,
                         isSelected = catalog.key in selectedKeys,
                         onClick = { onToggle(catalog.key) },
+                        modifier = Modifier
+                            .then(if (index == 0) Modifier.focusRequester(firstFr) else Modifier)
+                            .then(if (index == lastIndex) Modifier.focusRequester(lastFr) else Modifier)
+                            .dpadLoopWrap(
+                                horizontal = true,
+                                onPrev = if (index == 0) {
+                                    {
+                                        scope.launch {
+                                            rowState.scrollToItem(lastIndex)
+                                            withFrameNanos { }
+                                            runCatching { lastFr.requestFocus() }
+                                        }
+                                    }
+                                } else null,
+                                onNext = if (index == lastIndex) {
+                                    {
+                                        scope.launch {
+                                            rowState.scrollToItem(0)
+                                            withFrameNanos { }
+                                            runCatching { firstFr.requestFocus() }
+                                        }
+                                    }
+                                } else null,
+                            ),
                     )
                 }
             }
@@ -681,6 +1516,7 @@ private fun IconChipButton(
     contentDesc: String,
     enabled: Boolean,
     onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val containerColor = if (!enabled) {
@@ -695,6 +1531,7 @@ private fun IconChipButton(
         onClick = { if (enabled) onClick() },
         modifier = Modifier
             .size(36.dp)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { isFocused = it.isFocused || it.hasFocus },
         shape = CardDefaults.shape(CircleShape),
         colors = CardDefaults.colors(
@@ -992,48 +1829,6 @@ private fun AutoPopulateButton(
                 style = MaterialTheme.typography.labelLarge,
                 color = NuvioColors.TextPrimary,
                 fontWeight = FontWeight.SemiBold,
-            )
-        }
-    }
-}
-
-// ── Card Orientation (global Rows-level default) ────────────────────────────
-//
-// Floor of the per-row → global card-orientation hierarchy. Each row's
-// `cardStyle` overrides this; a row left at default inherits from here.
-
-@Composable
-private fun CardOrientationToggle(
-    landscape: Boolean,
-    onChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Card Orientation",
-                style = MaterialTheme.typography.bodyLarge,
-                color = NuvioColors.TextPrimary,
-            )
-            Text(
-                text = "Default for every row. Per-row card style still wins when set.",
-                style = MaterialTheme.typography.bodySmall,
-                color = NuvioColors.TextSecondary,
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ChoicePill(
-                label = "Portrait",
-                isSelected = !landscape,
-                onClick = { if (landscape) onChange(false) },
-            )
-            ChoicePill(
-                label = "Landscape",
-                isSelected = landscape,
-                onClick = { if (!landscape) onChange(true) },
             )
         }
     }

@@ -1197,3 +1197,81 @@ None — all edits to existing files.
 
 ---
 
+## 📅 Session log — 2026-05-31 (Hard-stop D-pad Left from first content item in Modern feel)
+
+### Headline
+
+Single-line behavior change: in **Modern feel**, D-pad Left from the
+first/leftmost poster of a content carousel no longer opens the Profile
+Overlay — it now **hard-stops**. The Profile Overlay remains reachable via
+the profile avatar (Select). Legacy feel's SideRail entry is untouched.
+
+### Investigation (no code changed during this phase)
+
+Traced every D-pad-Left-from-first-item path across all four home layouts.
+Key finding — two orthogonal concepts: **Feel** (`MODERN`/`LEGACY`, the nav
+shell) vs **HomeLayout** (`CLASSIC`/`GRID`/`SPOTLIGHT`/`MODERN`, the content).
+In Modern feel, `MainActivity.kt:846` wired `LocalSideRailController` →
+`openProfileOverlay`, so any `tvLeftFromFirstItemToSideRail()` call opened the
+overlay. Per-layout reality (premise was partly wrong — not all four equally):
+- **Classic** — `CatalogRowSection.kt:480` `index == 0 -> tvLeftFromFirstItemToSideRail()`. 1 press.
+- **Modern** — `ModernHomeRows.kt:808-818` LazyRow's **own inline**
+  `onPreviewKeyEvent` calls `sideRailController()` at index 0. The `:874`
+  `tvLeftFromFirstItemToSideRail()` on the index-0 Box is effectively **dead
+  for Left** (the LazyRow ancestor consumes the preview event first). 1 press.
+- **Spotlight** — `leadingSeeAllEnabled = true`, so `CatalogRowSection.kt:474`
+  reveals the hidden "Show All" card instead; that card *itself* carries
+  `tvLeftFromFirstItemToSideRail()` (`:380`), so overlay needs a **2nd** Left.
+- **Grid** — `GridContentCard` has **no Left handler** (only long-press at
+  `:154-177`); container has `dpadUpToTopNav()` only. **Never** opened the
+  overlay. Not affected.
+
+### Change
+
+- `MainActivity.kt:846` — `LocalSideRailController provides if (isModernFeel)
+  null else openSideRail` (was `openProfileOverlay`). With the controller
+  `null`, every consumer hard-stops cleanly: `tvLeftFromFirstItemToSideRail`
+  returns `false` (rail null); `ModernHomeRows:810`'s `sideRailController != null`
+  guard is false; `dpadLeftToSideRail` (Search/Settings) falls through. The
+  avatar Select still opens the overlay (`:1045` sets `showProfileOverlay = true`
+  directly, not via the controller). **Option A** was chosen over the
+  per-call-site gate (Option B) for being a true single-point fix.
+
+### Architectural decisions
+
+- **Hard-stop via null controller, not per-call-site gating.** One line covers
+  Classic / Modern / Spotlight (after Show-All) plus Search/Settings, and is
+  symmetric — they're all the same "Left from leftmost" gesture. Trade-off
+  accepted: Modern feel's Search/Settings screens also lose their Left→overlay
+  gesture (out of scope of the content-row bug, but consistent).
+
+### New files
+
+None — single edit to `MainActivity.kt`.
+
+### Pending follow-ups
+
+1. **Dead `openProfileOverlay` val** (`MainActivity.kt:812`) — now unused
+   (avatar uses `showProfileOverlay = true` directly). Harmless compiler
+   warning; left in place to keep the change to one line. Remove next pass.
+2. **On-device verification** (installed, not smoke-tested by Claude): Left
+   from first poster hard-stops in Classic + Modern; Spotlight still reveals
+   "Show All" on 1st Left then hard-stops on 2nd (no overlay); Grid unaffected;
+   avatar Select still opens the overlay.
+3. Prior follow-ups (dead `bottomScrimMaxAlpha` param, Phase 8 localization,
+   23 skipped upstream commits, ContinueWatching render in Classic, SideRail
+   order consumption) still open.
+
+### Notes for future sessions
+
+- **`LocalSideRailController` is the shared "D-pad Left from leftmost" hook**
+  for BOTH feels — Modern routed it to the Profile Overlay, Legacy to the
+  SideRail. It is consumed by `tvLeftFromFirstItemToSideRail`,
+  `dpadLeftToSideRail`, and `ModernHomeRows`' inline handler. Null it to
+  hard-stop all of them at once.
+- **Gradle `packageFullDebug` can fail transiently** (`IncrementalSplitterRunnable`)
+  even when Kotlin compiles green — a plain re-run of `installFullDebug`
+  succeeded with no code change.
+
+---
+

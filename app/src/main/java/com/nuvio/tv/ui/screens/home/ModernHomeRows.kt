@@ -461,8 +461,11 @@ internal fun ModernRowSection(
     // globals passed in from `ModernHomeContent`. Rows without a saved
     // [LayoutRowConfig] (Continue Watching, addons the user hasn't added to
     // the layout settings yet) fall back to the inherited globals.
-    val effLandscape = rowConfig?.let { it.cardStyle == LayoutCardStyle.LANDSCAPE }
-    val effBaseWidth = rowConfig?.cardWidthDp?.dp
+    val resolvedRowConfig = rowConfig?.let {
+        resolveRowDisplayConfig(it, it.viewContext, globalExpandForScope = false)
+    }
+    val effLandscape = resolvedRowConfig?.let { it.effectiveCardStyle == LayoutCardStyle.LANDSCAPE }
+    val effBaseWidth = resolvedRowConfig?.effectiveCardWidthDp?.dp
     // Apply the same Modern scaling that ModernHomeContent applies to the
     // global base width (0.84 * portraitModernPosterScale for portrait,
     // 1.24 * landscapeModernPosterScale for landscape).  Without this the

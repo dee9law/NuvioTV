@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
@@ -26,8 +27,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -44,11 +47,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Border
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.Collection
+import com.nuvio.tv.domain.model.LayoutRowConfig
+import com.nuvio.tv.domain.model.LayoutRowKey
 import com.nuvio.tv.domain.model.LayoutRowKind
 import com.nuvio.tv.ui.theme.NuvioColors
 
@@ -64,6 +71,10 @@ fun CatalogPickerDialog(
     onSelect: (CatalogSourceOption) -> Unit,
     onDismiss: () -> Unit,
     scope: com.nuvio.tv.domain.model.LayoutScreenScope = com.nuvio.tv.domain.model.LayoutScreenScope.HOME,
+    onAddRows: (List<LayoutRowConfig>) -> Unit = {},
+    onDeleteAll: () -> Unit = {},
+    followOrder: Boolean = false,
+    onToggleFollowOrder: () -> Unit = {},
 ) {
     val addonOnly = remember(sources, scope) {
         sources.filter { it.kind == LayoutRowKind.ADDON }.let { addons ->
@@ -81,6 +92,13 @@ fun CatalogPickerDialog(
         existingRowIds = existingRowIds,
         onSelect = onSelect,
         onDismiss = onDismiss,
+        onPopulateAll = {
+            onAddRows(addonOnly.map { LayoutRowConfig(id = it.id, kind = it.kind, name = it.name) })
+        },
+        onDeleteAll = onDeleteAll,
+        deleteConfirmSubtitle = "This removes every Catalog row from this scope.",
+        followOrder = followOrder,
+        onToggleFollowOrder = onToggleFollowOrder,
     )
 }
 
@@ -121,12 +139,19 @@ fun TmdbSourcePickerDialog(
     onAddDiscover: (mediaType: String, sortBy: String, genre: String?, year: String?, displayName: String) -> Unit,
     onAddNetwork: (networkId: Int, mediaType: String, displayName: String) -> Unit,
     onDismiss: () -> Unit,
+    onAddRows: (List<LayoutRowConfig>) -> Unit = {},
+    onDeleteAll: () -> Unit = {},
 ) {
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        BackHandler { onDismiss() }
+        val actionBarFr = remember { FocusRequester() }
+        var actionBarHasFocus by remember { mutableStateOf(true) }
+        BackHandler {
+            if (actionBarHasFocus) onDismiss()
+            else runCatching { actionBarFr.requestFocus() }
+        }
         var mediaType by remember { mutableStateOf("movie") }
         var sortBy by remember { mutableStateOf("popularity.desc") }
         var genre by remember { mutableStateOf("") }
@@ -134,7 +159,7 @@ fun TmdbSourcePickerDialog(
         val firstFr = remember { FocusRequester() }
         LaunchedEffect(Unit) {
             repeat(4) { withFrameNanos { } }
-            runCatching { firstFr.requestFocus() }
+            runCatching { actionBarFr.requestFocus() }
         }
 
         Box(
@@ -162,6 +187,29 @@ fun TmdbSourcePickerDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = NuvioColors.TextSecondary,
                     modifier = Modifier.padding(start = 20.dp, bottom = 12.dp),
+                )
+                // Populate All adds every network/provider for the currently
+                // selected media type. Discover stays a manual one-off builder.
+                PickerActionBar(
+                    onPopulateAll = {
+                        onAddRows(
+                            TMDB_NETWORK_OPTIONS.map { net ->
+                                LayoutRowConfig(
+                                    id = LayoutRowKey.forTmdbNetwork(net.id, mediaType),
+                                    kind = LayoutRowKind.TMDB_NETWORK,
+                                    name = net.label,
+                                    metadata = mapOf(
+                                        "network_id" to net.id.toString(),
+                                        "media_type" to mediaType,
+                                    ),
+                                )
+                            },
+                        )
+                    },
+                    onDeleteAll = onDeleteAll,
+                    deleteConfirmSubtitle = "This removes every TMDB row from this scope.",
+                    firstButtonFocusRequester = actionBarFr,
+                    onFocusChanged = { actionBarHasFocus = it },
                 )
                 LazyColumn(
                     modifier = Modifier
@@ -228,7 +276,7 @@ fun TmdbSourcePickerDialog(
                                     year.ifBlank { null },
                                     display,
                                 )
-                                onDismiss()
+                                // Stay open for multi-add (Back closes).
                             },
                         )
                     }
@@ -244,10 +292,8 @@ fun TmdbSourcePickerDialog(
                             subtitle = "id ${net.id} · ${if (mediaType == "tv") "TV" else "Movies"}",
                             isExisting = existing,
                             onClick = {
-                                if (!existing) {
-                                    onAddNetwork(net.id, mediaType, net.label)
-                                    onDismiss()
-                                }
+                                // Multi-select: add and stay open.
+                                if (!existing) onAddNetwork(net.id, mediaType, net.label)
                             },
                         )
                     }
@@ -270,6 +316,8 @@ fun TraktPickerDialog(
     existingRowIds: Set<String>,
     onSelect: (CatalogSourceOption) -> Unit,
     onDismiss: () -> Unit,
+    onAddRows: (List<LayoutRowConfig>) -> Unit = {},
+    onDeleteAll: () -> Unit = {},
 ) {
     val traktOnly = remember(sources) { sources.filter { it.kind == LayoutRowKind.TRAKT } }
     AddRowPickerDialog(
@@ -277,6 +325,12 @@ fun TraktPickerDialog(
         existingRowIds = existingRowIds,
         onSelect = onSelect,
         onDismiss = onDismiss,
+        onPopulateAll = {
+            onAddRows(traktOnly.map { LayoutRowConfig(id = it.id, kind = it.kind, name = it.name) })
+        },
+        onDeleteAll = onDeleteAll,
+        deleteConfirmSubtitle = "This removes every Trakt row from this scope.",
+        // Follow Order is Catalog-only (addon manifest order); hidden here.
     )
 }
 
@@ -288,16 +342,23 @@ fun CollectionPickerDialog(
     existingRowIds: Set<String>,
     onSelectFolder: (collectionId: String, folderId: String, displayName: String) -> Unit,
     onDismiss: () -> Unit,
+    onAddRows: (List<LayoutRowConfig>) -> Unit = {},
+    onDeleteAll: () -> Unit = {},
 ) {
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        BackHandler { onDismiss() }
+        val actionBarFr = remember { FocusRequester() }
+        var actionBarHasFocus by remember { mutableStateOf(true) }
+        BackHandler {
+            if (actionBarHasFocus) onDismiss()
+            else runCatching { actionBarFr.requestFocus() }
+        }
         val firstFr = remember { FocusRequester() }
         LaunchedEffect(Unit) {
             repeat(4) { withFrameNanos { } }
-            runCatching { firstFr.requestFocus() }
+            runCatching { actionBarFr.requestFocus() }
         }
         Box(
             modifier = Modifier
@@ -325,6 +386,29 @@ fun CollectionPickerDialog(
                     color = NuvioColors.TextSecondary,
                     modifier = Modifier.padding(start = 20.dp, bottom = 12.dp),
                 )
+                PickerActionBar(
+                    onPopulateAll = {
+                        onAddRows(
+                            collections.flatMap { c ->
+                                c.folders.map { f ->
+                                    LayoutRowConfig(
+                                        id = LayoutRowKey.forCollectionFolder(c.id, f.id),
+                                        kind = LayoutRowKind.COLLECTION,
+                                        name = f.title,
+                                        metadata = mapOf(
+                                            "collection_id" to c.id,
+                                            "folder_id" to f.id,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                    },
+                    onDeleteAll = onDeleteAll,
+                    deleteConfirmSubtitle = "This removes every Collection row from this scope.",
+                    firstButtonFocusRequester = actionBarFr,
+                    onFocusChanged = { actionBarHasFocus = it },
+                )
                 if (collections.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -340,7 +424,12 @@ fun CollectionPickerDialog(
                     }
                     return@Column
                 }
+                val listState = rememberLazyListState()
+                val scope = rememberCoroutineScope()
+                val lastFolderFr = remember { FocusRequester() }
+                val lastFolderIndex = collections.sumOf { it.folders.size } - 1
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -368,17 +457,43 @@ fun CollectionPickerDialog(
                         ) { _, folder ->
                             val rowId = "collection|${collection.id}|${folder.id}"
                             val existing = rowId in existingRowIds
-                            val isFirst = (globalIndex == 0)
+                            val idx = globalIndex
+                            val isFirst = (idx == 0)
+                            val isLast = (idx == lastFolderIndex)
                             globalIndex++
+                            val wrapMod = Modifier
+                                .then(if (isLast) Modifier.focusRequester(lastFolderFr) else Modifier)
+                                .dpadLoopWrap(
+                                    onPrev = if (isFirst) {
+                                        {
+                                            scope.launch {
+                                                val total = listState.layoutInfo.totalItemsCount
+                                                listState.scrollToItem((total - 1).coerceAtLeast(0))
+                                                withFrameNanos { }
+                                                runCatching { lastFolderFr.requestFocus() }
+                                            }
+                                        }
+                                    } else null,
+                                    onNext = if (isLast) {
+                                        {
+                                            scope.launch {
+                                                listState.scrollToItem(0)
+                                                withFrameNanos { }
+                                                runCatching { firstFr.requestFocus() }
+                                            }
+                                        }
+                                    } else null,
+                                )
                             PickerListItem(
                                 title = folder.title,
                                 subtitle = collection.title,
                                 isExisting = existing,
                                 focusRequester = if (isFirst) firstFr else null,
+                                modifier = wrapMod,
                                 onClick = {
+                                    // Multi-select: add and stay open.
                                     if (!existing) {
                                         onSelectFolder(collection.id, folder.id, folder.title)
-                                        onDismiss()
                                     }
                                 },
                             )
@@ -387,6 +502,112 @@ fun CollectionPickerDialog(
                 }
             }
         }
+    }
+}
+
+// ── Shared picker action bar (Populate All / Follow Order / Delete All) ─────
+//
+// Rendered below each picker's title/description, before the list. Delete All
+// is per-source (the caller scopes it by row kind) and always confirms first.
+// [followOrder] is non-null only for the Catalog picker (manifest order is
+// addon-specific); the other pickers hide that middle button.
+
+@Composable
+internal fun PickerActionBar(
+    onPopulateAll: () -> Unit,
+    onDeleteAll: () -> Unit,
+    deleteConfirmSubtitle: String,
+    followOrder: Boolean? = null,
+    onToggleFollowOrder: (() -> Unit)? = null,
+    // First button gets this requester so the picker can land default focus on
+    // the action bar (not the list); [onFocusChanged] reports whether any
+    // action-bar button currently holds focus (drives the Back behaviour).
+    firstButtonFocusRequester: FocusRequester? = null,
+    onFocusChanged: (Boolean) -> Unit = {},
+) {
+    var showConfirm by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 20.dp, bottom = 10.dp)
+            .onFocusChanged { onFocusChanged(it.hasFocus) },
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        PickerActionPill(
+            label = "🔄  Populate All",
+            onClick = onPopulateAll,
+            focusRequester = firstButtonFocusRequester,
+        )
+        if (followOrder != null && onToggleFollowOrder != null) {
+            PickerActionPill(
+                label = if (followOrder) "📋  Follow Order  ●"
+                    else "📋  Follow Order  ○",
+                onClick = onToggleFollowOrder,
+                active = followOrder,
+            )
+        }
+        PickerActionPill(label = "🗑  Delete All", onClick = { showConfirm = true }, danger = true)
+    }
+    if (showConfirm) {
+        com.nuvio.tv.ui.components.NuvioDialog(
+            onDismiss = { showConfirm = false },
+            title = "Delete all?",
+            subtitle = deleteConfirmSubtitle,
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onDeleteAll(); showConfirm = false },
+                    colors = ButtonDefaults.colors(
+                        containerColor = Color(0xFF7A2C2C),
+                        focusedContainerColor = Color(0xFFAA3C3C),
+                    ),
+                ) { Text("Delete All") }
+                Button(
+                    onClick = { showConfirm = false },
+                    colors = ButtonDefaults.colors(containerColor = NuvioColors.BackgroundCard),
+                ) { Text("Cancel") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PickerActionPill(
+    label: String,
+    onClick: () -> Unit,
+    active: Boolean = false,
+    danger: Boolean = false,
+    focusRequester: FocusRequester? = null,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(16.dp)
+    val container = when {
+        danger -> Color(0xFF5A1C1C)
+        active -> NuvioColors.FocusBackground
+        focused -> Color.White.copy(alpha = 0.18f)
+        else -> Color.White.copy(alpha = 0.08f)
+    }
+    val focusedContainer = if (danger) Color(0xFF7A2C2C) else container
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { focused = it.isFocused || it.hasFocus },
+        shape = CardDefaults.shape(shape),
+        colors = CardDefaults.colors(containerColor = container, focusedContainerColor = focusedContainer),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border(border = BorderStroke(1.5.dp, NuvioColors.FocusRing), shape = shape),
+        ),
+        scale = CardDefaults.scale(focusedScale = 1f),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = NuvioColors.TextPrimary,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -561,11 +782,12 @@ private fun PickerListItem(
     isExisting: Boolean,
     focusRequester: FocusRequester? = null,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
     Card(
         onClick = { if (!isExisting) onClick() },
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .alpha(if (isExisting) 0.45f else 1f)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)

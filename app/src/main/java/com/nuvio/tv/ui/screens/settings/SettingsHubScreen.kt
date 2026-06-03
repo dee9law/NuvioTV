@@ -65,6 +65,10 @@ import com.nuvio.tv.ui.theme.NuvioColors
 private val LeftRailWidth = 300.dp
 private val PaneHorizontalPadding = 24.dp
 private val PaneVerticalPadding = 20.dp
+// Open-canvas right pane (no card/border) — medium-tight padding so content
+// owns the full pane without feeling cramped or airy.
+private val RightPaneHorizontalPadding = 28.dp
+private val RightPaneVerticalPadding = 18.dp
 private val LeftRailCardSpacing = 10.dp
 private val CategoryCardShape = RoundedCornerShape(SettingsSecondaryCardRadius)
 private val SubItemIndent = 12.dp
@@ -518,41 +522,26 @@ private fun RightPane(
     onNavigateToSupportersContributors: () -> Unit,
     onNavigateToLicensesAttributions: () -> Unit,
 ) {
-    // Workspace surface — gives the right pane the same enclosed-card
-    // treatment as the category cards on the left. Content scrolls inside
-    // this box without leaking past the rounded border.
+    // Open canvas — content renders directly on the background (no card /
+    // border / surface). Medium-tight padding so it owns the full pane without
+    // feeling boxed in or cramped.
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = PaneHorizontalPadding, vertical = PaneVerticalPadding),
+            .padding(horizontal = RightPaneHorizontalPadding, vertical = RightPaneVerticalPadding),
     ) {
-        // Show the enclosed surface only when there's content to display;
-        // an empty box would draw a confusing empty card.
         if (contentSubId.isBlank()) {
             // No category opened yet — leave blank so the left rail draws
             // the user's attention.
             return@Box
         }
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(CategoryCardShape)
-                .background(NuvioColors.BackgroundCard)
-                .border(
-                    width = 1.dp,
-                    color = NuvioColors.Border,
-                    shape = CategoryCardShape,
-                )
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-        ) {
-            SubItemContent(
-                contentSubId = contentSubId,
-                onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
-                onNavigateToManageProfiles = onNavigateToManageProfiles,
-                onNavigateToSupportersContributors = onNavigateToSupportersContributors,
-                onNavigateToLicensesAttributions = onNavigateToLicensesAttributions,
-            )
-        }
+        SubItemContent(
+            contentSubId = contentSubId,
+            onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
+            onNavigateToManageProfiles = onNavigateToManageProfiles,
+            onNavigateToSupportersContributors = onNavigateToSupportersContributors,
+            onNavigateToLicensesAttributions = onNavigateToLicensesAttributions,
+        )
     }
 }
 
@@ -579,7 +568,7 @@ private fun SubItemContent(
         "appearance.rows" -> NewLayoutSettingsContent(mode = NewLayoutContentMode.ROWS_ONLY)
         "appearance.continue_watching" -> ContinueWatchingSettingsContent()
         "appearance.theme" -> ThemeSettingsContent()
-        "appearance.cards" -> CardsSettingsContent()
+        "appearance.trailers" -> TrailersSettingsContent()
         "appearance.siderail" -> SideRailSettingsContent()
         "appearance.detailpage" -> DetailPageSettingsContent()
         // Extensions
@@ -681,19 +670,19 @@ private fun settingsCategories(): List<HubCategory> = listOf(
         id = "appearance",
         label = "Appearance",
         icon = Icons.Default.Palette,
-        // Order is fixed by Task 6 — Feel / Layout / Rows / Top Bar /
-        // Side Rail / Global / Theme / Continue Watching / Cards /
-        // Detail Page.
+        // Order — Feel / Layout / Rows / Trailers / Top Bar / Side Rail /
+        // Global / Theme / Continue Watching / Detail Page. (Cards removed —
+        // its controls moved to Trailers + Theme.)
         subItems = listOf(
             HubSubItem.Content("appearance.feel", "Feel"),
             HubSubItem.Content("appearance.layout", "Layout"),
             HubSubItem.Content("appearance.rows", "Rows"),
+            HubSubItem.Content("appearance.trailers", "Trailers"),
             HubSubItem.Content("appearance.topbar", "Top Bar"),
             HubSubItem.Content("appearance.siderail", "Side Rail"),
             HubSubItem.Content("appearance.global", "Global"),
             HubSubItem.Content("appearance.theme", "Theme"),
             HubSubItem.Content("appearance.continue_watching", "Continue Watching"),
-            HubSubItem.Content("appearance.cards", "Cards"),
             HubSubItem.Content("appearance.detailpage", "Detail Page"),
         ),
     ),

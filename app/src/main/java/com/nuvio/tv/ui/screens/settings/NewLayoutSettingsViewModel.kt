@@ -82,6 +82,12 @@ data class NewLayoutUiState(
      * Auto-populate runs automatically when the toggle flips ON.
      */
     val followAddonsOrder: Boolean = false,
+    /**
+     * Per-scope global expand-to-backdrop setting for the active scope.
+     * Floor of the per-row → per-scope expand hierarchy: a row whose
+     * [LayoutRowConfig.expandEnabled] is null follows this value.
+     */
+    val expandBackdropEnabled: Boolean = false,
 )
 
 private data class CoreLayoutState(
@@ -124,6 +130,8 @@ class NewLayoutSettingsViewModel @Inject constructor(
         .flatMapLatest { layoutPreferenceDataStore.rowsForScope(it) }
     private val followAddonsOrderFlow: Flow<Boolean> = _selectedScope
         .flatMapLatest { layoutPreferenceDataStore.followAddonsOrderForScope(it) }
+    private val expandBackdropEnabledFlow: Flow<Boolean> = _selectedScope
+        .flatMapLatest { layoutPreferenceDataStore.focusedPosterBackdropExpandEnabledForScope(it) }
 
     private val installedAddonsFlow = addonRepository.getInstalledAddons()
 
@@ -210,7 +218,8 @@ class NewLayoutSettingsViewModel @Inject constructor(
         rowsAndSources,
         layoutPreferenceDataStore.modernLandscapePostersEnabled,
         followAddonsOrderFlow,
-    ) { core, rs, landscape, followAddons ->
+        expandBackdropEnabledFlow,
+    ) { core, rs, landscape, followAddons, expandBackdrop ->
         NewLayoutUiState(
             selectedScope = core.scope,
             layout = core.layout,
@@ -224,6 +233,7 @@ class NewLayoutSettingsViewModel @Inject constructor(
             availableCollections = rs.collections,
             landscapePostersDefault = landscape,
             followAddonsOrder = followAddons,
+            expandBackdropEnabled = expandBackdrop,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NewLayoutUiState())
 
@@ -404,6 +414,63 @@ class NewLayoutSettingsViewModel @Inject constructor(
 
     fun clearAllRows() = mutateRows { emptyList() }
 
+    /**
+     * Append many rows to the active scope in a single write (dedup by id),
+     * stamping each with the scope. Used by the source pickers' "Populate All".
+     * One write avoids the read-modify-write race that looping [addRow] hits.
+     */
+    fun addRows(rows: List<LayoutRowConfig>) {
+        viewModelScope.launch {
+            val scope = _selectedScope.value
+            val current = layoutPreferenceDataStore.rowsForScope(scope).first()
+            val existing = current.map { it.id }.toSet()
+            val stamped = rows
+                .filter { it.id !in existing }
+                .map { it.copy(viewContext = scope) }
+            if (stamped.isNotEmpty()) {
+                layoutPreferenceDataStore.setRowsForScope(scope, current + stamped)
+            }
+        }
+    }
+
+    /**
+     * Delete only the rows of the given [kinds] from the active scope — the
+     * pickers' per-source "Delete All". Rows of every other kind are untouched.
+     */
+    fun deleteRowsOfKinds(kinds: Set<LayoutRowKind>) = mutateRows { rows ->
+        rows.filterNot { it.kind in kinds }
+    }
+
+    /**
+     * Re-sort the active scope's rows to match the installed addons' catalog
+     * manifest order (the "Order" global action). Addon rows come first in
+     * manifest order; non-addon rows (Collection / Trakt / TMDB / CW) keep
+     * their relative order after them.
+     */
+    fun resortToAddonOrder() {
+        viewModelScope.launch {
+            val scope = _selectedScope.value
+            val current = layoutPreferenceDataStore.rowsForScope(scope).first()
+            if (current.isEmpty()) return@launch
+            val manifestIndex = HashMap<String, Int>()
+            var i = 0
+            installedAddonsFlow.first().forEach { addon ->
+                addon.catalogs.forEach { catalog ->
+                    manifestIndex["addon|${addon.id}|${catalog.apiType}|${catalog.id}"] = i++
+                }
+            }
+            val sorted = current.sortedWith(
+                compareBy(
+                    { if (manifestIndex.containsKey(it.id)) 0 else 1 },
+                    { manifestIndex[it.id] ?: Int.MAX_VALUE },
+                ),
+            )
+            if (sorted != current) {
+                layoutPreferenceDataStore.setRowsForScope(scope, sorted)
+            }
+        }
+    }
+
     fun moveRow(rowId: String, direction: Int) = mutateRows { rows ->
         val idx = rows.indexOfFirst { it.id == rowId }
         if (idx < 0) return@mutateRows rows
@@ -425,6 +492,38 @@ class NewLayoutSettingsViewModel @Inject constructor(
 
     fun setRowCardWidth(rowId: String, widthDp: Int) = mutateRows { rows ->
         rows.map { if (it.id == rowId) it.copy(cardWidthDp = widthDp) else it }
+    }
+
+    /**
+     * Per-row expand override. [enabled] null follows the per-scope global,
+     * true forces always-expand, false forces never-expand.
+     */
+    fun setRowExpandEnabled(rowId: String, enabled: Boolean?) = mutateRows { rows ->
+        rows.map { if (it.id == rowId) it.copy(expandEnabled = enabled) else it }
+    }
+
+    /** Per-scope global expand-to-backdrop toggle (the floor of the hierarchy). */
+    fun setExpandBackdropEnabled(enabled: Boolean) = viewModelScope.launch {
+        layoutPreferenceDataStore.setFocusedPosterBackdropExpandEnabledForScope(
+            _selectedScope.value, enabled,
+        )
+    }
+
+    // ── Global "apply to every row in scope" toolbar actions ────────────────
+
+    /** Apply [style] to every row in the active scope (global Orientation button). */
+    fun setAllRowsCardStyle(style: LayoutCardStyle) = mutateRows { rows ->
+        rows.map { it.copy(cardStyle = style) }
+    }
+
+    /** Apply [widthDp] to every row in the active scope (global Size button). */
+    fun setAllRowsCardWidth(widthDp: Int) = mutateRows { rows ->
+        rows.map { it.copy(cardWidthDp = widthDp) }
+    }
+
+    /** Enable or disable every row in the active scope (Enable All / Disable All). */
+    fun setAllRowsEnabled(enabled: Boolean) = mutateRows { rows ->
+        rows.map { it.copy(enabled = enabled) }
     }
 
     private fun mutateRows(transform: (List<LayoutRowConfig>) -> List<LayoutRowConfig>) {

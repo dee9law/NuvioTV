@@ -181,7 +181,11 @@ internal fun BaseHomeViewModel.observeDisplayPreferencesPipeline() {
  */
 internal fun BaseHomeViewModel.observeFocusedPosterPipeline() {
     viewModelScope.launch {
-        layoutPreferenceDataStore.focusedPosterBackdropExpandEnabled
+        // Per-scope expand floor (was the app-global flag). Each scope's home
+        // screen (Home / Movies / TV / Collections) now reads its own
+        // `focused_poster_backdrop_expand_enabled_<scope>` value; per-row
+        // overrides layer on top of this in the layout renderers.
+        layoutPreferenceDataStore.focusedPosterBackdropExpandEnabledForScope(homeScope)
             .distinctUntilChanged()
             .collect { enabled ->
                 _uiState.update { state ->

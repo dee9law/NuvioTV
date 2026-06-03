@@ -82,12 +82,9 @@ private fun resolvePosterCardStyle(
     base: PosterCardStyle,
     globalCardStyle: LayoutCardStyle = LayoutCardStyle.POSTER,
 ): PosterCardStyle {
-    val resolvedStyle = com.nuvio.tv.domain.model.resolveLayoutSetting(
-        perRow = config?.cardStyle,
-        perScreen = null,
-        global = globalCardStyle,
-    )
-    val width = config?.cardWidthDp?.dp ?: base.width
+    val resolved = config?.let { resolveRowDisplayConfig(it, it.viewContext, globalExpandForScope = false) }
+    val resolvedStyle = resolved?.effectiveCardStyle ?: globalCardStyle
+    val width = resolved?.effectiveCardWidthDp?.dp ?: base.width
     val height = if (config != null) {
         if (resolvedStyle == LayoutCardStyle.LANDSCAPE) width * (9f / 16f) else width * 1.5f
     } else {
@@ -669,7 +666,13 @@ fun ClassicHomeContent(
                         showPosterLabels = uiState.posterLabelsEnabled,
                         showAddonName = uiState.catalogAddonNameEnabled,
                         showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled,
-                        focusedPosterBackdropExpandEnabled = uiState.focusedPosterBackdropExpandEnabled,
+                        // Per-row expand override via the shared resolver
+                        // (true/false win; null follows uiState's per-scope value).
+                        focusedPosterBackdropExpandEnabled = rowConfig?.let {
+                            resolveRowDisplayConfig(
+                                it, it.viewContext, uiState.focusedPosterBackdropExpandEnabled,
+                            ).effectiveExpands
+                        } ?: uiState.focusedPosterBackdropExpandEnabled,
                         focusedPosterBackdropExpandDelaySeconds = uiState.focusedPosterBackdropExpandDelaySeconds,
                         focusedPosterBackdropTrailerEnabled = uiState.focusedPosterBackdropTrailerEnabled,
                         focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,

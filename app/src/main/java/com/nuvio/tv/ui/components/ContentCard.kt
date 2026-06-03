@@ -153,12 +153,9 @@ fun ContentCard(
                 return@LaunchedEffect
             }
 
-            val delaySeconds = focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(0)
-
             isBackdropExpanded = false
-            // Minimum debounce so rapid D-pad scrolling doesn't expand every card.
-            val backdropDelayMs = if (delaySeconds == 0) 370L else delaySeconds * 1000L
-            delay(backdropDelayMs)
+            // Expand is instant — the configurable expand delay was removed.
+            delay(0L)
             if (isFocused && focusedPosterBackdropExpandEnabled &&
                 lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
             ) {

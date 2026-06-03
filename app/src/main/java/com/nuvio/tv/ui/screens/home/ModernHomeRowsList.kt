@@ -224,7 +224,10 @@ internal fun ModernHomeRowsList(
                                 portraitCardHeight = rowPortraitH,
                                 landscapeCardWidth = rowLandscapeW,
                                 landscapeCardHeight = rowLandscapeH,
-                                expandEnabled = effectiveExpandEnabled
+                                // Per-row expand override via the shared resolver.
+                                expandEnabled = rowConfig?.let {
+                                    resolveRowDisplayConfig(it, it.viewContext, effectiveExpandEnabled).effectiveExpands
+                                } ?: effectiveExpandEnabled
                             )
                             val wPx = with(density) { metrics.width.roundToPx() }
                             val hPx = with(density) { metrics.height.roundToPx() }
@@ -445,7 +448,11 @@ internal fun ModernHomeRowsList(
                     showLabels = showLabels,
                     posterCardCornerRadius = posterCardCornerRadius,
                     focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
-                    effectiveExpandEnabled = effectiveExpandEnabled,
+                    // Per-row expand override via the shared resolver; null
+                    // follows the scope-level value.
+                    effectiveExpandEnabled = (row.layoutConfigKey?.let { rowConfigLookup[it] }?.let {
+                        resolveRowDisplayConfig(it, it.viewContext, effectiveExpandEnabled).effectiveExpands
+                    } ?: effectiveExpandEnabled),
                     effectiveAutoplayEnabled = effectiveAutoplayEnabled,
                     trailerPlaybackTarget = trailerPlaybackTarget,
                     expandedCatalogFocusKey = expandedCatalogFocusKey,

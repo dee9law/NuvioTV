@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import android.widget.Toast
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -84,9 +86,14 @@ fun ThemeSettingsScreen(
 @Composable
 fun ThemeSettingsContent(
     viewModel: ThemeSettingsViewModel = hiltViewModel(),
-    initialFocusRequester: FocusRequester? = null
+    initialFocusRequester: FocusRequester? = null,
+    // Poster Glow + Card Focus Style live on the global layout prefs (formerly
+    // the "Cards" pane); they're visual highlight choices that belong with the
+    // colour theme, so they're rendered here using their own ViewModel.
+    globalViewModel: GlobalSettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val globalState by globalViewModel.uiState.collectAsStateWithLifecycle()
     var showFontDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var pendingLanguageRestart by remember { mutableStateOf(false) }
@@ -206,6 +213,58 @@ fun ThemeSettingsContent(
                     value = currentLocaleName,
                     onClick = { showLanguageDialog = true }
                 )
+            }
+
+            SettingsGroupCard(
+                modifier = Modifier.fillMaxWidth(),
+                title = "Focus highlight",
+                subtitle = "How focused cards are highlighted."
+            ) {
+                SettingsToggleRow(
+                    title = "Focus Highlight",
+                    subtitle = "Master switch for the focused-card highlight. When off, " +
+                        "Poster Glow and Card Focus Style are disabled.",
+                    checked = globalState.focusHighlightEnabled,
+                    onToggle = {
+                        globalViewModel.setFocusHighlightEnabled(!globalState.focusHighlightEnabled)
+                    }
+                )
+                if (globalState.focusHighlightEnabled) {
+                    SettingsToggleRow(
+                        title = "Poster Glow",
+                        subtitle = "Soft coloured halo behind focused cards, sampled from the " +
+                            "poster's dominant colour. Works with either focus border style.",
+                        checked = globalState.posterGlowEnabled,
+                        onToggle = { globalViewModel.setPosterGlowEnabled(!globalState.posterGlowEnabled) }
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Card Focus Style",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = NuvioColors.TextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Border treatment for focused cards. Bloom samples the poster " +
+                                "colour for a tight luminous edge.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = NuvioColors.TextSecondary,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            com.nuvio.tv.domain.model.CardFocusStyle.entries.forEach { style ->
+                                ChoicePill(
+                                    label = style.displayLabel,
+                                    isSelected = style == globalState.cardFocusStyle,
+                                    onClick = {
+                                        if (style != globalState.cardFocusStyle) {
+                                            globalViewModel.cycleCardFocusStyle()
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
         SettingsVerticalScrollIndicators(state = themeScrollState)

@@ -295,8 +295,10 @@ fun ModernHomeContent(
         if (verticalRowListState.isScrollInProgress) return@LaunchedEffect
         val selection = focusedCatalogSelection.value ?: return@LaunchedEffect
         if (selection.payload !is ModernPayload.Catalog) return@LaunchedEffect
-        val expansionDelayMs = (uiState.focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(0) * 1000L).coerceAtLeast(150L)
-        delay(expansionDelayMs)
+        // Expand is instant — the configurable expand delay was removed. The
+        // surrounding `isScrollInProgress` guard already prevents mid-scroll
+        // expansion, so no debounce is needed here.
+        delay(0L)
         if (!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@LaunchedEffect
         if (shouldActivateFocusedPosterFlow &&
             !verticalRowListState.isScrollInProgress &&

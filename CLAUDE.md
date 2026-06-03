@@ -298,6 +298,7 @@ follow-up pass:
 - **2026-05-26/27 — Spotlight three-state hero, per-row card scaling, back hierarchy, TopBar brand glow.** Spotlight rewritten Box→Column with three-state hero (Carousel/Constrained/Hidden) + LazyColumn rows. Per-row card scaling fixed in Modern (`ModernRowSection` raw-vs-scaled mismatch). Universal Back hierarchy wired for all four layouts via local `BackHandler`s. TopBar `SelectionDashIndicator` removed → brand-color dash+glow Canvas (later reverted 05-29/30).
 - **2026-05-29/30 — Brand-glow revert, Spotlight lazy-load + back-nav + State B scrim fixes.** Removed the TopBar brand-glow Canvas (broke channel back-nav). Fixed Spotlight back-from-3rd+-card (register inner `LazyListState`s), rows 4+ shimmer (added `snapshotFlow` lazy-load trigger), channel-carousel back-nav (`heroHasFocus` gate), and the State B row-title chop — real fix was lifting the hero bottom scrim off the hero/rows seam via `bottomScrimLiftDp` (three wrong hypotheses first: zIndex, top padding, dark plate).
 - **2026-05-30/31 — State B scrim saga, TopBar pill redesign, Spotlight nav + Show All.** State B hero now renders identically to Modern's non-fullscreen hero (dropped bespoke scrim). TopBar channel-pill redesign: capsule → artwork-backed dynamic underline + 6 tweaks (`NavBarHeight` 60→54dp, avatar 36→26dp, edge-to-edge channels, uniform 48×24 logos). Spotlight: held-Up flood throttle (200ms), full catalog rows (extended `shouldKeepFullRow` to SPOTLIGHT), leading "Show All" card on D-pad Left from first poster.
+- **2026-05-31 — Hard-stop D-pad Left from first content item (Modern feel).** D-pad Left from the leftmost poster no longer opens the Profile Overlay — it hard-stops (overlay still reachable via avatar Select). One-line fix: `MainActivity.kt:846` `LocalSideRailController provides if (isModernFeel) null else openSideRail`. Per-layout trace (Classic/Modern 1-press, Spotlight after Show-All, Grid unaffected). Full detail in archive.
 
 ---
 
@@ -394,84 +395,6 @@ automatically update this `CLAUDE.md` file with:
 
 Commit the `CLAUDE.md` update as part of the final push. **Do not ask
 — just do it.**
-
----
-
-## 📅 Session log — 2026-05-31 (Hard-stop D-pad Left from first content item in Modern feel)
-
-### Headline
-
-Single-line behavior change: in **Modern feel**, D-pad Left from the
-first/leftmost poster of a content carousel no longer opens the Profile
-Overlay — it now **hard-stops**. The Profile Overlay remains reachable via
-the profile avatar (Select). Legacy feel's SideRail entry is untouched.
-
-### Investigation (no code changed during this phase)
-
-Traced every D-pad-Left-from-first-item path across all four home layouts.
-Key finding — two orthogonal concepts: **Feel** (`MODERN`/`LEGACY`, the nav
-shell) vs **HomeLayout** (`CLASSIC`/`GRID`/`SPOTLIGHT`/`MODERN`, the content).
-In Modern feel, `MainActivity.kt:846` wired `LocalSideRailController` →
-`openProfileOverlay`, so any `tvLeftFromFirstItemToSideRail()` call opened the
-overlay. Per-layout reality (premise was partly wrong — not all four equally):
-- **Classic** — `CatalogRowSection.kt:480` `index == 0 -> tvLeftFromFirstItemToSideRail()`. 1 press.
-- **Modern** — `ModernHomeRows.kt:808-818` LazyRow's **own inline**
-  `onPreviewKeyEvent` calls `sideRailController()` at index 0. The `:874`
-  `tvLeftFromFirstItemToSideRail()` on the index-0 Box is effectively **dead
-  for Left** (the LazyRow ancestor consumes the preview event first). 1 press.
-- **Spotlight** — `leadingSeeAllEnabled = true`, so `CatalogRowSection.kt:474`
-  reveals the hidden "Show All" card instead; that card *itself* carries
-  `tvLeftFromFirstItemToSideRail()` (`:380`), so overlay needs a **2nd** Left.
-- **Grid** — `GridContentCard` has **no Left handler** (only long-press at
-  `:154-177`); container has `dpadUpToTopNav()` only. **Never** opened the
-  overlay. Not affected.
-
-### Change
-
-- `MainActivity.kt:846` — `LocalSideRailController provides if (isModernFeel)
-  null else openSideRail` (was `openProfileOverlay`). With the controller
-  `null`, every consumer hard-stops cleanly: `tvLeftFromFirstItemToSideRail`
-  returns `false` (rail null); `ModernHomeRows:810`'s `sideRailController != null`
-  guard is false; `dpadLeftToSideRail` (Search/Settings) falls through. The
-  avatar Select still opens the overlay (`:1045` sets `showProfileOverlay = true`
-  directly, not via the controller). **Option A** was chosen over the
-  per-call-site gate (Option B) for being a true single-point fix.
-
-### Architectural decisions
-
-- **Hard-stop via null controller, not per-call-site gating.** One line covers
-  Classic / Modern / Spotlight (after Show-All) plus Search/Settings, and is
-  symmetric — they're all the same "Left from leftmost" gesture. Trade-off
-  accepted: Modern feel's Search/Settings screens also lose their Left→overlay
-  gesture (out of scope of the content-row bug, but consistent).
-
-### New files
-
-None — single edit to `MainActivity.kt`.
-
-### Pending follow-ups
-
-1. **Dead `openProfileOverlay` val** (`MainActivity.kt:812`) — now unused
-   (avatar uses `showProfileOverlay = true` directly). Harmless compiler
-   warning; left in place to keep the change to one line. Remove next pass.
-2. **On-device verification** (installed, not smoke-tested by Claude): Left
-   from first poster hard-stops in Classic + Modern; Spotlight still reveals
-   "Show All" on 1st Left then hard-stops on 2nd (no overlay); Grid unaffected;
-   avatar Select still opens the overlay.
-3. Prior follow-ups (dead `bottomScrimMaxAlpha` param, Phase 8 localization,
-   23 skipped upstream commits, ContinueWatching render in Classic, SideRail
-   order consumption) still open.
-
-### Notes for future sessions
-
-- **`LocalSideRailController` is the shared "D-pad Left from leftmost" hook**
-  for BOTH feels — Modern routed it to the Profile Overlay, Legacy to the
-  SideRail. It is consumed by `tvLeftFromFirstItemToSideRail`,
-  `dpadLeftToSideRail`, and `ModernHomeRows`' inline handler. Null it to
-  hard-stop all of them at once.
-- **Gradle `packageFullDebug` can fail transiently** (`IncrementalSplitterRunnable`)
-  even when Kotlin compiles green — a plain re-run of `installFullDebug`
-  succeeded with no code change.
 
 ---
 
@@ -607,3 +530,180 @@ upstream settings diff to place" premise:
 - **`SettingsHubScreen` threads nav callbacks** through `SettingsHubScreen` →
   `RightPane` → `SubItemContent` → the content composable; adding a new About
   navigation target means editing all four (3 signatures + 3 call-throughs).
+
+---
+
+## 📅 Session log — 2026-06-02/03 (Rows Manager redesign, enhanced pickers, loop scroll, centralized resolver, settings reorg + 13 UX fixes)
+
+### Headline
+
+A multi-pass overhaul of the **Rows Manager** (`appearance.rows`, ROWS_ONLY) and
+its source pickers, plus a settings reorganization and a per-scope/per-row
+expand subsystem. Shipped over several batched task lists; all compiled green
+and installed to the Jawwy TV (not yet smoke-tested on-device).
+
+### Data model + DataStore
+
+- `LayoutRowConfig.expandEnabled: Boolean? = null` added (null = follow scope,
+  true = always expand, false = never). Round-trips via `SerializableLayoutRow`
+  / `toSerializable` / `toDomain` — legacy rows deserialize to `null`.
+- **No new expand key** — reused the existing per-scope
+  `focused_poster_backdrop_expand_enabled_{scopeKey}` +
+  `focusedPosterBackdropExpandEnabledForScope()` (default true). The original
+  spec's `expand_backdrop_enabled_*` was rejected as a duplicate (user call).
+- New `focus_highlight_enabled` boolean key (default true) — master toggle for
+  the Theme "Focus highlight" group.
+
+### Expand behavior — per-scope + per-row (Modern / Classic / Spotlight; Grid N/A)
+
+- `HomeViewModelPresentationPipeline` now reads
+  `focusedPosterBackdropExpandEnabledForScope(homeScope)` (was the app-global
+  flag), so Home/Movies/TV/Collections each honor their own scope.
+- Per-row override layered on top via the new resolver (below). **The expand
+  flag is `focusedPosterBackdropExpandEnabled`, NOT `…TrailerEnabled`** — the
+  spec misnamed it; trailer autoplay was left untouched (user-confirmed).
+- Expand is now **instant** — `delay(0L)` in `ModernHomeContent` + `ContentCard`;
+  the configurable expand-delay is no longer read (kept in DataStore, unused).
+  Trade-off: the prior 370ms anti-flicker debounce in `ContentCard` is gone, so
+  rapid D-pad scroll in Classic/Spotlight may briefly flash expansion.
+- **Grid has no expand mechanic** (`GridContentCard` takes no expand params) and
+  renders a uniform grid, not per-catalog rows — documented N/A throughout.
+
+### Centralized resolver (`ui/screens/home/RowDisplayConfig.kt` — NEW)
+
+- Pure `resolveRowDisplayConfig(row, scope, globalExpandForScope) →
+  ResolvedRowDisplayConfig(effectiveCardStyle, effectiveCardWidthDp,
+  effectiveExpands)`. No Compose, data-in/data-out. `effectiveExpands =
+  row.expandEnabled ?: globalExpandForScope`.
+- Modern (`ModernHomeRows` + `ModernHomeRowsList`), Classic (`resolvePosterCardStyle`
+  + the CatalogRowSection call), and Spotlight (`resolveRowPosterCardStyle` /
+  `resolveRowCardHeight` + the call) all resolve per-row style/width/expand
+  through it. Callers pass `row.viewContext` as the (currently unused) scope arg.
+
+### Rows Manager redesign (`NewLayoutSettingsScreen.kt`, ROWS_ONLY)
+
+Final structure — fixed top, scrollable middle, no bottom bar:
+- **Row 1** scope tabs (Home / Movies / TV / Collections).
+- **Row 2** source pills (moved up from the old bottom bar): `+ Catalog / TMDB /
+  Trakt / MDBList (greyed "Coming Soon" → toast) / Collection / CW`. CW is
+  always visible; its add is a no-op when a CW row exists.
+- **Row 3** two-row **table header** doubling as global controls. Row A = labels
+  (Name / Order / Orient / Size / Expand / On-Off / Delete, compact 9sp to fit
+  42dp columns); Row B = global action buttons aligned under each label: Order
+  (re-sort to addon manifest order, `resortToAddonOrder()`), Orientation (▯/▭),
+  Size (popover), Expand (on/off), On/Off (toggle all), Delete (all + confirm).
+  Header labels, global buttons, and per-row controls share width constants
+  (`RowOrderColWidth`/`RowShapeColWidth`/`RowToggleColWidth`/`RowRemoveColWidth`)
+  so columns line up.
+- **Middle** scrollable rows; each row: name, ↑↓, orientation chip, size
+  popover, 3-state expand chip (null→true→false→null), enable Switch (now with
+  an accent focus ring), ✕ delete.
+- **Follow Addons Order + Clear All removed** from this screen — they now live
+  in the Catalog picker only (its Follow Order toggle + Delete All).
+- The legacy ALL-mode path (`SettingsScreen.kt`) keeps the old single-scroll
+  `LazyColumn`; only ROWS_ONLY was redesigned. `GlobalActionsToolbar` /
+  `ToolbarTextButton` / `CardOrientationToggle` removed.
+
+### Enhanced source pickers (`RowPickerDialogs.kt`, `AddRowPickerDialog.kt`)
+
+- Shared `PickerActionBar` below each picker's title: **🔄 Populate All**,
+  **📋 Follow Order ●/○** (Catalog only), **🗑 Delete All**.
+- Populate All adds every item of that source in **one dedup write** (VM
+  `addRows` — looping `addRow` raced on read-modify-write). Each picker builds
+  its own config list (addon sources / Trakt stubs / TMDB networks for current
+  media type / collection folders).
+- Delete All is **per-source-kind isolated** (VM `deleteRowsOfKinds`) + confirm
+  dialog; never touches other sources' rows.
+- **Multi-select, stays open** (Fix 6): tapping an item adds and keeps the
+  picker open; the item flips to "Added" as `existingRowIds` recomputes from
+  `uiState.rows`. All `onDismiss()`-on-select calls removed.
+- **Focus + Back** (Fix 4/5): default focus lands on the action bar (not the
+  list); context-aware `BackHandler` — Back from the list returns focus to the
+  action bar (via `actionBarFr` + `actionBarHasFocus`), Back from the action bar
+  closes the picker.
+
+### Loop scroll (`ui/screens/settings/LoopScroll.kt` — NEW)
+
+- Reusable `Modifier.dpadLoopWrap(onPrev, onNext, horizontal)` (mirrors the
+  TopBar pill wrap). Applied to: Rows Manager row list (vertical — wraps via
+  each edge row's orientation chip since rows aren't focusable themselves),
+  Catalog/Trakt picker list, Collection picker list (vertical), Hero catalog
+  picker (horizontal), Size popover (vertical).
+- **TMDB picker wrap deferred** — it's a Discover *form* + a networks sublist,
+  not a uniform list; edge-wrap there is fragile/low-value.
+
+### Settings reorganization (`SettingsHubScreen.kt`, `GlobalSettingsContent.kt`, `ThemeSettingsScreen.kt`)
+
+- **Cards pane deleted** entirely (sub-item + `CardsSettingsContent`).
+- New **Trailers** sub-item (after Rows) = the trailer autoplay controls
+  (`TrailersSettingsContent`, reuses `GlobalSettingsViewModel`).
+- **Theme** gains a "Focus highlight" group: master **Focus Highlight** toggle
+  (`focus_highlight_enabled`) gating **Poster Glow** + **Card Focus Style**
+  (Accent/Bloom). Master OFF hides the two sub-controls (settings-UI gating
+  only — render-side glow/border still read their own values).
+- Appearance order: Feel / Layout / Rows / Trailers / Top Bar / Side Rail /
+  Global / Theme / Continue Watching / Detail Page.
+- **Right pane is now an open canvas** (Fix 12/13): removed the bordered
+  `BackgroundCard` wrapper in `RightPane`; content renders on the background
+  with medium-tight padding (`RightPaneHorizontalPadding` 28dp /
+  `RightPaneVerticalPadding` 18dp). Propagates to every Appearance panel.
+
+### Layout picker (Fix 10/11)
+
+- Layout cards now `fillMaxWidth` + `weight(1f)` (was fixed 156dp, overflowing
+  and clipping Spotlight) — four equal cards across the pane.
+- Spotlight hides "Show Hero Carousel" (intrinsic to the layout); keeps the Hero
+  Catalogs picker. Classic/Grid/Modern unchanged.
+
+### Focus retention (Fix 8)
+
+- After a row delete, focus stays in the list: per-index ✕ `FocusRequester`s +
+  a pending-refocus `LaunchedEffect` refocus the row that shifts into the
+  deleted slot. Toggle/modify/reorder already retain focus via stable keyed
+  items. `IconChipButton` gained an optional `focusRequester`.
+
+### ViewModel additions (`NewLayoutSettingsViewModel.kt`)
+
+`expandBackdropEnabled` state + `expandBackdropEnabledFlow`; `setRowExpandEnabled`,
+`setExpandBackdropEnabled`; bulk `setAllRowsCardStyle`/`setAllRowsCardWidth`/
+`setAllRowsEnabled`; `addRows`, `deleteRowsOfKinds`, `resortToAddonOrder`.
+
+### New files
+
+- `ui/screens/home/RowDisplayConfig.kt` — pure per-row resolver.
+- `ui/screens/settings/LoopScroll.kt` — `Modifier.dpadLoopWrap`.
+
+### Architectural decisions
+
+- **Reuse the existing per-scope expand key**, don't add a parallel one — the
+  fix was making the home render read per-scope (it was reading the global flag)
+  + layering the per-row override. (Conflict-resolved with the user.)
+- **Resolver is pure / Compose-free**, callers pass `row.viewContext` as scope.
+- **Grid stays out of the expand/resolver per-row path** — it has no rows.
+- **Multi-select pickers rely on `existingRowIds` recomputing from `uiState`** —
+  no local "added" state in the dialog.
+
+### Pending follow-ups
+
+1. **Apple-TV-style "Cinema" card size** — add a new card dimension to
+   `CardWidthOptions` (and the size glyph scaling).
+2. **Compact header labels** ("Orient" at 9sp in 42dp columns) — verify on TV;
+   may want wider shape columns + full words.
+3. **On-device smoke test** of the focus fixes: post-delete refocus (Fix 8) and
+   Back-from-list-to-action-bar (Fix 5) — Compose-TV focus timing can differ.
+4. **Instant-expand flicker** on rapid scroll in Classic/Spotlight (`ContentCard`
+   debounce removed) — re-add a small guard if it reads poorly on TV.
+5. **TMDB picker loop-wrap** still deferred.
+6. Prior follow-ups (dead `bottomScrimMaxAlpha`/`openProfileOverlay`, Phase 8
+   localization, 23 skipped upstream commits, ContinueWatching render in
+   Classic, SideRail order consumption) still open.
+
+### Notes for future sessions
+
+- **`resolveRowDisplayConfig` is the one place** per-row style/width/expand is
+  resolved — change the hierarchy there, not in the layouts.
+- **Loop wrap = `Modifier.dpadLoopWrap`** — attach `onPrev` to the first item,
+  `onNext` to the last; each does `scrollToItem` + `requestFocus`. For
+  non-focusable row containers (Rows Manager), wrap to a stable child chip.
+- **`installFullDebug` may still hit the transient `IncrementalSplitterRunnable`
+  packaging failure** — plain re-run succeeds (happened once this session).
