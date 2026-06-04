@@ -464,7 +464,13 @@ internal fun ModernRowSection(
     val resolvedRowConfig = rowConfig?.let {
         resolveRowDisplayConfig(it, it.viewContext, globalExpandForScope = false)
     }
-    val effLandscape = resolvedRowConfig?.let { it.effectiveCardStyle == LayoutCardStyle.LANDSCAPE }
+    val effCinema = resolvedRowConfig?.effectiveCardStyle == LayoutCardStyle.CINEMA
+    // CINEMA renders as a fixed 380×285 4:3 card. It uses the landscape
+    // render path (wide overlay treatment + landscape image url) but with
+    // fixed dimensions that ignore Modern's portrait/landscape scaling.
+    val effLandscape = resolvedRowConfig?.let {
+        it.effectiveCardStyle == LayoutCardStyle.LANDSCAPE || it.effectiveCardStyle == LayoutCardStyle.CINEMA
+    }
     val effBaseWidth = resolvedRowConfig?.effectiveCardWidthDp?.dp
     // Apply the same Modern scaling that ModernHomeContent applies to the
     // global base width (0.84 * portraitModernPosterScale for portrait,
@@ -477,13 +483,17 @@ internal fun ModernRowSection(
     @Suppress("NAME_SHADOWING") val useLandscapePosters =
         effLandscape ?: useLandscapePosters
     @Suppress("NAME_SHADOWING") val portraitCatalogCardWidth =
-        effBaseWidth?.times(modernPortraitScale) ?: portraitCatalogCardWidth
+        if (effCinema) CINEMA_CARD_WIDTH_DP.dp
+        else effBaseWidth?.times(modernPortraitScale) ?: portraitCatalogCardWidth
     @Suppress("NAME_SHADOWING") val portraitCatalogCardHeight =
-        effBaseWidth?.times(modernPortraitScale)?.times(1.5f) ?: portraitCatalogCardHeight
+        if (effCinema) CINEMA_CARD_HEIGHT_DP.dp
+        else effBaseWidth?.times(modernPortraitScale)?.times(1.5f) ?: portraitCatalogCardHeight
     @Suppress("NAME_SHADOWING") val landscapeCatalogCardWidth =
-        effBaseWidth?.times(modernLandscapeScale) ?: landscapeCatalogCardWidth
+        if (effCinema) CINEMA_CARD_WIDTH_DP.dp
+        else effBaseWidth?.times(modernLandscapeScale) ?: landscapeCatalogCardWidth
     @Suppress("NAME_SHADOWING") val landscapeCatalogCardHeight =
-        effBaseWidth?.times(modernLandscapeScale)?.div(1.77f) ?: landscapeCatalogCardHeight
+        if (effCinema) CINEMA_CARD_HEIGHT_DP.dp
+        else effBaseWidth?.times(modernLandscapeScale)?.div(1.77f) ?: landscapeCatalogCardHeight
     val rowKey = row.key
     // Blocks vertical focus exit during placeholder→data transition.
     val blockingFocusExit = remember { mutableStateOf(false) }

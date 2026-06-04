@@ -80,6 +80,7 @@ private fun resolveRowCardHeight(
     val config = rowConfigLookup[LayoutRowKey.forAddon(row.addonId, row.apiType, row.catalogId)]
         ?: return posterCardStyle.height
     val resolved = resolveRowDisplayConfig(config, config.viewContext, globalExpandForScope = false)
+    if (resolved.effectiveCardStyle == LayoutCardStyle.CINEMA) return CINEMA_CARD_HEIGHT_DP.dp
     val w = resolved.effectiveCardWidthDp.dp
     return if (resolved.effectiveCardStyle == LayoutCardStyle.LANDSCAPE) w / 1.77f else w * 1.5f
 }
@@ -92,6 +93,12 @@ private fun resolveRowPosterCardStyle(
     val config = rowConfigLookup[LayoutRowKey.forAddon(row.addonId, row.apiType, row.catalogId)]
         ?: return basePosterCardStyle
     val resolved = resolveRowDisplayConfig(config, config.viewContext, globalExpandForScope = false)
+    if (resolved.effectiveCardStyle == LayoutCardStyle.CINEMA) {
+        return basePosterCardStyle.copy(
+            width = CINEMA_CARD_WIDTH_DP.dp,
+            height = CINEMA_CARD_HEIGHT_DP.dp,
+        )
+    }
     val w = resolved.effectiveCardWidthDp.dp
     val h = if (resolved.effectiveCardStyle == LayoutCardStyle.LANDSCAPE) w / 1.77f else w * 1.5f
     return basePosterCardStyle.copy(width = w, height = h)
@@ -230,11 +237,27 @@ fun SpotlightHomeContent(
 
     val carouselHeroHeight = 400.dp
 
+    // Purely focus-driven: is the row that currently has focus a Cinema row?
+    // When it is, the hero collapses to State C (HIDDEN). Moving focus to any
+    // non-Cinema row restores the hero. Tracks the focused row only — not
+    // whether Cinema rows merely exist in the layout.
+    val focusedRowIsCinema by remember {
+        derivedStateOf {
+            val row = catalogRows.getOrNull(focusedRowIndex) ?: return@derivedStateOf false
+            val cfg = uiState.rowConfigLookup[
+                LayoutRowKey.forAddon(row.addonId, row.apiType, row.catalogId)
+            ] ?: return@derivedStateOf false
+            resolveRowDisplayConfig(cfg, cfg.viewContext, globalExpandForScope = false)
+                .effectiveCardStyle == LayoutCardStyle.CINEMA
+        }
+    }
+
     // ── Hero state machine ──────────────────────────────────────────
     val heroState by remember {
         derivedStateOf {
             when {
                 !rowsAreaHasFocus -> SpotlightHeroState.CAROUSEL
+                focusedRowIsCinema -> SpotlightHeroState.HIDDEN
                 showHeroForFocusedRow -> SpotlightHeroState.CONSTRAINED
                 else -> SpotlightHeroState.HIDDEN
             }
@@ -514,6 +537,9 @@ fun SpotlightHomeContent(
                     val rowConfig = uiState.rowConfigLookup[
                         LayoutRowKey.forAddon(row.addonId, row.apiType, row.catalogId)
                     ]
+                    val rowCardStyle = rowConfig?.let {
+                        resolveRowDisplayConfig(it, it.viewContext, globalExpandForScope = false).effectiveCardStyle
+                    } ?: LayoutCardStyle.POSTER
                     val rowFirstItemFr = firstItemRequesters.getOrPut(index) { FocusRequester() }
                     // Register this row's inner LazyRow state so the Back
                     // handler can scroll it to card 0 before requesting focus.
@@ -530,6 +556,7 @@ fun SpotlightHomeContent(
                         listState = rowInnerListState,
                         catalogRow = row,
                         posterCardStyle = rowPosterStyle,
+                        cardStyle = rowCardStyle,
                         showPosterLabels = uiState.posterLabelsEnabled,
                         showAddonName = uiState.catalogAddonNameEnabled,
                         showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled,

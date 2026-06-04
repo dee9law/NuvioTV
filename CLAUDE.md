@@ -299,6 +299,7 @@ follow-up pass:
 - **2026-05-29/30 — Brand-glow revert, Spotlight lazy-load + back-nav + State B scrim fixes.** Removed the TopBar brand-glow Canvas (broke channel back-nav). Fixed Spotlight back-from-3rd+-card (register inner `LazyListState`s), rows 4+ shimmer (added `snapshotFlow` lazy-load trigger), channel-carousel back-nav (`heroHasFocus` gate), and the State B row-title chop — real fix was lifting the hero bottom scrim off the hero/rows seam via `bottomScrimLiftDp` (three wrong hypotheses first: zIndex, top padding, dark plate).
 - **2026-05-30/31 — State B scrim saga, TopBar pill redesign, Spotlight nav + Show All.** State B hero now renders identically to Modern's non-fullscreen hero (dropped bespoke scrim). TopBar channel-pill redesign: capsule → artwork-backed dynamic underline + 6 tweaks (`NavBarHeight` 60→54dp, avatar 36→26dp, edge-to-edge channels, uniform 48×24 logos). Spotlight: held-Up flood throttle (200ms), full catalog rows (extended `shouldKeepFullRow` to SPOTLIGHT), leading "Show All" card on D-pad Left from first poster.
 - **2026-05-31 — Hard-stop D-pad Left from first content item (Modern feel).** D-pad Left from the leftmost poster no longer opens the Profile Overlay — it hard-stops (overlay still reachable via avatar Select). One-line fix: `MainActivity.kt:846` `LocalSideRailController provides if (isModernFeel) null else openSideRail`. Per-layout trace (Classic/Modern 1-press, Spotlight after Show-All, Grid unaffected). Full detail in archive.
+- **2026-06-01/02 — Phase 3 upstream review-port, build unblock, Phase 4 settings placement.** Reviewed 8 upstream commits, ported the 5 genuinely-live (thread-safe DateFormatter, CW Next-Up thumbnail guard, CW launcher channel refresh adapted to our flow-based sync service, extended-poster focus, CEC long-press `LongPressKeyTracker.kt`), skipped 3 that conflict with the fork's reimplemented Modern hero. Build unblock: a pre-existing `lintVitalFullDebug` failure (translated-but-missing-from-default strings) blocked `installFullDebug` — added the missing English defaults + a `lint-baseline.xml`. Phase 4 settings placement: most were already shipped; only CW sort-mode toggle + Licenses & Attributions screen needed work. Full detail in archive.
 
 ---
 
@@ -395,141 +396,6 @@ automatically update this `CLAUDE.md` file with:
 
 Commit the `CLAUDE.md` update as part of the final push. **Do not ask
 — just do it.**
-
----
-
-## 📅 Session log — 2026-06-01/02 (Phase 3 upstream review-port, build unblock, Phase 4 settings placement)
-
-### Headline
-
-Two phases plus a build-unblock detour. **Phase 3:** reviewed 8 upstream
-commits, ported the 5 that were genuinely live, skipped 3 that conflict with
-the fork's reimplemented Modern hero. **Build unblock:** a pre-existing lint-vital
-failure (translated-but-missing-from-default strings) was blocking
-`installFullDebug`; fixed the real gap + added a lint baseline. **Phase 4:**
-settings-placement pass — most features were already shipped; only 2 needed real
-work (CW sort-mode toggle, Attributions screen). All installed to the Jawwy TV.
-
-### Phase 3 — upstream review-then-port (commit `a838f4d9`)
-
-Ported (bug was live):
-- **`62b5bd119` thread-safe DateFormatter** — `ModernHomeModels.kt` held a
-  `@Volatile SimpleDateFormat` (not thread-safe). Swapped to a cached pattern
-  string + per-call `DateTimeFormatter`.
-- **`49b1d4ed5` CW Next-Up thumbnail stuck** — added the
-  `cached.season == nextUp.info.season && cached.episode == …episode` guard at
-  both apply sites in `HomeViewModelContinueWatching.kt`.
-- **`3ba3003ea` CW launcher channel refresh** — Part 1 verbatim
-  (`AndroidTvChannelManager` UPDATEs preview rows in place vs delete+re-insert).
-  Part 2 **adapted** to our flow-based `AndroidTvChannelSyncService` (upstream
-  has `reconcileFromCache`; we don't): added `appInForeground`/`latestItems`/
-  `hasPopulatedOnce`, skip-while-foreground + reconcile-on-background, wired via
-  `NuvioApplication.registerActivityLifecycleCallbacks` (our equivalent of
-  upstream's MainActivity onStart/onStop).
-- **`7a266de7c` extended posters full focus** — added the expansion
-  scroll-into-view `LaunchedEffect` + `isExpansionScrollActive` gate in
-  `ModernHomeRows.ModernRowSection`.
-- **`b1d875902` CEC long-press** — new `ui/util/LongPressKeyTracker.kt` + applied
-  the handler transform + `KEYCODE_MENU` ACTION_UP guard across 7 files
-  (ContentCard, ContinueWatchingSection, GridContentCard, EpisodesSection ×2,
-  HeroSection ×2, ModernHomeRows, ProfileSelectionScreen).
-
-Skipped (conflict with deliberate fork divergence — the fork reimplemented the
-Modern hero subsystem):
-- **`df6f1dc5a` backdrop semi-fast scroll** — already handled: the fork freezes
-  the displayed backdrop during scroll AND rapid nav via a dedicated
-  `LaunchedEffect` + the `corrected`/`HeroBackdropState.lastDisplayedUrl`
-  feedback loop in the stable-ref collector.
-- **`c91d33e97` collections backdrop** — already handled: our `ModernHomeHero`
-  updates `stableBackdrop` on any backdrop change when `!isEnriching`; the
-  upstream `latestLiveForStable` gate it patches doesn't exist here.
-- **`c5108c934` stabilize hero** — our `resolvedHeroState` **deliberately rejects**
-  upstream's `effectiveEnrichmentActive` heuristic (documented comment: it
-  "blanked the hero on the very first post-launch highlight"). Porting would
-  revert that intentional fix.
-
-### Build unblock (commits `045eb9f5`, `320bd8ed`)
-
-`installFullDebug` failed `lintVitalFullDebug` (193 `ExtraTranslation` errors) —
-**not** from Phase 3 (no `res/` files touched). Root cause: `sub_use_forced_subtitles`
-/ `_desc` were translated in ~25 locales (commit `36f327fe`) but missing from the
-default `values/strings.xml`; plus a large `values-fr` backlog (143). Fixes:
-- Added the two missing English defaults to `values/strings.xml`.
-- Added `lint { baseline = file("lint-baseline.xml") }` to `app/build.gradle.kts`
-  + generated `lint-baseline.xml` snapshotting the remaining pre-existing gaps.
-- **Gotcha:** `updateLintBaseline` writes nothing until the `lint.baseline`
-  config exists ("No baseline file is specified") — must add the config block
-  first, then re-run. Refreshed again after Phase 4 added 23 attribution strings
-  (`320bd8ed`).
-
-### Phase 4 — settings placement (commits `aadb7694`, baseline `320bd8ed`)
-
-Reviewed 9 requested settings entries; reality differed from the "each has an
-upstream settings diff to place" premise:
-- **Implemented:** **#9 CW sort-mode** — added a "Streaming-style sorting" toggle
-  to `ContinueWatchingSettingsContent.kt` (binary `ContinueWatchingSortMode`
-  enum; reuses existing `LayoutSettingsViewModel` plumbing; rendered as a toggle
-  to match that file, since the dormant `LayoutSettingsScreen.kt` dialog is
-  off-limits). **#8 Attributions** — full port of upstream `67ec9b6e`: new
-  `LicensesAttributionsScreen.kt` + 3 assets (`introdb_favicon.png`,
-  `rating_tmdb.png`, `mdblist_logo.svg`) + 23 strings + `Screen.LicensesAttributions`
-  route + NavHost wiring (SettingsHub + About call sites + composable) + About row
-  + `SettingsHubScreen` callback threading. Skipped the commit's versionCode bump.
-- **Already shipped (no-op):** #3 autoplay timeout 15/20/25/30s, #4 still-watching
-  threshold (both in `PlaybackAutoPlaySettings.kt`), #7 5 profiles
-  (`ProfileManager.MAX_PROFILES = 5`).
-- **Skipped (no upstream settings toggle to port):** #1 trailer (Playback already
-  has `audio_trailer_enabled`), #2 Parental Guide (overlay is unconditional;
-  only a runtime race-fix exists), #5 next-episode prompt (gated by the existing
-  binge-group toggle), #6 PostPlayMode (internal refactor, not a user setting).
-
-### New files
-
-- `app/src/main/java/com/nuvio/tv/ui/util/LongPressKeyTracker.kt` — CEC-aware
-  long-press detector (timeout-based), shared by all long-pressable cards.
-- `app/src/main/java/com/nuvio/tv/ui/screens/settings/LicensesAttributionsScreen.kt`
-  — two-panel Licenses & Attribution screen.
-- `app/lint-baseline.xml` — snapshots pre-existing lint debt (mostly `values-fr`
-  `ExtraTranslation` + default-only `MissingTranslation`).
-- `res/drawable/introdb_favicon.png`, `res/drawable/rating_tmdb.png`,
-  `res/raw/mdblist_logo.svg` — attribution logos.
-
-### Architectural decisions
-
-- **CW launcher reconcile lives in `NuvioApplication` lifecycle callbacks**, not
-  MainActivity (our service starts from the Application; the Application owns the
-  process-foreground signal cleanly without a new `lifecycle-process` dep).
-- **Lint debt is baselined, not fixed.** The `values-fr` backlog (Phase 8
-  localization) stays snapshotted so builds pass; new lint errors still fail.
-  Re-run `updateLintBaseline` whenever new default-only strings are added.
-- **Hero trio left to the fork's own mechanisms.** The fork's enrichment +
-  dual backdrop-freeze design supersedes upstream's; porting was rejected to
-  avoid reverting a deliberate fix.
-
-### Pending follow-ups
-
-- **On-device verification** (installed, not smoke-tested): Phase 3 — CW launcher
-  channel auto-refresh (Projectivy), extended-poster focus, CEC long-press, CW
-  thumbnail; Phase 4 — "Streaming-style sorting" toggle reorders CW, About →
-  "Licenses & Attribution" renders (logos load, URLs open).
-- Phase 8 localization backlog (143 `values-fr` gaps + default-only strings)
-  still open — currently baselined.
-- Prior follow-ups (23 skipped upstream commits, ContinueWatching render in
-  Classic, SideRail order consumption, dead `bottomScrimMaxAlpha`/`openProfileOverlay`)
-  still open.
-
-### Notes for future sessions
-
-- **`installFullDebug` runs `lintVitalFullDebug`** and will fail the whole build
-  on any new fatal lint (e.g. a default-only string → `MissingTranslation`). After
-  adding strings, re-run `./gradlew updateLintBaseline` + commit `lint-baseline.xml`,
-  or it'll block the next install.
-- **Adding a setting ≠ a code change** — most Phase 4 items already had DataStore
-  keys + ViewModel setters from the 05-19 cherry-pick marathon; the work was
-  finding the (often nonexistent) upstream settings-UI diff and wiring the entry.
-- **`SettingsHubScreen` threads nav callbacks** through `SettingsHubScreen` →
-  `RightPane` → `SubItemContent` → the content composable; adding a new About
-  navigation target means editing all four (3 signatures + 3 call-throughs).
 
 ---
 
@@ -707,3 +573,142 @@ Final structure — fixed top, scrollable middle, no bottom bar:
   non-focusable row containers (Rows Manager), wrap to a stable child chip.
 - **`installFullDebug` may still hit the transient `IncrementalSplitterRunnable`
   packaging failure** — plain re-run succeeds (happened once this session).
+
+---
+
+## 📅 Session log — 2026-06-03/04 (Cinema card style, backdrop images, focus-driven hero collapse, landscape resize fix, corner-radius UI)
+
+### Headline
+
+Added a third card style — **`LayoutCardStyle.CINEMA`** — and the supporting
+rendering/settings work, then fixed three follow-on issues the new style
+exposed (backdrop images, hero collapse, landscape sizing). All compiled green
+and installed to the Jawwy TV (`192.168.8.170`); **not yet smoke-tested**.
+
+### Cinema card style (`LayoutCardStyle.CINEMA`)
+
+- `LayoutRowConfig.LayoutCardStyle` is now `{ POSTER, LANDSCAPE, CINEMA }`.
+  Gson round-trips safely (`valueOf(...).getOrDefault(POSTER)` at both the row
+  serializer and `globalCardStyle`); no exhaustive `when` on the enum existed
+  to break.
+- **Fixed size 380×285 (4:3)** — `CINEMA_CARD_WIDTH_DP` / `CINEMA_CARD_HEIGHT_DP`
+  in `RowDisplayConfig.kt`. (Started 420×236/16:9, retuned to 380×285/4:3 for an
+  Apple-TV feel.) Every layout that computes card dimensions short-circuits to
+  these for CINEMA: the resolver forces width; Classic (`resolvePosterCardStyle`),
+  Spotlight (`resolveRowCardHeight`/`resolveRowPosterCardStyle`), Modern
+  (`ModernRowSection` per-row scaling block + `ModernHomeRowsList` prefetch),
+  the home uniform Grid (`HomeScreen.gridPosterCardStyle`, gated on
+  `globalCardStyle == CINEMA`), and the Movies/TV grid (`MediaTypeBrowseScreen`).
+- `ModernHomePresentation.rowEffectiveLandscape` returns true for CINEMA too so
+  Modern bakes the landscape/backdrop image URL.
+- **Single fixed size** — the per-row Size picker hides when a row is CINEMA;
+  the global Size header hides when **all** rows in scope are CINEMA. LANDSCAPE
+  keeps every size option.
+
+### 3-state style selector (Rows Manager, `NewLayoutSettingsScreen.kt`)
+
+- The orientation `▯/▭` toggle became a **3-state style selector** cycling
+  **Poster → Landscape → Cinema → Poster** (`nextCardStyle()`), via plain-rectangle
+  glyphs whose proportions communicate the style (Poster tall, Landscape wide,
+  Cinema ultra-wide). `OrientationGlyph`/`OrientationShapeButton` → `StyleGlyph`/
+  `StyleShapeButton`. Applies per-row (`ManagerRowItem`) and globally
+  (`ColumnHeaderRow` cycles all rows at once). Legacy ALL-mode `RowItem` +
+  `ToggleStylePill` updated to match (3-label, width hidden for cinema).
+
+### Backdrop image + permanent logo overlay for Landscape/Cinema (`ContentCard.kt`, `CatalogRowSection.kt`)
+
+- **Audit first (vs `upstream/dev`):** upstream `ContentCard`/`GridContentCard`
+  always load `item.poster`; backdrop is used only during expand-on-focus.
+  Upstream's "landscape" is **item-driven** via `item.posterShape` (addon supplies
+  a landscape poster as `item.poster`) — there's no per-row card-style override,
+  so it never needed backdrop-selection. Our fork's per-row LANDSCAPE/CINEMA is a
+  deliberate divergence.
+- `ContentCard` gained `cardStyle: LayoutCardStyle = POSTER` (`isWideCardStyle` =
+  LANDSCAPE||CINEMA). Image URL: `when { expand && expanded → backdrop; wide →
+  backdrop; else → poster }`. The bottom-left scrim+logo overlay (previously only
+  during expand) is now **permanent** for wide styles:
+  `if (isBackdropExpanded || isWideCardStyle)`. Falls back to title text when no
+  logo. `CatalogRowSection` threads `cardStyle` through; Classic + Spotlight
+  compute `rowCardStyle` from the resolver and pass it. `MediaTypeBrowseScreen`
+  also threads `rowConfig.cardStyle`.
+- ⚠️ **Caveat:** the condition keys on `cardStyle`, not `posterShape`, so a
+  catalog whose items are *natively* `posterShape == LANDSCAPE` (curated landscape
+  posters, sometimes with baked-in titles) will also be swapped to `backdropUrl`.
+  If an addon serves such art, gate with `&& item.posterShape != LANDSCAPE`.
+
+### Focus-driven hero collapse (Fix — Spotlight + Modern)
+
+- There was **no** static "cinema row exists → hide hero" check to replace —
+  added an explicit **focus-driven** rule reading the *currently focused row's*
+  style only.
+- **Spotlight** (`SpotlightHomeContent`): new `focusedRowIsCinema` (derived from
+  `catalogRows[focusedRowIndex]`'s resolved style); the hero state machine returns
+  **State C (HIDDEN)** when the focused row is Cinema, restoring to
+  CAROUSEL/CONSTRAINED on any non-Cinema row.
+- **Modern** (`ModernHomeContent`): new `focusedRowIsCinema` (from `activeRowKey`
+  → `rowByKey` → `layoutConfigKey` → config); an animated `heroCinemaAlpha`
+  (220ms) fades the hero backdrop + `HeroTitleBlock` out on a Cinema row and back
+  in otherwise. **Caveat:** rows do not reflow — the hero is an absolute backdrop
+  layer, so while a Cinema row is focused the top area shows the page background.
+- **Classic** left untouched (per spec).
+
+### Landscape sizing bug (Fix — `ContentCard.kt`, `MediaTypeBrowseScreen.kt`)
+
+- **Root cause:** the resolver was correct (`LANDSCAPE → row.cardWidthDp`), but
+  `ContentCard.baseCardWidth/Height` derived size **solely from `item.posterShape`**,
+  and `PosterShape.LANDSCAPE → 260×148` is hardcoded. So a catalog whose items are
+  natively landscape-shaped rendered a LANDSCAPE row at a fixed 260×148, ignoring
+  the size selection (POSTER-shape items happened to resize, which masked it).
+- **Fix:** when the row's `cardStyle` is an explicit wide override
+  (`isWideCardStyle`), size from the resolved `posterCardStyle` instead of the
+  `posterShape` hardcode — LANDSCAPE = the selected width (fully resizable),
+  CINEMA = the fixed 380×285. Also threaded `cardStyle` into the Movies/TV grid's
+  direct `ContentCard` call so its landscape rows resize too.
+
+### Corner radius setting exposed (`GlobalSettingsContent.kt`, `LayoutPreferenceDataStore.kt`)
+
+- The setting already existed in the fork (`poster_card_corner_radius_dp`,
+  consumed by the home pipeline) but was only reachable from the dormant
+  `LayoutSettingsScreen.kt`. Exposed it under **Appearance → Global → "Card Style"**
+  as a **visual selector** (real corner-clipped previews: Sharp 0 / Subtle 4 /
+  Classic 8 / Rounded 12 / Pill 16) on `GlobalSettingsViewModel`.
+- Made it **truly global:** `posterCardCornerRadiusForScope` now falls non-HOME
+  scopes back to the base global key before the hard default, so one value covers
+  Home/Movies/TV/Collections. The global card-style picker label was generalized
+  to a 3-value `LayoutCardStyle.displayLabel()`.
+
+### Architectural decisions
+
+- **CINEMA dimensions live in two `const`s** (`RowDisplayConfig.kt`); every
+  consumer references them symbolically, so retuning size is a one-line change.
+- **`isWideCardStyle` (an explicit per-row override) wins over the item's intrinsic
+  `posterShape`** for both image selection (backdrop) and sizing — that's the
+  hinge for both the backdrop and landscape-resize fixes.
+- **Hero collapse is focus-state, never layout-content** — it reads the focused
+  row, not whether Cinema rows exist anywhere.
+
+### Pending follow-ups
+
+1. **On-device smoke test** of all Cinema/Landscape changes (sizes, backdrop art,
+   logo overlay, hero collapse/restore, landscape resize Compact→Large).
+2. **Modern hero alpha fade during Cinema** — top area shows page background, rows
+   don't reflow into the freed space. Revisit if it reads poorly.
+3. **`posterShape == LANDSCAPE` caveat** — if any addon serves native landscape
+   posters with baked-in titles, the backdrop swap may degrade them; gate on
+   `posterShape` if observed.
+4. Prior follow-ups (Apple-TV "Cinema" *width preset* idea now superseded by the
+   real Cinema style; instant-expand flicker; TMDB picker loop-wrap; dead
+   `bottomScrimMaxAlpha`/`openProfileOverlay`; Phase 8 localization; 23 skipped
+   upstream commits; ContinueWatching render in Classic; SideRail order consumption)
+   still open.
+
+### Notes for future sessions
+
+- **CINEMA is a per-row style** — it reaches Modern/Classic/Spotlight rows and the
+  Movies/TV grid via Rows Manager. The home *uniform* Grid honors it only through
+  the **global** card-style picker (`gridPosterCardStyle`).
+- **`ContentCard` now takes `cardStyle`** (default POSTER). To get backdrop +
+  permanent logo + per-row sizing on a wide card, the caller must thread the
+  resolved style; the default keeps every other `ContentCard` caller poster-only.
+- **`upstream/dev` has no per-row card style** — don't expect to port landscape/
+  cinema behavior from upstream; it's fork-specific.

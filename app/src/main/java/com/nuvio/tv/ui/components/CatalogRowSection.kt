@@ -67,6 +67,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.CatalogRow
+import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.navigation.tvLeftFromFirstItemToSideRail
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -81,6 +82,9 @@ fun CatalogRowSection(
     showSeeAll: Boolean = catalogRow.items.size >= 15,
     seeAllLabel: String? = null,
     posterCardStyle: PosterCardStyle = PosterCardDefaults.Style,
+    /** Effective card style for this row. LANDSCAPE/CINEMA make each [ContentCard]
+     *  load the backdrop image and show a permanent bottom-left logo overlay. */
+    cardStyle: LayoutCardStyle = LayoutCardStyle.POSTER,
     showPosterLabels: Boolean = true,
     showAddonName: Boolean = true,
     showCatalogTypeSuffix: Boolean = true,
@@ -448,6 +452,7 @@ fun CatalogRowSection(
                 ContentCard(
                     item = item,
                     posterCardStyle = posterCardStyle,
+                    cardStyle = cardStyle,
                     showLabels = showPosterLabels,
                     placeholderShimmerOffsetState = placeholderShimmerOffsetState,
                     focusedPosterBackdropExpandEnabled = focusedPosterBackdropExpandEnabled,

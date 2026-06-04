@@ -62,6 +62,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.ContentType
+import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -95,6 +96,7 @@ fun ContentCard(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     posterCardStyle: PosterCardStyle = PosterCardDefaults.Style,
+    cardStyle: LayoutCardStyle = LayoutCardStyle.POSTER,
     showLabels: Boolean = true,
     placeholderShimmerOffsetState: State<Float>? = null,
     focusedPosterBackdropExpandEnabled: Boolean = false,
@@ -113,15 +115,31 @@ fun ContentCard(
     onClick: () -> Unit = {}
 ) {
     val cardShape = remember(posterCardStyle.cornerRadius) { RoundedCornerShape(posterCardStyle.cornerRadius) }
-    val baseCardWidth = when (item.posterShape) {
-        PosterShape.POSTER -> posterCardStyle.width
-        PosterShape.LANDSCAPE -> 260.dp
-        PosterShape.SQUARE -> 170.dp
+    // Landscape / Cinema rows render a wide card. They always load the backdrop
+    // image and permanently show the bottom-left logo/title overlay (the same
+    // scrim + logo treatment the expand-on-focus feature draws), regardless of
+    // focus or expand state.
+    val isWideCardStyle = cardStyle == LayoutCardStyle.LANDSCAPE || cardStyle == LayoutCardStyle.CINEMA
+    // An explicit LANDSCAPE/CINEMA per-row card style takes its size from the
+    // resolved [posterCardStyle] (LANDSCAPE = the user-selected width; CINEMA =
+    // the fixed 380×285), NOT from the item's intrinsic [PosterShape]. Without
+    // this, an item whose addon declares a landscape posterShape would snap to
+    // the hardcoded 260×148 and ignore the Rows Manager size setting.
+    val baseCardWidth = when {
+        isWideCardStyle -> posterCardStyle.width
+        else -> when (item.posterShape) {
+            PosterShape.POSTER -> posterCardStyle.width
+            PosterShape.LANDSCAPE -> 260.dp
+            PosterShape.SQUARE -> 170.dp
+        }
     }
-    val baseCardHeight = when (item.posterShape) {
-        PosterShape.POSTER -> posterCardStyle.height
-        PosterShape.LANDSCAPE -> 148.dp
-        PosterShape.SQUARE -> 170.dp
+    val baseCardHeight = when {
+        isWideCardStyle -> posterCardStyle.height
+        else -> when (item.posterShape) {
+            PosterShape.POSTER -> posterCardStyle.height
+            PosterShape.LANDSCAPE -> 148.dp
+            PosterShape.SQUARE -> 170.dp
+        }
     }
     val expandedCardWidth = baseCardHeight * BACKDROP_ASPECT_RATIO
 
@@ -235,10 +253,10 @@ fun ContentCard(
             with(density) { baseCardHeight.roundToPx() }
         }
 
-        val imageUrl = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
-            item.backdropUrl ?: item.poster
-        } else {
-            item.poster
+        val imageUrl = when {
+            focusedPosterBackdropExpandEnabled && isBackdropExpanded -> item.backdropUrl ?: item.poster
+            isWideCardStyle -> item.backdropUrl ?: item.poster
+            else -> item.poster
         }
         val imageModel = remember(imageUrl, requestWidthPx, requestHeightPx) {
             ImageRequest.Builder(context)
@@ -494,7 +512,7 @@ fun ContentCard(
                     )
                 }
 
-                if (isBackdropExpanded) {
+                if (isBackdropExpanded || isWideCardStyle) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomStart)

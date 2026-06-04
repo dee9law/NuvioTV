@@ -199,7 +199,7 @@ internal fun ModernHomeRowsList(
                         // radius + fullscreen hero); the per-screen tier is passed
                         // as null so the global tier — currently the Modern
                         // landscape-posters toggle — supplies the floor.
-                        val rowLandscape = com.nuvio.tv.domain.model.resolveLayoutSetting(
+                        val rowStyle = com.nuvio.tv.domain.model.resolveLayoutSetting(
                             perRow = rowConfig?.cardStyle,
                             perScreen = null,
                             global = if (useLandscapePosters) {
@@ -207,14 +207,22 @@ internal fun ModernHomeRowsList(
                             } else {
                                 LayoutCardStyle.POSTER
                             },
-                        ) == LayoutCardStyle.LANDSCAPE
+                        )
+                        val rowCinema = rowStyle == LayoutCardStyle.CINEMA
+                        // CINEMA prefetches at the fixed 380×285 4:3 size via
+                        // the landscape path.
+                        val rowLandscape = rowStyle == LayoutCardStyle.LANDSCAPE || rowCinema
                         val rowBaseWidth = rowConfig?.cardWidthDp?.dp
                         val modernPortraitScale = 0.84f * 1.08f
                         val modernLandscapeScale = 1.24f * 1.34f
-                        val rowPortraitW = rowBaseWidth?.times(modernPortraitScale) ?: portraitCatalogCardWidth
-                        val rowPortraitH = rowBaseWidth?.times(modernPortraitScale)?.times(1.5f) ?: portraitCatalogCardHeight
-                        val rowLandscapeW = rowBaseWidth?.times(modernLandscapeScale) ?: landscapeCatalogCardWidth
-                        val rowLandscapeH = rowBaseWidth?.times(modernLandscapeScale)?.div(1.77f) ?: landscapeCatalogCardHeight
+                        val rowPortraitW = if (rowCinema) CINEMA_CARD_WIDTH_DP.dp
+                            else rowBaseWidth?.times(modernPortraitScale) ?: portraitCatalogCardWidth
+                        val rowPortraitH = if (rowCinema) CINEMA_CARD_HEIGHT_DP.dp
+                            else rowBaseWidth?.times(modernPortraitScale)?.times(1.5f) ?: portraitCatalogCardHeight
+                        val rowLandscapeW = if (rowCinema) CINEMA_CARD_WIDTH_DP.dp
+                            else rowBaseWidth?.times(modernLandscapeScale) ?: landscapeCatalogCardWidth
+                        val rowLandscapeH = if (rowCinema) CINEMA_CARD_HEIGHT_DP.dp
+                            else rowBaseWidth?.times(modernLandscapeScale)?.div(1.77f) ?: landscapeCatalogCardHeight
                         for (i in 0 until minOf(prefetchItemsPerRow, row.items.list.size)) {
                             val item = row.items.list[i]
                             val url = item.imageUrl ?: continue

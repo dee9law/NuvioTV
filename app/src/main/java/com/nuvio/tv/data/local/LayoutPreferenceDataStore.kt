@@ -886,7 +886,13 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     fun posterCardCornerRadiusForScope(scope: LayoutScreenScope): Flow<Int> = profileFlow { prefs ->
-        prefs[scopedCornerRadiusKey(scope)] ?: DEFAULT_POSTER_CARD_CORNER_RADIUS_DP
+        // Corner radius is a single global setting (exposed under Appearance →
+        // Global → Card Style). Non-HOME scopes have no dedicated radius UI, so
+        // they fall back to the base global key before the hard default — making
+        // the one global value apply to every scope's cards.
+        prefs[scopedCornerRadiusKey(scope)]
+            ?: prefs[posterCardCornerRadiusDpKey]
+            ?: DEFAULT_POSTER_CARD_CORNER_RADIUS_DP
     }
 
     fun fullscreenHeroBackdropForScope(scope: LayoutScreenScope): Flow<Boolean> = profileFlow { prefs ->

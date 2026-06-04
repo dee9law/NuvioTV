@@ -38,7 +38,17 @@ data class LayoutRowConfig(
 )
 
 enum class LayoutRowKind { ADDON, COLLECTION, TRAKT, TMDB_DISCOVER, TMDB_NETWORK, CONTINUE_WATCHING }
-enum class LayoutCardStyle { POSTER, LANDSCAPE }
+
+/**
+ * Card shape for a row's posters.
+ *  - [POSTER]    — tall 2:3 portrait, size-adjustable.
+ *  - [LANDSCAPE] — wide 16:9-ish, size-adjustable.
+ *  - [CINEMA]    — fixed-size 16:9 cards (420dp × 236dp). One size only: the
+ *    size picker is hidden for CINEMA rows. Corner radius still follows the
+ *    global card corner-radius setting. Expand still works (poster → backdrop,
+ *    same 16:9 ratio, larger).
+ */
+enum class LayoutCardStyle { POSTER, LANDSCAPE, CINEMA }
 
 /**
  * Canonical row IDs used as the persistence key for [LayoutRowConfig] and for

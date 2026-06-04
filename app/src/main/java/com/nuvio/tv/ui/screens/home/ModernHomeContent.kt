@@ -71,6 +71,7 @@ import coil3.request.ImageRequest
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.ContinueWatchingOptionsDialog
@@ -973,12 +974,32 @@ fun ModernHomeContent(
             }
             val onFirstFrameRenderedLambda = remember { { heroTrailerFirstFrameRendered = true } }
 
+            // Purely focus-driven hero collapse: when the row that currently has
+            // focus (activeRowKey) is a Cinema row, fade the hero backdrop +
+            // title out. Moving focus to any non-Cinema row fades them back.
+            // Tracks the focused row only — not whether Cinema rows exist.
+            val focusedRowIsCinema by remember(rowByKey, uiState.rowConfigLookup) {
+                derivedStateOf {
+                    val key = activeRowKey.value ?: return@derivedStateOf false
+                    val row = rowByKey.map[key] ?: return@derivedStateOf false
+                    val cfg = row.layoutConfigKey?.let { uiState.rowConfigLookup[it] }
+                        ?: return@derivedStateOf false
+                    resolveRowDisplayConfig(cfg, cfg.viewContext, globalExpandForScope = false)
+                        .effectiveCardStyle == LayoutCardStyle.CINEMA
+                }
+            }
+            val heroCinemaAlpha by animateFloatAsState(
+                targetValue = if (focusedRowIsCinema) 0f else 1f,
+                animationSpec = tween(durationMillis = 220),
+                label = "modernHeroCinemaAlpha"
+            )
+
             ModernHeroSection(
                 heroSceneState = heroSceneStateLambda,
                 isFullScreen = isFullScreenLambda,
                 heroMediaWidthPx = heroMediaWidthPx,
                 heroMediaHeightPx = heroMediaHeightPx,
-                modifier = heroMediaModifier,
+                modifier = heroMediaModifier.graphicsLayer { alpha = heroCinemaAlpha },
                 onTrailerEnded = onTrailerEndedLambda,
                 onFirstFrameRendered = onFirstFrameRenderedLambda
             )
@@ -1021,7 +1042,7 @@ fun ModernHomeContent(
                         state.fullScreenBackdrop && shouldPlayTrailerLambda() && heroTrailerRenderedLambda()
                     }
                 },
-                modifier = heroMetadataModifier
+                modifier = heroMetadataModifier.graphicsLayer { alpha = heroCinemaAlpha }
             )
 
             val onContentFocusChangedLambda = remember { { focused: Boolean -> contentHasFocus.value = focused } }

@@ -84,6 +84,13 @@ private fun resolvePosterCardStyle(
 ): PosterCardStyle {
     val resolved = config?.let { resolveRowDisplayConfig(it, it.viewContext, globalExpandForScope = false) }
     val resolvedStyle = resolved?.effectiveCardStyle ?: globalCardStyle
+    // CINEMA is a fixed 380×285 card regardless of the per-row width.
+    if (resolvedStyle == LayoutCardStyle.CINEMA) {
+        return base.copy(
+            width = CINEMA_CARD_WIDTH_DP.dp,
+            height = CINEMA_CARD_HEIGHT_DP.dp,
+        )
+    }
     val width = resolved?.effectiveCardWidthDp?.dp ?: base.width
     val height = if (config != null) {
         if (resolvedStyle == LayoutCardStyle.LANDSCAPE) width * (9f / 16f) else width * 1.5f
@@ -639,6 +646,9 @@ fun ClassicHomeContent(
                         base = classicCatalogPosterCardStyle,
                         globalCardStyle = uiState.globalCardStyle,
                     )
+                    val rowCardStyle = rowConfig?.let {
+                        resolveRowDisplayConfig(it, it.viewContext, globalExpandForScope = false).effectiveCardStyle
+                    } ?: uiState.globalCardStyle
                     // Match by saved row key first, fall back to index
                     val shouldRestoreFocus = restoringFocus &&
                         (currentFocusSnapshot.rowKey == catalogKey || index == focusState.focusedRowIndex)
@@ -663,6 +673,7 @@ fun ClassicHomeContent(
                     CatalogRowSection(
                         catalogRow = catalogRow,
                         posterCardStyle = rowPosterStyle,
+                        cardStyle = rowCardStyle,
                         showPosterLabels = uiState.posterLabelsEnabled,
                         showAddonName = uiState.catalogAddonNameEnabled,
                         showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled,

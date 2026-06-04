@@ -96,6 +96,8 @@ data class GlobalSettingsUiState(
     val focusedPosterExpandEnabled: Boolean = true,
     val focusedPosterExpandDelaySeconds: Int = 3,
     val focusedPosterTrailerMuted: Boolean = true,
+    // Global card corner radius (applies to Poster, Landscape, and Cinema cards).
+    val cardCornerRadiusDp: Int = 12,
 )
 
 @HiltViewModel
@@ -130,8 +132,9 @@ class GlobalSettingsViewModel @Inject constructor(
             prefs.focusedPosterBackdropExpandDelaySeconds,
             prefs.focusedPosterBackdropTrailerMuted,
             prefs.cardFocusStyle,
-        ) { expandEnabled, expandDelay, muted, focusStyle ->
-            arrayOf<Any?>(expandEnabled, expandDelay, muted, focusStyle)
+            prefs.posterCardCornerRadiusDp,
+        ) { expandEnabled, expandDelay, muted, focusStyle, cornerRadius ->
+            arrayOf<Any?>(expandEnabled, expandDelay, muted, focusStyle, cornerRadius)
         },
     ) { core, display, focusedExpand ->
         GlobalSettingsUiState(
@@ -150,11 +153,13 @@ class GlobalSettingsViewModel @Inject constructor(
             focusedPosterExpandDelaySeconds = focusedExpand[1] as Int,
             focusedPosterTrailerMuted = focusedExpand[2] as Boolean,
             cardFocusStyle = focusedExpand[3] as com.nuvio.tv.domain.model.CardFocusStyle,
+            cardCornerRadiusDp = focusedExpand[4] as Int,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GlobalSettingsUiState())
 
     fun setLayout(layout: HomeLayout) = viewModelScope.launch { prefs.setGlobalLayout(layout) }
     fun setCardStyle(style: LayoutCardStyle) = viewModelScope.launch { prefs.setGlobalCardStyle(style) }
+    fun setCardCornerRadius(dp: Int) = viewModelScope.launch { prefs.setPosterCardCornerRadiusDp(dp) }
     fun setTrailerEnabled(enabled: Boolean) = viewModelScope.launch {
         prefs.setGlobalFocusedPosterTrailerEnabled(enabled)
     }
@@ -269,10 +274,36 @@ fun GlobalSettingsContent(viewModel: GlobalSettingsViewModel = hiltViewModel()) 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     LayoutCardStyle.entries.forEach { style ->
                         ChoicePill(
-                            label = if (style == LayoutCardStyle.POSTER) "Poster" else "Landscape",
+                            label = style.displayLabel(),
                             isSelected = style == state.cardStyle,
                             onClick = { viewModel.setCardStyle(style) },
                         )
+                    }
+                }
+            }
+        }
+        item(key = "global_card_style_section") {
+            GlobalSection(title = "Card Style") {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "Corner radius",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = NuvioColors.TextSecondary,
+                    )
+                    Text(
+                        text = "Applies to every card — Poster, Landscape, and Cinema.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NuvioColors.TextSecondary,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CornerRadiusOptions.forEach { (label, radius) ->
+                            CornerRadiusChoice(
+                                label = label,
+                                radiusDp = radius,
+                                isSelected = radius == state.cardCornerRadiusDp,
+                                onClick = { viewModel.setCardCornerRadius(radius) },
+                            )
+                        }
                     }
                 }
             }
@@ -688,6 +719,85 @@ internal fun HomeLayout.displayLabel(): String = when (this) {
     HomeLayout.CLASSIC -> "Classic"
     HomeLayout.GRID -> "Grid"
     HomeLayout.SPOTLIGHT -> "Spotlight"
+}
+
+internal fun LayoutCardStyle.displayLabel(): String = when (this) {
+    LayoutCardStyle.POSTER -> "Poster"
+    LayoutCardStyle.LANDSCAPE -> "Landscape"
+    LayoutCardStyle.CINEMA -> "Cinema"
+}
+
+// Global card corner-radius presets (dp). Mirrors the dormant Layout screen's
+// scale: Sharp(0) → Subtle(4) → Classic(8) → Rounded(12) → Pill(16).
+private val CornerRadiusOptions = listOf(
+    "Sharp" to 0,
+    "Subtle" to 4,
+    "Classic" to 8,
+    "Rounded" to 12,
+    "Pill" to 16,
+)
+
+/**
+ * Visual corner-radius option: a small square preview clipped to the actual
+ * [radiusDp] so the user sees the real corner shape, with the label below.
+ */
+@Composable
+private fun CornerRadiusChoice(
+    label: String,
+    radiusDp: Int,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val borderColor = when {
+        isSelected -> NuvioColors.FocusRing
+        focused -> NuvioColors.FocusRing.copy(alpha = 0.6f)
+        else -> NuvioColors.Border
+    }
+    Card(
+        onClick = onClick,
+        modifier = Modifier.onFocusChanged { focused = it.isFocused || it.hasFocus },
+        shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = CardDefaults.colors(
+            containerColor = if (isSelected) NuvioColors.FocusBackground else Color.White.copy(alpha = 0.04f),
+            focusedContainerColor = if (isSelected) NuvioColors.FocusBackground else Color.White.copy(alpha = 0.12f),
+        ),
+        border = CardDefaults.border(
+            border = if (isSelected) Border(
+                border = BorderStroke(1.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(12.dp),
+            ) else Border.None,
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(12.dp),
+            ),
+        ),
+        scale = CardDefaults.scale(focusedScale = 1f),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(radiusDp.dp))
+                    .background(NuvioColors.TextPrimary.copy(alpha = 0.85f))
+                    .border(
+                        width = 1.dp,
+                        color = borderColor,
+                        shape = RoundedCornerShape(radiusDp.dp),
+                    ),
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isSelected) NuvioColors.TextPrimary else NuvioColors.TextSecondary,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+            )
+        }
+    }
 }
 
 internal fun FocusedPosterTrailerPlaybackTarget.displayLabel(): String = when (this) {

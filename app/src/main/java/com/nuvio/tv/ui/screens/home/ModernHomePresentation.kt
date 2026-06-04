@@ -53,7 +53,8 @@ private fun rowEffectiveLandscape(
         perScreen = null,
         global = if (globalLandscape) LayoutCardStyle.LANDSCAPE else LayoutCardStyle.POSTER,
     )
-    return resolved == LayoutCardStyle.LANDSCAPE
+    // CINEMA cards are wide 4:3 and should bake the landscape/backdrop image.
+    return resolved == LayoutCardStyle.LANDSCAPE || resolved == LayoutCardStyle.CINEMA
 }
 
 internal fun buildModernHomePresentation(

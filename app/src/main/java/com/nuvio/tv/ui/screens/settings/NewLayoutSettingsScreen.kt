@@ -239,10 +239,7 @@ fun NewLayoutSettingsContent(
                         onMoveUp = { viewModel.moveRow(row.id, -1) },
                         onMoveDown = { viewModel.moveRow(row.id, +1) },
                         onToggleStyle = {
-                            val next = if (row.cardStyle == LayoutCardStyle.POSTER) {
-                                LayoutCardStyle.LANDSCAPE
-                            } else LayoutCardStyle.POSTER
-                            viewModel.setRowCardStyle(row.id, next)
+                            viewModel.setRowCardStyle(row.id, nextCardStyle(row.cardStyle))
                         },
                         onWidthChange = { viewModel.setRowCardWidth(row.id, it) },
                         onToggleEnabled = { viewModel.toggleRowEnabled(row.id) },
@@ -356,15 +353,16 @@ private fun RowsManagerContent(
     val showScopedControls = !isCollectionsScope
     var showDeleteAllConfirm by remember { mutableStateOf(false) }
 
-    // Global orientation/size reflect the first row when rows exist, else the
-    // global landscape default / Balanced. Header taps apply to every row.
-    val globalLandscape = uiState.rows.firstOrNull()?.let {
-        it.cardStyle == LayoutCardStyle.LANDSCAPE
-    } ?: uiState.landscapePostersDefault
+    // Global style/size reflect the first row when rows exist, else the global
+    // landscape default / Balanced. Header taps apply to every row.
+    val globalStyle = uiState.rows.firstOrNull()?.cardStyle
+        ?: if (uiState.landscapePostersDefault) LayoutCardStyle.LANDSCAPE else LayoutCardStyle.POSTER
     val globalWidthDp = uiState.rows.firstOrNull()?.cardWidthDp
         ?: CardWidthOptions.first { it.first == "Balanced" }.second
     val hasRows = uiState.rows.isNotEmpty()
     val allEnabled = hasRows && uiState.rows.all { it.enabled }
+    // Size column hidden globally only when every row is CINEMA (single fixed size).
+    val allCinema = hasRows && uiState.rows.all { it.cardStyle == LayoutCardStyle.CINEMA }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // ── FIXED TOP ──────────────────────────────────────────────────────
@@ -395,18 +393,18 @@ private fun RowsManagerContent(
                 )
                 // Row 3 — column header doubling as global per-column actions
                 ColumnHeaderRow(
-                    landscape = globalLandscape,
+                    style = globalStyle,
                     widthDp = globalWidthDp,
+                    allCinema = allCinema,
                     expandEnabled = uiState.expandBackdropEnabled,
                     allEnabled = allEnabled,
                     hasRows = hasRows,
-                    onToggleOrientation = {
-                        val toLandscape = !globalLandscape
-                        val style = if (toLandscape) {
-                            LayoutCardStyle.LANDSCAPE
-                        } else LayoutCardStyle.POSTER
-                        viewModel.setAllRowsCardStyle(style)
-                        viewModel.setLandscapePostersDefault(toLandscape)
+                    onToggleStyle = {
+                        // Cycle every row to the next style: Poster → Landscape
+                        // → Cinema → Poster.
+                        val next = nextCardStyle(globalStyle)
+                        viewModel.setAllRowsCardStyle(next)
+                        viewModel.setLandscapePostersDefault(next == LayoutCardStyle.LANDSCAPE)
                     },
                     onSelectSize = { viewModel.setAllRowsCardWidth(it) },
                     onToggleExpand = {
@@ -468,10 +466,7 @@ private fun RowsManagerContent(
                         onMoveUp = { viewModel.moveRow(row.id, -1) },
                         onMoveDown = { viewModel.moveRow(row.id, +1) },
                         onToggleStyle = {
-                            val next = if (row.cardStyle == LayoutCardStyle.POSTER) {
-                                LayoutCardStyle.LANDSCAPE
-                            } else LayoutCardStyle.POSTER
-                            viewModel.setRowCardStyle(row.id, next)
+                            viewModel.setRowCardStyle(row.id, nextCardStyle(row.cardStyle))
                         },
                         onWidthChange = { viewModel.setRowCardWidth(row.id, it) },
                         onCycleExpand = {
@@ -627,12 +622,13 @@ private fun ComingSoonChip(label: String, onClick: () -> Unit) {
 
 @Composable
 private fun ColumnHeaderRow(
-    landscape: Boolean,
+    style: LayoutCardStyle,
     widthDp: Int,
+    allCinema: Boolean,
     expandEnabled: Boolean,
     allEnabled: Boolean,
     hasRows: Boolean,
-    onToggleOrientation: () -> Unit,
+    onToggleStyle: () -> Unit,
     onSelectSize: (Int) -> Unit,
     onToggleExpand: () -> Unit,
     onToggleAll: () -> Unit,
@@ -674,10 +670,14 @@ private fun ColumnHeaderRow(
                 )
             }
             Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
-                OrientationShapeButton(landscape = landscape, enabled = hasRows, onClick = onToggleOrientation)
+                StyleShapeButton(style = style, enabled = hasRows, onClick = onToggleStyle)
             }
             Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
-                SizeShapeButton(widthDp = widthDp, enabled = hasRows, onSelect = onSelectSize)
+                // When every row is CINEMA the size control doesn't apply — hide
+                // the global Size button (the column box stays for alignment).
+                if (!allCinema) {
+                    SizeShapeButton(widthDp = widthDp, enabled = hasRows, onSelect = onSelectSize)
+                }
             }
             Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
                 // Header expand is the per-scope on/off floor (no "follow" state).
@@ -803,15 +803,19 @@ private fun ManagerRowItem(
                 }
             }
             Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
-                OrientationShapeButton(
-                    landscape = row.cardStyle == LayoutCardStyle.LANDSCAPE,
+                StyleShapeButton(
+                    style = row.cardStyle,
                     enabled = true,
                     onClick = onToggleStyle,
                     focusRequester = orientationFocusRequester,
                 )
             }
             Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
-                SizeShapeButton(widthDp = row.cardWidthDp, enabled = true, onSelect = onWidthChange)
+                // CINEMA is a single fixed size — the size picker doesn't apply,
+                // so it's hidden (the column box stays for alignment).
+                if (row.cardStyle != LayoutCardStyle.CINEMA) {
+                    SizeShapeButton(widthDp = row.cardWidthDp, enabled = true, onSelect = onWidthChange)
+                }
             }
             Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
                 ExpandShapeButton(state = row.expandEnabled, onClick = onCycleExpand)
@@ -903,29 +907,45 @@ private fun ShapeChip(
     }
 }
 
+/** Cycle order for the card-style selector: Poster → Landscape → Cinema → Poster. */
+private fun nextCardStyle(current: LayoutCardStyle): LayoutCardStyle = when (current) {
+    LayoutCardStyle.POSTER -> LayoutCardStyle.LANDSCAPE
+    LayoutCardStyle.LANDSCAPE -> LayoutCardStyle.CINEMA
+    LayoutCardStyle.CINEMA -> LayoutCardStyle.POSTER
+}
+
+/**
+ * Plain-rectangle glyph whose proportions communicate the card style:
+ *  - Poster    → tall narrow rectangle (2:3).
+ *  - Landscape → wide flat rectangle (~16:10).
+ *  - Cinema    → ultra-wide rectangle (16:9), noticeably wider than Landscape.
+ * No icons or frame detail — the proportion alone signals the style.
+ */
 @Composable
-private fun OrientationGlyph(landscape: Boolean, tint: Color) {
+private fun StyleGlyph(style: LayoutCardStyle, tint: Color) {
+    val (w, h) = when (style) {
+        LayoutCardStyle.POSTER -> 14.dp to 21.dp
+        LayoutCardStyle.LANDSCAPE -> 22.dp to 14.dp
+        LayoutCardStyle.CINEMA -> 28.dp to 16.dp
+    }
     Box(
         modifier = Modifier
-            .size(
-                width = if (landscape) 22.dp else 14.dp,
-                height = if (landscape) 14.dp else 21.dp,
-            )
+            .size(width = w, height = h)
             .clip(RoundedCornerShape(3.dp))
             .background(tint),
     )
 }
 
 @Composable
-private fun OrientationShapeButton(
-    landscape: Boolean,
+private fun StyleShapeButton(
+    style: LayoutCardStyle,
     enabled: Boolean,
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
 ) {
     ShapeChip(onClick = onClick, enabled = enabled, focusRequester = focusRequester) {
-        OrientationGlyph(
-            landscape = landscape,
+        StyleGlyph(
+            style = style,
             tint = if (enabled) NuvioColors.TextPrimary else NuvioColors.TextSecondary.copy(alpha = 0.4f),
         )
     }
@@ -1456,13 +1476,16 @@ private fun RowItem(
                 style = row.cardStyle,
                 onClick = onToggleStyle,
             )
-            LabeledDropdown(
-                label = "Width",
-                options = CardWidthOptions,
-                selectedValue = row.cardWidthDp,
-                onValueChange = onWidthChange,
-                compact = true,
-            )
+            // CINEMA is a single fixed size — the width picker doesn't apply.
+            if (row.cardStyle != LayoutCardStyle.CINEMA) {
+                LabeledDropdown(
+                    label = "Width",
+                    options = CardWidthOptions,
+                    selectedValue = row.cardWidthDp,
+                    onValueChange = onWidthChange,
+                    compact = true,
+                )
+            }
             Switch(
                 checked = row.enabled,
                 onCheckedChange = { onToggleEnabled() },
@@ -1501,7 +1524,11 @@ private fun ToggleStylePill(
         scale = CardDefaults.scale(focusedScale = 1f),
     ) {
         Text(
-            text = if (style == LayoutCardStyle.POSTER) "Poster" else "Landscape",
+            text = when (style) {
+                LayoutCardStyle.POSTER -> "Poster"
+                LayoutCardStyle.LANDSCAPE -> "Landscape"
+                LayoutCardStyle.CINEMA -> "Cinema"
+            },
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
             style = MaterialTheme.typography.labelMedium,
             color = NuvioColors.TextPrimary,

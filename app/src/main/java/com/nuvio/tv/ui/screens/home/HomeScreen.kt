@@ -234,6 +234,18 @@ fun HomeScreen(
             focusedScale = PosterCardDefaults.Style.focusedScale
         )
     }
+    // The uniform Grid layout has no per-row config — it follows the global
+    // card style. CINEMA forces every grid tile to the fixed 380×285 4:3 card.
+    val gridPosterCardStyle = remember(posterCardStyle, uiState.globalCardStyle) {
+        if (uiState.globalCardStyle == com.nuvio.tv.domain.model.LayoutCardStyle.CINEMA) {
+            posterCardStyle.copy(
+                width = CINEMA_CARD_WIDTH_DP.dp,
+                height = CINEMA_CARD_HEIGHT_DP.dp,
+            )
+        } else {
+            posterCardStyle
+        }
+    }
 
     val noAddonsError = stringResource(R.string.home_error_no_addons)
     val noCatalogAddonsError = stringResource(R.string.home_error_no_catalog_addons)
@@ -450,7 +462,7 @@ fun HomeScreen(
                             HomeLayout.GRID -> GridHomeRoute(
                                 viewModel = viewModel,
                                 uiState = uiState,
-                                posterCardStyle = posterCardStyle,
+                                posterCardStyle = gridPosterCardStyle,
                                 onNavigateToDetail = onNavigateToDetailStable,
                                 onContinueWatchingClick = onContinueWatchingClickStable,
                                 onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginningStable,

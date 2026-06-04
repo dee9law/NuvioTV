@@ -1275,3 +1275,140 @@ None — single edit to `MainActivity.kt`.
 
 ---
 
+## 📅 Session log — 2026-06-01/02 (Phase 3 upstream review-port, build unblock, Phase 4 settings placement)
+
+> Archived from CLAUDE.md on 2026-06-04.
+
+### Headline
+
+Two phases plus a build-unblock detour. **Phase 3:** reviewed 8 upstream
+commits, ported the 5 that were genuinely live, skipped 3 that conflict with
+the fork's reimplemented Modern hero. **Build unblock:** a pre-existing lint-vital
+failure (translated-but-missing-from-default strings) was blocking
+`installFullDebug`; fixed the real gap + added a lint baseline. **Phase 4:**
+settings-placement pass — most features were already shipped; only 2 needed real
+work (CW sort-mode toggle, Attributions screen). All installed to the Jawwy TV.
+
+### Phase 3 — upstream review-then-port (commit `a838f4d9`)
+
+Ported (bug was live):
+- **`62b5bd119` thread-safe DateFormatter** — `ModernHomeModels.kt` held a
+  `@Volatile SimpleDateFormat` (not thread-safe). Swapped to a cached pattern
+  string + per-call `DateTimeFormatter`.
+- **`49b1d4ed5` CW Next-Up thumbnail stuck** — added the
+  `cached.season == nextUp.info.season && cached.episode == …episode` guard at
+  both apply sites in `HomeViewModelContinueWatching.kt`.
+- **`3ba3003ea` CW launcher channel refresh** — Part 1 verbatim
+  (`AndroidTvChannelManager` UPDATEs preview rows in place vs delete+re-insert).
+  Part 2 **adapted** to our flow-based `AndroidTvChannelSyncService` (upstream
+  has `reconcileFromCache`; we don't): added `appInForeground`/`latestItems`/
+  `hasPopulatedOnce`, skip-while-foreground + reconcile-on-background, wired via
+  `NuvioApplication.registerActivityLifecycleCallbacks` (our equivalent of
+  upstream's MainActivity onStart/onStop).
+- **`7a266de7c` extended posters full focus** — added the expansion
+  scroll-into-view `LaunchedEffect` + `isExpansionScrollActive` gate in
+  `ModernHomeRows.ModernRowSection`.
+- **`b1d875902` CEC long-press** — new `ui/util/LongPressKeyTracker.kt` + applied
+  the handler transform + `KEYCODE_MENU` ACTION_UP guard across 7 files
+  (ContentCard, ContinueWatchingSection, GridContentCard, EpisodesSection ×2,
+  HeroSection ×2, ModernHomeRows, ProfileSelectionScreen).
+
+Skipped (conflict with deliberate fork divergence — the fork reimplemented the
+Modern hero subsystem):
+- **`df6f1dc5a` backdrop semi-fast scroll** — already handled: the fork freezes
+  the displayed backdrop during scroll AND rapid nav via a dedicated
+  `LaunchedEffect` + the `corrected`/`HeroBackdropState.lastDisplayedUrl`
+  feedback loop in the stable-ref collector.
+- **`c91d33e97` collections backdrop** — already handled: our `ModernHomeHero`
+  updates `stableBackdrop` on any backdrop change when `!isEnriching`; the
+  upstream `latestLiveForStable` gate it patches doesn't exist here.
+- **`c5108c934` stabilize hero** — our `resolvedHeroState` **deliberately rejects**
+  upstream's `effectiveEnrichmentActive` heuristic (documented comment: it
+  "blanked the hero on the very first post-launch highlight"). Porting would
+  revert that intentional fix.
+
+### Build unblock (commits `045eb9f5`, `320bd8ed`)
+
+`installFullDebug` failed `lintVitalFullDebug` (193 `ExtraTranslation` errors) —
+**not** from Phase 3 (no `res/` files touched). Root cause: `sub_use_forced_subtitles`
+/ `_desc` were translated in ~25 locales (commit `36f327fe`) but missing from the
+default `values/strings.xml`; plus a large `values-fr` backlog (143). Fixes:
+- Added the two missing English defaults to `values/strings.xml`.
+- Added `lint { baseline = file("lint-baseline.xml") }` to `app/build.gradle.kts`
+  + generated `lint-baseline.xml` snapshotting the remaining pre-existing gaps.
+- **Gotcha:** `updateLintBaseline` writes nothing until the `lint.baseline`
+  config exists ("No baseline file is specified") — must add the config block
+  first, then re-run. Refreshed again after Phase 4 added 23 attribution strings
+  (`320bd8ed`).
+
+### Phase 4 — settings placement (commits `aadb7694`, baseline `320bd8ed`)
+
+Reviewed 9 requested settings entries; reality differed from the "each has an
+upstream settings diff to place" premise:
+- **Implemented:** **#9 CW sort-mode** — added a "Streaming-style sorting" toggle
+  to `ContinueWatchingSettingsContent.kt` (binary `ContinueWatchingSortMode`
+  enum; reuses existing `LayoutSettingsViewModel` plumbing; rendered as a toggle
+  to match that file, since the dormant `LayoutSettingsScreen.kt` dialog is
+  off-limits). **#8 Attributions** — full port of upstream `67ec9b6e`: new
+  `LicensesAttributionsScreen.kt` + 3 assets (`introdb_favicon.png`,
+  `rating_tmdb.png`, `mdblist_logo.svg`) + 23 strings + `Screen.LicensesAttributions`
+  route + NavHost wiring (SettingsHub + About call sites + composable) + About row
+  + `SettingsHubScreen` callback threading. Skipped the commit's versionCode bump.
+- **Already shipped (no-op):** #3 autoplay timeout 15/20/25/30s, #4 still-watching
+  threshold (both in `PlaybackAutoPlaySettings.kt`), #7 5 profiles
+  (`ProfileManager.MAX_PROFILES = 5`).
+- **Skipped (no upstream settings toggle to port):** #1 trailer (Playback already
+  has `audio_trailer_enabled`), #2 Parental Guide (overlay is unconditional;
+  only a runtime race-fix exists), #5 next-episode prompt (gated by the existing
+  binge-group toggle), #6 PostPlayMode (internal refactor, not a user setting).
+
+### New files
+
+- `app/src/main/java/com/nuvio/tv/ui/util/LongPressKeyTracker.kt` — CEC-aware
+  long-press detector (timeout-based), shared by all long-pressable cards.
+- `app/src/main/java/com/nuvio/tv/ui/screens/settings/LicensesAttributionsScreen.kt`
+  — two-panel Licenses & Attribution screen.
+- `app/lint-baseline.xml` — snapshots pre-existing lint debt (mostly `values-fr`
+  `ExtraTranslation` + default-only `MissingTranslation`).
+- `res/drawable/introdb_favicon.png`, `res/drawable/rating_tmdb.png`,
+  `res/raw/mdblist_logo.svg` — attribution logos.
+
+### Architectural decisions
+
+- **CW launcher reconcile lives in `NuvioApplication` lifecycle callbacks**, not
+  MainActivity (our service starts from the Application; the Application owns the
+  process-foreground signal cleanly without a new `lifecycle-process` dep).
+- **Lint debt is baselined, not fixed.** The `values-fr` backlog (Phase 8
+  localization) stays snapshotted so builds pass; new lint errors still fail.
+  Re-run `updateLintBaseline` whenever new default-only strings are added.
+- **Hero trio left to the fork's own mechanisms.** The fork's enrichment +
+  dual backdrop-freeze design supersedes upstream's; porting was rejected to
+  avoid reverting a deliberate fix.
+
+### Pending follow-ups
+
+- **On-device verification** (installed, not smoke-tested): Phase 3 — CW launcher
+  channel auto-refresh (Projectivy), extended-poster focus, CEC long-press, CW
+  thumbnail; Phase 4 — "Streaming-style sorting" toggle reorders CW, About →
+  "Licenses & Attribution" renders (logos load, URLs open).
+- Phase 8 localization backlog (143 `values-fr` gaps + default-only strings)
+  still open — currently baselined.
+- Prior follow-ups (23 skipped upstream commits, ContinueWatching render in
+  Classic, SideRail order consumption, dead `bottomScrimMaxAlpha`/`openProfileOverlay`)
+  still open.
+
+### Notes for future sessions
+
+- **`installFullDebug` runs `lintVitalFullDebug`** and will fail the whole build
+  on any new fatal lint (e.g. a default-only string → `MissingTranslation`). After
+  adding strings, re-run `./gradlew updateLintBaseline` + commit `lint-baseline.xml`,
+  or it'll block the next install.
+- **Adding a setting ≠ a code change** — most Phase 4 items already had DataStore
+  keys + ViewModel setters from the 05-19 cherry-pick marathon; the work was
+  finding the (often nonexistent) upstream settings-UI diff and wiring the entry.
+- **`SettingsHubScreen` threads nav callbacks** through `SettingsHubScreen` →
+  `RightPane` → `SubItemContent` → the content composable; adding a new About
+  navigation target means editing all four (3 signatures + 3 call-throughs).
+
+---
+

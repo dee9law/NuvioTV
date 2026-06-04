@@ -458,6 +458,7 @@ private fun MediaTypeContentRow(
                 ContentCard(
                     item = meta,
                     posterCardStyle = posterStyle,
+                    cardStyle = rowConfig?.cardStyle ?: LayoutCardStyle.POSTER,
                     onClick = { onMetaClick(meta) },
                 )
             }
@@ -471,6 +472,13 @@ private fun resolveRowPosterStyle(
 ): PosterCardStyle {
     val base = PosterCardDefaults.Style.copy(cornerRadius = cornerRadiusDp.dp)
     if (config == null) return base
+    // CINEMA is a fixed 420×236 16:9 card; the per-row width does not apply.
+    if (config.cardStyle == LayoutCardStyle.CINEMA) {
+        return base.copy(
+            width = com.nuvio.tv.ui.screens.home.CINEMA_CARD_WIDTH_DP.dp,
+            height = com.nuvio.tv.ui.screens.home.CINEMA_CARD_HEIGHT_DP.dp,
+        )
+    }
     val width = config.cardWidthDp.dp
     val height = if (config.cardStyle == LayoutCardStyle.LANDSCAPE) {
         width * (9f / 16f)

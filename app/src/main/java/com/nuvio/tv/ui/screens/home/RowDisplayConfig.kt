@@ -5,6 +5,16 @@ import com.nuvio.tv.domain.model.LayoutRowConfig
 import com.nuvio.tv.domain.model.LayoutScreenScope
 
 /**
+ * Fixed dimensions for the [LayoutCardStyle.CINEMA] card style. Cinema is a
+ * single fixed size (no width variants): 380dp wide × 285dp tall — a 4:3
+ * landscape ratio (Apple-TV card feel: taller cards, readable faces, scenes
+ * with context). Every layout that resolves card dimensions short-circuits to
+ * these when the effective style is CINEMA, ignoring [LayoutRowConfig.cardWidthDp].
+ */
+const val CINEMA_CARD_WIDTH_DP = 380
+const val CINEMA_CARD_HEIGHT_DP = 285
+
+/**
  * Fully-resolved per-row display values, consumed by every row-based home
  * layout (Modern / Classic / Spotlight). Grid renders a uniform grid rather
  * than per-catalog rows, so it has no per-row config and no expand mechanic —
@@ -36,7 +46,13 @@ fun resolveRowDisplayConfig(
     globalExpandForScope: Boolean,
 ): ResolvedRowDisplayConfig = ResolvedRowDisplayConfig(
     effectiveCardStyle = row.cardStyle,
-    effectiveCardWidthDp = row.cardWidthDp,
+    // CINEMA is a single fixed size — its width is forced regardless of the
+    // row's saved [LayoutRowConfig.cardWidthDp] (the size picker is hidden).
+    effectiveCardWidthDp = if (row.cardStyle == LayoutCardStyle.CINEMA) {
+        CINEMA_CARD_WIDTH_DP
+    } else {
+        row.cardWidthDp
+    },
     effectiveExpands = when (row.expandEnabled) {
         true -> true
         false -> false
