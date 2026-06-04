@@ -1012,19 +1012,14 @@ fun ModernHomeContent(
             }
             val onFirstFrameRenderedLambda = remember { { heroTrailerFirstFrameRendered = true } }
 
-            // Focus-driven hero treatment for a Cinema row, split by hero mode:
-            //  • State 2 (non-fullscreen): the hero STAYS VISIBLE and shrinks while
-            //    the rows grow (see cinemaState2Active / rowsViewportHeight above),
-            //    so this alpha holds at 1 — fading it here is what produced the dead
-            //    black space the fix removes.
-            //  • State 1 (fullscreen backdrop): keep the existing fade-out until the
-            //    State-1 one-row pager (separate change) redefines it.
-            // focusedRowIsCinema is defined once, higher up (Fix 2 reflow block).
-            val heroCinemaAlpha by animateFloatAsState(
-                targetValue = if (focusedRowIsCinema && fullScreenBackdrop) 0f else 1f,
-                animationSpec = tween(durationMillis = 220),
-                label = "modernHeroCinemaAlpha"
-            )
+            // The hero is now never faded for a Cinema row:
+            //  • State 2 (non-fullscreen): it stays visible and shrinks while the
+            //    rows grow (Fix 2 reflow — see cinemaState2Active above).
+            //  • State 1 (fullscreen backdrop): the one-row pager shows a Cinema row
+            //    like any other and the backdrop/hero are left completely unchanged.
+            // Kept as a constant so the existing graphicsLayer call sites are no-ops
+            // rather than churning the hero-media block.
+            val heroCinemaAlpha = 1f
 
             ModernHeroSection(
                 heroSceneState = heroSceneStateLambda,
@@ -1114,6 +1109,77 @@ fun ModernHomeContent(
             val stableOnItemFocus = remember(onItemFocus) { { item: MetaPreview -> onItemFocus(item) } }
             val stableOnPreloadAdjacentItem = remember(onPreloadAdjacentItem) { { item: MetaPreview -> onPreloadAdjacentItem(item) } }
 
+            if (fullScreenBackdrop) {
+                // Fix 3 — State 1 (fullscreen backdrop): show ONE row at a time,
+                // fixed at the bottom, crossfading between rows on D-pad up/down
+                // with dimmed prev/next row-name hints. The backdrop + hero are
+                // unchanged; only the row list rendering/navigation differs.
+                ModernHomeRowsPager(
+                    carouselRows = carouselRows,
+                    focusState = focusState,
+                    activeRowKey = activeRowKey,
+                    activeItemIndex = activeItemIndex,
+                    focusedItemByRow = stableFocusedItemByRow,
+                    rowListStates = stableRowListStates,
+                    loadMoreRequestedTotals = stableLoadMoreRequestedTotals,
+                    resetRowFocusTrigger = resetRowFocusTrigger,
+                    focusHeroTrigger = focusHeroTrigger,
+                    contentFocusRequester = contentFocusRequester,
+                    onRowItemFocusedInternal = onRowItemFocusedInternalLambda,
+                    onNavigateToDetail = onNavigateToDetail,
+                    onNavigateToFolderDetail = onNavigateToFolderDetail,
+                    onLoadMoreCatalog = onLoadMoreCatalog,
+                    onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
+                    onContinueWatchingClick = onContinueWatchingClick,
+                    onContinueWatchingOptions = onContinueWatchingOptionsLambda,
+                    onRequestLazyCatalogLoad = stableOnRequestLazyCatalogLoad,
+                    onBackdropInteraction = onBackdropInteractionLambda,
+                    onExpandedCatalogFocusKeyChange = onExpandedCatalogFocusKeyChangeLambda,
+                    isCatalogItemWatched = isCatalogItemWatched,
+                    onCatalogItemLongPress = onCatalogItemLongPress,
+                    onItemFocus = stableOnItemFocus,
+                    onPreloadAdjacentItem = stableOnPreloadAdjacentItem,
+                    enrichedPreviews = stableEnrichedPreviews,
+                    useLandscapePosters = useLandscapePosters,
+                    showLabels = uiState.posterLabelsEnabled,
+                    posterCardCornerRadius = posterCardCornerRadius,
+                    focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
+                    effectiveExpandEnabled = effectiveExpandEnabled,
+                    effectiveAutoplayEnabled = effectiveAutoplayEnabled,
+                    trailerPlaybackTarget = trailerPlaybackTarget,
+                    expandedCatalogFocusKey = expandedCatalogFocusKey,
+                    expandedTrailerPreviewUrl = stableExpandedTrailerPreviewUrl,
+                    expandedTrailerPreviewAudioUrl = stableExpandedTrailerPreviewAudioUrl,
+                    portraitCatalogCardWidth = portraitCatalogCardWidth,
+                    portraitCatalogCardHeight = portraitCatalogCardHeight,
+                    landscapeCatalogCardWidth = landscapeCatalogCardWidth,
+                    landscapeCatalogCardHeight = landscapeCatalogCardHeight,
+                    continueWatchingCardWidth = continueWatchingCardWidth,
+                    continueWatchingCardHeight = continueWatchingCardHeight,
+                    blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
+                    useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
+                    rowConfigLookup = uiState.rowConfigLookup,
+                    pendingRowFocusKey = pendingRowFocusKey,
+                    pendingRowFocusIndex = pendingRowFocusIndex,
+                    pendingRowFocusNonce = pendingRowFocusNonce,
+                    onPendingRowFocusCleared = onPendingRowFocusClearedLambda,
+                    onActiveRowKeyChange = onActiveRowKeyChangeLambda,
+                    onActiveItemIndexChange = onActiveItemIndexChangeLambda,
+                    lastHeroNavigationAtMs = lastHeroNavigationAtMs,
+                    onLastHeroNavigationAtMsChange = onLastHeroNavigationAtMsChangeLambda,
+                    onHeroFocusSettleDelayChange = onHeroFocusSettleDelayChangeLambda,
+                    lastFocusedContinueWatchingIndex = lastFocusedContinueWatchingIndex,
+                    onLastFocusedContinueWatchingIndexChange = onLastFocusedContinueWatchingIndexChangeLambda,
+                    focusedCatalogSelection = focusedCatalogSelection,
+                    onFocusedCatalogSelectionChange = onFocusedCatalogSelectionChangeLambda,
+                    focusedHeroMediaNonce = focusedHeroMediaNonce,
+                    onFocusedHeroMediaNonceChange = onFocusedHeroMediaNonceChangeLambda,
+                    isVerticalRowsScrollingState = isVerticalRowsScrollingState,
+                    defaultBringIntoViewSpec = defaultBringIntoViewSpec,
+                    onContentFocusChanged = onContentFocusChangedLambda,
+                    modifier = Modifier.align(Alignment.BottomStart).clipToBounds()
+                )
+            } else {
             ModernHomeRowsList(
                 carouselRows = carouselRows,
                 verticalRowListState = verticalRowListState,
@@ -1188,6 +1254,7 @@ fun ModernHomeContent(
                 isVerticalRowsScrollingState = isVerticalRowsScrollingState,
                 modifier = Modifier.align(Alignment.BottomStart).clipToBounds()
             )
+            }
     }
 
     val selectedOptionsItem = optionsItem.value
