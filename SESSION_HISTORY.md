@@ -1412,3 +1412,180 @@ upstream settings diff to place" premise:
 
 ---
 
+
+## 📅 Session log — 2026-06-02/03 (Rows Manager redesign, enhanced pickers, loop scroll, centralized resolver, settings reorg + 13 UX fixes)
+
+### Headline
+
+A multi-pass overhaul of the **Rows Manager** (`appearance.rows`, ROWS_ONLY) and
+its source pickers, plus a settings reorganization and a per-scope/per-row
+expand subsystem. Shipped over several batched task lists; all compiled green
+and installed to the Jawwy TV (not yet smoke-tested on-device).
+
+### Data model + DataStore
+
+- `LayoutRowConfig.expandEnabled: Boolean? = null` added (null = follow scope,
+  true = always expand, false = never). Round-trips via `SerializableLayoutRow`
+  / `toSerializable` / `toDomain` — legacy rows deserialize to `null`.
+- **No new expand key** — reused the existing per-scope
+  `focused_poster_backdrop_expand_enabled_{scopeKey}` +
+  `focusedPosterBackdropExpandEnabledForScope()` (default true). The original
+  spec's `expand_backdrop_enabled_*` was rejected as a duplicate (user call).
+- New `focus_highlight_enabled` boolean key (default true) — master toggle for
+  the Theme "Focus highlight" group.
+
+### Expand behavior — per-scope + per-row (Modern / Classic / Spotlight; Grid N/A)
+
+- `HomeViewModelPresentationPipeline` now reads
+  `focusedPosterBackdropExpandEnabledForScope(homeScope)` (was the app-global
+  flag), so Home/Movies/TV/Collections each honor their own scope.
+- Per-row override layered on top via the new resolver (below). **The expand
+  flag is `focusedPosterBackdropExpandEnabled`, NOT `…TrailerEnabled`** — the
+  spec misnamed it; trailer autoplay was left untouched (user-confirmed).
+- Expand is now **instant** — `delay(0L)` in `ModernHomeContent` + `ContentCard`;
+  the configurable expand-delay is no longer read (kept in DataStore, unused).
+  Trade-off: the prior 370ms anti-flicker debounce in `ContentCard` is gone, so
+  rapid D-pad scroll in Classic/Spotlight may briefly flash expansion.
+- **Grid has no expand mechanic** (`GridContentCard` takes no expand params) and
+  renders a uniform grid, not per-catalog rows — documented N/A throughout.
+
+### Centralized resolver (`ui/screens/home/RowDisplayConfig.kt` — NEW)
+
+- Pure `resolveRowDisplayConfig(row, scope, globalExpandForScope) →
+  ResolvedRowDisplayConfig(effectiveCardStyle, effectiveCardWidthDp,
+  effectiveExpands)`. No Compose, data-in/data-out. `effectiveExpands =
+  row.expandEnabled ?: globalExpandForScope`.
+- Modern (`ModernHomeRows` + `ModernHomeRowsList`), Classic (`resolvePosterCardStyle`
+  + the CatalogRowSection call), and Spotlight (`resolveRowPosterCardStyle` /
+  `resolveRowCardHeight` + the call) all resolve per-row style/width/expand
+  through it. Callers pass `row.viewContext` as the (currently unused) scope arg.
+
+### Rows Manager redesign (`NewLayoutSettingsScreen.kt`, ROWS_ONLY)
+
+Final structure — fixed top, scrollable middle, no bottom bar:
+- **Row 1** scope tabs (Home / Movies / TV / Collections).
+- **Row 2** source pills (moved up from the old bottom bar): `+ Catalog / TMDB /
+  Trakt / MDBList (greyed "Coming Soon" → toast) / Collection / CW`. CW is
+  always visible; its add is a no-op when a CW row exists.
+- **Row 3** two-row **table header** doubling as global controls. Row A = labels
+  (Name / Order / Orient / Size / Expand / On-Off / Delete, compact 9sp to fit
+  42dp columns); Row B = global action buttons aligned under each label: Order
+  (re-sort to addon manifest order, `resortToAddonOrder()`), Orientation (▯/▭),
+  Size (popover), Expand (on/off), On/Off (toggle all), Delete (all + confirm).
+  Header labels, global buttons, and per-row controls share width constants
+  (`RowOrderColWidth`/`RowShapeColWidth`/`RowToggleColWidth`/`RowRemoveColWidth`)
+  so columns line up.
+- **Middle** scrollable rows; each row: name, ↑↓, orientation chip, size
+  popover, 3-state expand chip (null→true→false→null), enable Switch (now with
+  an accent focus ring), ✕ delete.
+- **Follow Addons Order + Clear All removed** from this screen — they now live
+  in the Catalog picker only (its Follow Order toggle + Delete All).
+- The legacy ALL-mode path (`SettingsScreen.kt`) keeps the old single-scroll
+  `LazyColumn`; only ROWS_ONLY was redesigned. `GlobalActionsToolbar` /
+  `ToolbarTextButton` / `CardOrientationToggle` removed.
+
+### Enhanced source pickers (`RowPickerDialogs.kt`, `AddRowPickerDialog.kt`)
+
+- Shared `PickerActionBar` below each picker's title: **🔄 Populate All**,
+  **📋 Follow Order ●/○** (Catalog only), **🗑 Delete All**.
+- Populate All adds every item of that source in **one dedup write** (VM
+  `addRows` — looping `addRow` raced on read-modify-write). Each picker builds
+  its own config list (addon sources / Trakt stubs / TMDB networks for current
+  media type / collection folders).
+- Delete All is **per-source-kind isolated** (VM `deleteRowsOfKinds`) + confirm
+  dialog; never touches other sources' rows.
+- **Multi-select, stays open** (Fix 6): tapping an item adds and keeps the
+  picker open; the item flips to "Added" as `existingRowIds` recomputes from
+  `uiState.rows`. All `onDismiss()`-on-select calls removed.
+- **Focus + Back** (Fix 4/5): default focus lands on the action bar (not the
+  list); context-aware `BackHandler` — Back from the list returns focus to the
+  action bar (via `actionBarFr` + `actionBarHasFocus`), Back from the action bar
+  closes the picker.
+
+### Loop scroll (`ui/screens/settings/LoopScroll.kt` — NEW)
+
+- Reusable `Modifier.dpadLoopWrap(onPrev, onNext, horizontal)` (mirrors the
+  TopBar pill wrap). Applied to: Rows Manager row list (vertical — wraps via
+  each edge row's orientation chip since rows aren't focusable themselves),
+  Catalog/Trakt picker list, Collection picker list (vertical), Hero catalog
+  picker (horizontal), Size popover (vertical).
+- **TMDB picker wrap deferred** — it's a Discover *form* + a networks sublist,
+  not a uniform list; edge-wrap there is fragile/low-value.
+
+### Settings reorganization (`SettingsHubScreen.kt`, `GlobalSettingsContent.kt`, `ThemeSettingsScreen.kt`)
+
+- **Cards pane deleted** entirely (sub-item + `CardsSettingsContent`).
+- New **Trailers** sub-item (after Rows) = the trailer autoplay controls
+  (`TrailersSettingsContent`, reuses `GlobalSettingsViewModel`).
+- **Theme** gains a "Focus highlight" group: master **Focus Highlight** toggle
+  (`focus_highlight_enabled`) gating **Poster Glow** + **Card Focus Style**
+  (Accent/Bloom). Master OFF hides the two sub-controls (settings-UI gating
+  only — render-side glow/border still read their own values).
+- Appearance order: Feel / Layout / Rows / Trailers / Top Bar / Side Rail /
+  Global / Theme / Continue Watching / Detail Page.
+- **Right pane is now an open canvas** (Fix 12/13): removed the bordered
+  `BackgroundCard` wrapper in `RightPane`; content renders on the background
+  with medium-tight padding (`RightPaneHorizontalPadding` 28dp /
+  `RightPaneVerticalPadding` 18dp). Propagates to every Appearance panel.
+
+### Layout picker (Fix 10/11)
+
+- Layout cards now `fillMaxWidth` + `weight(1f)` (was fixed 156dp, overflowing
+  and clipping Spotlight) — four equal cards across the pane.
+- Spotlight hides "Show Hero Carousel" (intrinsic to the layout); keeps the Hero
+  Catalogs picker. Classic/Grid/Modern unchanged.
+
+### Focus retention (Fix 8)
+
+- After a row delete, focus stays in the list: per-index ✕ `FocusRequester`s +
+  a pending-refocus `LaunchedEffect` refocus the row that shifts into the
+  deleted slot. Toggle/modify/reorder already retain focus via stable keyed
+  items. `IconChipButton` gained an optional `focusRequester`.
+
+### ViewModel additions (`NewLayoutSettingsViewModel.kt`)
+
+`expandBackdropEnabled` state + `expandBackdropEnabledFlow`; `setRowExpandEnabled`,
+`setExpandBackdropEnabled`; bulk `setAllRowsCardStyle`/`setAllRowsCardWidth`/
+`setAllRowsEnabled`; `addRows`, `deleteRowsOfKinds`, `resortToAddonOrder`.
+
+### New files
+
+- `ui/screens/home/RowDisplayConfig.kt` — pure per-row resolver.
+- `ui/screens/settings/LoopScroll.kt` — `Modifier.dpadLoopWrap`.
+
+### Architectural decisions
+
+- **Reuse the existing per-scope expand key**, don't add a parallel one — the
+  fix was making the home render read per-scope (it was reading the global flag)
+  + layering the per-row override. (Conflict-resolved with the user.)
+- **Resolver is pure / Compose-free**, callers pass `row.viewContext` as scope.
+- **Grid stays out of the expand/resolver per-row path** — it has no rows.
+- **Multi-select pickers rely on `existingRowIds` recomputing from `uiState`** —
+  no local "added" state in the dialog.
+
+### Pending follow-ups
+
+1. **Apple-TV-style "Cinema" card size** — add a new card dimension to
+   `CardWidthOptions` (and the size glyph scaling).
+2. **Compact header labels** ("Orient" at 9sp in 42dp columns) — verify on TV;
+   may want wider shape columns + full words.
+3. **On-device smoke test** of the focus fixes: post-delete refocus (Fix 8) and
+   Back-from-list-to-action-bar (Fix 5) — Compose-TV focus timing can differ.
+4. **Instant-expand flicker** on rapid scroll in Classic/Spotlight (`ContentCard`
+   debounce removed) — re-add a small guard if it reads poorly on TV.
+5. **TMDB picker loop-wrap** still deferred.
+6. Prior follow-ups (dead `bottomScrimMaxAlpha`/`openProfileOverlay`, Phase 8
+   localization, 23 skipped upstream commits, ContinueWatching render in
+   Classic, SideRail order consumption) still open.
+
+### Notes for future sessions
+
+- **`resolveRowDisplayConfig` is the one place** per-row style/width/expand is
+  resolved — change the hierarchy there, not in the layouts.
+- **Loop wrap = `Modifier.dpadLoopWrap`** — attach `onPrev` to the first item,
+  `onNext` to the last; each does `scrollToItem` + `requestFocus`. For
+  non-focusable row containers (Rows Manager), wrap to a stable child chip.
+- **`installFullDebug` may still hit the transient `IncrementalSplitterRunnable`
+  packaging failure** — plain re-run succeeds (happened once this session).
+
+---
