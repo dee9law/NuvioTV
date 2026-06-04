@@ -40,6 +40,16 @@ internal val MODERN_ROW_HEADER_FOCUS_INSET = 40.dp
  */
 internal const val MODERN_PORTRAIT_ROWS_FRACTION = 0.52f
 internal const val MODERN_LANDSCAPE_ROWS_FRACTION = 0.49f
+
+/**
+ * Minimum hero height kept visible in Modern **State 2** (non-fullscreen
+ * backdrop) when a Cinema row is focused. The rows strip grows to fit a full
+ * cinema-row container and the hero shrinks to the complement (never below this
+ * floor) so there is no dead black space and the tall cinema cards aren't
+ * clipped — Spotlight's dynamic-column behaviour. State 1 (fullscreen backdrop)
+ * does not use this.
+ */
+internal val MODERN_CINEMA_STATE2_HERO_MIN = 200.dp
 internal const val MODERN_CONTINUE_WATCHING_ROW_KEY = "continue_watching"
 internal val MODERN_LANDSCAPE_LOGO_GRADIENT = Brush.verticalGradient(
     colorStops = arrayOf(

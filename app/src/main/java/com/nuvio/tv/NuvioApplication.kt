@@ -129,7 +129,14 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
             }
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizePercent(context, 0.33)
+                    // 0.45 (was 0.33): this is the foreground TV app — there is no
+                    // multitasking competing for RAM, so a larger in-memory bitmap
+                    // cache keeps more decoded posters/backdrops/logos resident.
+                    // Revisiting a row or scrolling back is then instant instead of
+                    // re-decoding from disk. The heavier landscape/cinema backdrops
+                    // (a fork-specific cost — upstream only ever loads light posters)
+                    // benefit most from staying cached.
+                    .maxSizePercent(context, 0.45)
                     .build()
             }
             .diskCache {
@@ -142,7 +149,11 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
             .precision(coil3.size.Precision.INEXACT)
             .allowHardware(true)
             .allowRgb565(true)
-            .bitmapFactoryMaxParallelism(2)
+            // 4 (was 2) — Coil's own default. When a fresh row/screen of cards
+            // appears, the decode throughput doubles so images fill in noticeably
+            // faster instead of arriving two-at-a-time. ⚠️ If on-device scroll jank
+            // appears on weaker panels, step back to 3.
+            .bitmapFactoryMaxParallelism(4)
             .build()
     }
 }

@@ -218,7 +218,11 @@ fun SpotlightHomeContent(
     }
 
     // ── Per-row hero sizing (Fix 4: recalculated per focused row) ──
-    val focusedRowCardHeight by remember {
+    // Keyed on the row data + config so the derivedStateOf is rebuilt when the
+    // catalog rows or their layout configs change. Without these keys the lambda
+    // captures the FIRST composition's catalogRows/rowConfigLookup forever, so a
+    // later data update (lazy-load, settings change) is read against a stale list.
+    val focusedRowCardHeight by remember(catalogRows, uiState.rowConfigLookup, posterCardStyle) {
         derivedStateOf {
             resolveRowCardHeight(
                 catalogRows.getOrNull(focusedRowIndex),
@@ -241,7 +245,10 @@ fun SpotlightHomeContent(
     // When it is, the hero collapses to State C (HIDDEN). Moving focus to any
     // non-Cinema row restores the hero. Tracks the focused row only — not
     // whether Cinema rows merely exist in the layout.
-    val focusedRowIsCinema by remember {
+    // Keyed on catalogRows + rowConfigLookup (same stale-capture reason as
+    // focusedRowCardHeight above). focusedRowIndex is read inside and is snapshot
+    // state, so moving focus between rows re-evaluates this and the hero restores.
+    val focusedRowIsCinema by remember(catalogRows, uiState.rowConfigLookup) {
         derivedStateOf {
             val row = catalogRows.getOrNull(focusedRowIndex) ?: return@derivedStateOf false
             val cfg = uiState.rowConfigLookup[
@@ -253,15 +260,19 @@ fun SpotlightHomeContent(
     }
 
     // ── Hero state machine ──────────────────────────────────────────
-    val heroState by remember {
-        derivedStateOf {
-            when {
-                !rowsAreaHasFocus -> SpotlightHeroState.CAROUSEL
-                focusedRowIsCinema -> SpotlightHeroState.HIDDEN
-                showHeroForFocusedRow -> SpotlightHeroState.CONSTRAINED
-                else -> SpotlightHeroState.HIDDEN
-            }
-        }
+    // Plain per-recomposition val (NOT a remembered derivedStateOf): it reads
+    // showHeroForFocusedRow, a plain non-state val recomputed every composition.
+    // A remembered derivedStateOf would close over the FIRST composition's
+    // showHeroForFocusedRow and never see it change — which left the hero stuck
+    // HIDDEN after a Cinema row. All three inputs (rowsAreaHasFocus,
+    // focusedRowIsCinema, showHeroForFocusedRow→focusedRowCardHeight) are snapshot
+    // state read in the body, so this recomputes the moment focus leaves a Cinema
+    // row and the hero restores.
+    val heroState = when {
+        !rowsAreaHasFocus -> SpotlightHeroState.CAROUSEL
+        focusedRowIsCinema -> SpotlightHeroState.HIDDEN
+        showHeroForFocusedRow -> SpotlightHeroState.CONSTRAINED
+        else -> SpotlightHeroState.HIDDEN
     }
 
     // ── Animated hero height ────────────────────────────────────────

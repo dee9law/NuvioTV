@@ -8,6 +8,7 @@ package com.nuvio.tv.ui.screens.home
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.BringIntoViewSpec
@@ -898,9 +899,38 @@ fun ModernHomeContent(
             val rowsViewportHeightFraction =
                 if (useLandscapePosters) MODERN_LANDSCAPE_ROWS_FRACTION
                 else MODERN_PORTRAIT_ROWS_FRACTION
-            val rowsViewportHeight = remember(screenHeight, rowsViewportHeightFraction) {
+            // Fix 2 — focus-driven Cinema reflow (State 2). Computed here (moved up
+            // from below the hero block) because the rows/hero heights now derive
+            // from it. Tracks the focused row's style only — keyed so it survives
+            // row-data updates (same reasoning as the Spotlight fix).
+            val focusedRowIsCinema by remember(rowByKey, uiState.rowConfigLookup) {
+                derivedStateOf {
+                    val key = activeRowKey.value ?: return@derivedStateOf false
+                    val row = rowByKey.map[key] ?: return@derivedStateOf false
+                    val cfg = row.layoutConfigKey?.let { uiState.rowConfigLookup[it] }
+                        ?: return@derivedStateOf false
+                    resolveRowDisplayConfig(cfg, cfg.viewContext, globalExpandForScope = false)
+                        .effectiveCardStyle == LayoutCardStyle.CINEMA
+                }
+            }
+            val baseRowsViewportHeight = remember(screenHeight, rowsViewportHeightFraction) {
                 screenHeight * rowsViewportHeightFraction
             }
+            // State 2 (non-fullscreen hero) + Cinema row focused: grow the rows to a
+            // full cinema-row container and let the hero shrink to the complement —
+            // no dead black space, cinema cards not clipped. State 1 (fullscreen)
+            // keeps the base split because cinemaState2Active gates on !fullScreen.
+            val cinemaState2Active = focusedRowIsCinema && !fullScreenBackdrop
+            val cinemaRowsViewportHeight = remember(screenHeight, baseRowsViewportHeight) {
+                (screenHeight - MODERN_CINEMA_STATE2_HERO_MIN)
+                    .coerceAtLeast(singleRowContainerHeight(CINEMA_CARD_HEIGHT_DP.dp))
+                    .coerceAtLeast(baseRowsViewportHeight)
+            }
+            val rowsViewportHeight by animateDpAsState(
+                targetValue = if (cinemaState2Active) cinemaRowsViewportHeight else baseRowsViewportHeight,
+                animationSpec = tween(durationMillis = 220),
+                label = "modernRowsViewportHeight"
+            )
             val rowTitleLineHeight = MaterialTheme.typography.titleMedium.lineHeight
             val rowTitleHeight = remember(rowTitleLineHeight, localDensity) {
                 with(localDensity) {
@@ -913,7 +943,15 @@ fun ModernHomeContent(
             // fades onto the hero rather than butting up against it. This
             // is the immersion seam — removing it leaves a visible step
             // between hero and rows.
+            // Visual hero height — derives from the (possibly animated) rows height
+            // so it shrinks smoothly as the rows grow for a focused cinema row.
             val heroBackdropHeight = remember(screenHeight, rowsViewportHeight, rowTitleHeight) { (screenHeight - rowsViewportHeight + rowTitleHeight + 14.dp).coerceAtMost(screenHeight) }
+            // Stable decode height — derived from the BASE (non-animated) rows
+            // height so the hero image is requested at one fixed size. Without this
+            // the animated visual height would rebuild the ImageRequest every frame
+            // during the 220ms reflow (re-decode spam). Base ≥ cinema height, so the
+            // image decodes large and scales down — no visible quality loss.
+            val heroBackdropRequestHeight = remember(screenHeight, baseRowsViewportHeight, rowTitleHeight) { (screenHeight - baseRowsViewportHeight + rowTitleHeight + 14.dp).coerceAtMost(screenHeight) }
             val verticalRowBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec) {
                 val topInsetPx = with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
                 @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
@@ -940,10 +978,10 @@ fun ModernHomeContent(
                     else (screenWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION).roundToPx()
                 }
             }
-            val heroMediaHeightPx = remember(heroBackdropHeight, screenHeight, localDensity, fullScreenBackdrop) {
+            val heroMediaHeightPx = remember(heroBackdropRequestHeight, screenHeight, localDensity, fullScreenBackdrop) {
                 with(localDensity) {
                     if (fullScreenBackdrop) screenHeight.roundToPx()
-                    else heroBackdropHeight.roundToPx()
+                    else heroBackdropRequestHeight.roundToPx()
                 }
             }
 
@@ -974,22 +1012,16 @@ fun ModernHomeContent(
             }
             val onFirstFrameRenderedLambda = remember { { heroTrailerFirstFrameRendered = true } }
 
-            // Purely focus-driven hero collapse: when the row that currently has
-            // focus (activeRowKey) is a Cinema row, fade the hero backdrop +
-            // title out. Moving focus to any non-Cinema row fades them back.
-            // Tracks the focused row only — not whether Cinema rows exist.
-            val focusedRowIsCinema by remember(rowByKey, uiState.rowConfigLookup) {
-                derivedStateOf {
-                    val key = activeRowKey.value ?: return@derivedStateOf false
-                    val row = rowByKey.map[key] ?: return@derivedStateOf false
-                    val cfg = row.layoutConfigKey?.let { uiState.rowConfigLookup[it] }
-                        ?: return@derivedStateOf false
-                    resolveRowDisplayConfig(cfg, cfg.viewContext, globalExpandForScope = false)
-                        .effectiveCardStyle == LayoutCardStyle.CINEMA
-                }
-            }
+            // Focus-driven hero treatment for a Cinema row, split by hero mode:
+            //  • State 2 (non-fullscreen): the hero STAYS VISIBLE and shrinks while
+            //    the rows grow (see cinemaState2Active / rowsViewportHeight above),
+            //    so this alpha holds at 1 — fading it here is what produced the dead
+            //    black space the fix removes.
+            //  • State 1 (fullscreen backdrop): keep the existing fade-out until the
+            //    State-1 one-row pager (separate change) redefines it.
+            // focusedRowIsCinema is defined once, higher up (Fix 2 reflow block).
             val heroCinemaAlpha by animateFloatAsState(
-                targetValue = if (focusedRowIsCinema) 0f else 1f,
+                targetValue = if (focusedRowIsCinema && fullScreenBackdrop) 0f else 1f,
                 animationSpec = tween(durationMillis = 220),
                 label = "modernHeroCinemaAlpha"
             )
