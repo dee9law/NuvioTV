@@ -118,7 +118,7 @@
         errorLine2="                                                         ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeModels.kt"
-            line="367"
+            line="377"
             column="58"/>
     </issue>
 
@@ -129,7 +129,7 @@
         errorLine2="                                                       ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeModels.kt"
-            line="396"
+            line="406"
             column="56"/>
     </issue>
 
@@ -140,7 +140,7 @@
         errorLine2="                                          ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeModels.kt"
-            line="506"
+            line="516"
             column="43"/>
     </issue>
 
@@ -531,7 +531,7 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.core:core-ktx than 1.15.0 is available: 1.18.0"
+        message="A newer version of androidx.core:core-ktx than 1.15.0 is available: 1.19.0"
         errorLine1="coreKtx = &quot;1.15.0&quot;"
         errorLine2="          ~~~~~~~~">
         <location
@@ -3902,7 +3902,7 @@
         errorLine2="                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt"
-            line="587"
+            line="591"
             column="23"/>
     </issue>
 
@@ -3913,7 +3913,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt"
-            line="588"
+            line="592"
             column="24"/>
     </issue>
 
@@ -3924,7 +3924,7 @@
         errorLine2="                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/nuvio/tv/ui/screens/home/SpotlightHomeContent.kt"
-            line="175"
+            line="178"
             column="23"/>
     </issue>
 
@@ -3935,7 +3935,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/nuvio/tv/ui/screens/home/SpotlightHomeContent.kt"
-            line="176"
+            line="179"
             column="24"/>
     </issue>
 
@@ -4166,7 +4166,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/com/nuvio/tv/ui/components/CatalogRowSection.kt"
-            line="97"
+            line="101"
             column="5"/>
     </issue>
 
@@ -4298,7 +4298,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeRows.kt"
-            line="1042"
+            line="1055"
             column="5"/>
     </issue>
 
@@ -4321,6 +4321,17 @@
         <location
             file="src/main/java/com/nuvio/tv/ui/screens/settings/PlaybackSettingsScreen.kt"
             line="1414"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="ModifierParameter"
+        message="Modifier parameter should be the first optional parameter"
+        errorLine1="    modifier: Modifier = Modifier,"
+        errorLine2="    ~~~~~~~~">
+        <location
+            file="src/main/java/com/nuvio/tv/ui/screens/settings/RowPickerDialogs.kt"
+            line="785"
             column="5"/>
     </issue>
 
@@ -26336,7 +26347,7 @@
         errorLine2="                                    ^">
         <location
             file="src/main/java/com/nuvio/tv/ui/screens/settings/ThemeSettingsScreen.kt"
-            line="290"
+            line="349"
             column="37"/>
     </issue>
 
