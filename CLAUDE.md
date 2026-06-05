@@ -536,3 +536,111 @@ and installed to the Jawwy TV (`192.168.8.170`); **not yet smoke-tested**.
   resolved style; the default keeps every other `ContentCard` caller poster-only.
 - **`upstream/dev` has no per-row card style** — don't expect to port landscape/
   cinema behavior from upstream; it's fork-specific.
+
+---
+
+## 📅 Session log — 2026-06-04/05 (Spotlight cinema-hero fix, Modern State-2 cinema reflow, Modern State-1 one-row crossfade pager, image tuning, cinema 16:9)
+
+### Headline
+
+Five home-layout fixes, all compiled green and installed to the Jawwy TV
+(`192.168.8.170`); **not yet smoke-tested**. Highlight: a new Modern **State-1
+one-row crossfade pager** (`ModernHomeRowsPager.kt`). Two fixes are flagged for
+revision next session (Modern State-2 proportions, Cinema dimensions). Pushed to
+`origin/dev`.
+
+### Fix 1 — Spotlight cinema hero stuck-hidden (`SpotlightHomeContent.kt`) ✅
+
+Root cause: three **stale-capture** bugs in the 06-03/04 cinema-collapse code.
+`focusedRowIsCinema` + `focusedRowCardHeight` were `remember { derivedStateOf {} }`
+with **no keys** (captured the first composition's `catalogRows`/`rowConfigLookup`
+forever); `heroState` was a remembered `derivedStateOf` closing over
+`showHeroForFocusedRow` — a plain non-state `val` it could never observe changing,
+so it stayed `HIDDEN`. Fix: keyed the two deriveds on
+`catalogRows`/`rowConfigLookup`/`posterCardStyle`; made `heroState` a plain
+per-recomposition `val`. Leaving a Cinema row now restores the hero — purely
+focus-driven.
+
+### Fix 2 — Modern State-2 cinema dead space (`ModernHomeContent.kt`, `ModernHomeModels.kt`) ⚠️ needs polish
+
+State 2 = non-fullscreen hero (`modernHeroFullScreenBackdropEnabled` OFF). The
+06-03/04 code faded the hero to alpha 0 on a focused cinema row in **both** hero
+modes, leaving black dead space + clipped cinema cards. Fix: moved
+`focusedRowIsCinema` up; made **`rowsViewportHeight` cinema-aware + animated**
+(`animateDpAsState` 220ms) — on a focused cinema row in State 2 it grows to
+`singleRowContainerHeight(CINEMA)` down to a `MODERN_CINEMA_STATE2_HERO_MIN = 200dp`
+hero floor; the hero shrinks to the complement. Every downstream consumer already
+reads `rowsViewportHeight`, so the reflow propagates for free. Gated the alpha-fade
+to **State 1 only**; added a **stable `heroBackdropRequestHeight`** (base, non-animated)
+for the hero image request so the 220ms visual animation doesn't rebuild the
+`ImageRequest` every frame. **FOLLOW-UP:** on-device the metadata renders behind the
+TopBar and there's too much free space — must match **Spotlight State B** proportions
+exactly.
+
+### Fix 3 — Modern State-1 one-row crossfade pager (NEW `ModernHomeRowsPager.kt`, `ModernHomeContent.kt`) ✅
+
+State 1 = fullscreen backdrop. New behavior: **ONE row visible at a time**, fixed at
+the bottom, `Crossfade` between rows on D-pad up/down, **dimmed prev/next row-name
+hints** above and below, adapts to each row's card style/size, **backdrop + hero
+unchanged**. Implementation: `ModernHomeContent` branches `fullScreenBackdrop` →
+`ModernHomeRowsPager` else → `ModernHomeRowsList` (existing State-2 list untouched).
+The pager **reuses `ModernRowSection`** via a thin `ModernPagerRow` wrapper that
+replicates the list's `stableOnRowItemFocused`/`stableOnCatalogSelectionFocused`.
+Up/down are intercepted at the container (`onPreviewKeyEvent`): swap the visible row
+index, update `activeRowKey`/hero immediately, re-drive focus onto the new row via
+its `rowFocusRequester` (`focusRestorer` lands on the saved item) with a
+`withFrameNanos` retry loop; **up at row 0 is NOT consumed** → escapes to the TopBar;
+**down at the last row is consumed** (no-op). Autorepeat throttled
+(`MODERN_PAGER_REPEAT_MS = 180`). Per-row lazy-load + L1/L3 back triggers replicated.
+`heroCinemaAlpha` retired (constant `1f`) — the hero is never faded now.
+
+### Fix 4 — Image loading fork tuning (`NuvioApplication.kt`) ✅
+
+**Audit:** our Coil `ImageLoader` / `ContentCard` request building / Modern row
+prefetch are **byte-identical to upstream/dev** — nothing to port.
+`LocalVerticalScrollSuppressImages` has **no provider** → dead code, not a slowness
+cause. Genuine fork-cost: landscape/cinema rows load heavier `backdropUrl`, and
+`CatalogRowSection` (Classic/Spotlight) has **no prefetch**. Applied the two global
+levers: memory cache `0.33 → 0.45`, `bitmapFactoryMaxParallelism 2 → 4` (Coil's
+default). ⚠️ In-code note: dial parallelism back to `3` if scroll janks on weak panels.
+
+### Fix 5 — Cinema sizing (`RowDisplayConfig.kt`) ⚠️ needs revision
+
+`CINEMA_CARD_HEIGHT_DP` `285 → 214` (380×285 4:3 → 380×214 16:9, width unchanged =
+no horizontal layout shift). **FOLLOW-UP:** revise to **260×370** (tall premium card).
+
+### New files
+
+- `ui/screens/home/ModernHomeRowsPager.kt` — Modern State-1 single-row crossfade
+  pager (reuses `ModernRowSection`; manual up/down row-switch + focus handoff).
+
+### Architectural decisions
+
+- **Modern stays a `Box`** (absolute hero layer + bottom rows). State-2 cinema reflow
+  rides the single **animated `rowsViewportHeight`** (all consumers already read it);
+  the hero **decode** height is kept stable separately to avoid per-frame re-decode.
+- **State 1 uses a separate pager composable** — isolated, never touches the working
+  `ModernHomeRowsList`; branch at the one call site. Reverting Fix 3 = drop the pager
+  file + restore the call site, nothing else.
+- **The hero is never faded for a Cinema row anymore** — State 2 reflows, State 1
+  shows the cinema row like any other with the backdrop/hero unchanged.
+
+### Pending follow-ups
+
+1. **Modern State 2** — metadata behind the TopBar + too much free space; match
+   **Spotlight State B** proportions exactly.
+2. **Cinema dimensions → 260×370** (tall premium card) in `RowDisplayConfig.kt`.
+3. **Image loading** — on-device validation pending (parallelism jank check;
+   consider the Classic/Spotlight backdrop prefetch as the next real win).
+4. **On-device smoke test** of all 5 fixes — focus timing on the State-1 pager
+   especially (row-switch handoff, up-at-row-0 → TopBar, down-at-last-row,
+   return-from-detail landing on the right row).
+5. Prior open follow-ups (instant-expand flicker; TMDB picker loop-wrap; Phase 8
+   localization; 23 skipped upstream commits; ContinueWatching render in Classic;
+   SideRail order consumption) still open.
+
+### Build / deploy
+
+`BUILD SUCCESSFUL`; installed `app-full-armeabi-v7a-debug.apk` on the Jawwy TV
+(`192.168.8.170`). Commits: `26aee19c` (Fixes 1/5/4/2 checkpoint), `031fc030`
+(Fix 3 pager), `bc86d812` (lint baseline) — all on `origin/dev`. **Not smoke-tested.**
