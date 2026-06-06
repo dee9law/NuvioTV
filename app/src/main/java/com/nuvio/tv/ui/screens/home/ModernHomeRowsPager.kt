@@ -601,7 +601,7 @@ private fun modernPagerRowCardHeight(
     landscapeCardHeight: Dp,
     cwCardHeight: Dp,
 ): Dp {
-    if (row.key == MODERN_CONTINUE_WATCHING_ROW_KEY) {
+    if (isModernContinueWatchingRowKey(row.key)) {
         // Match ModernRowSection's CW footprint so Poster/Wide aren't clipped.
         val cwConfig = row.layoutConfigKey?.let { rowConfigLookup[it] }
         val cwStyle = cwConfig?.continueWatchingStyle ?: ContinueWatchingCardStyle.CARD

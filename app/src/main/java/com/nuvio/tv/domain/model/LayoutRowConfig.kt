@@ -37,7 +37,38 @@ data class LayoutRowConfig(
     val expandEnabled: Boolean? = null,
 )
 
-enum class LayoutRowKind { ADDON, COLLECTION, TRAKT, TMDB_DISCOVER, TMDB_NETWORK, CONTINUE_WATCHING }
+enum class LayoutRowKind {
+    ADDON, COLLECTION, TRAKT, TMDB_DISCOVER, TMDB_NETWORK,
+    // CONTINUE_WATCHING is the legacy single-CW kind, kept so old persisted
+    // rows still deserialize; a one-shot migration rewrites them to
+    // CONTINUE_WATCHING_SERIES. New CW rows use the split kinds below.
+    CONTINUE_WATCHING,
+    CONTINUE_WATCHING_SERIES, CONTINUE_WATCHING_MOVIES,
+    // Trakt "Up Next" (next unwatched episode per show) — reuses the Continue
+    // Watching render path (NextUp items) rather than the Trakt catalog fetch.
+    TRAKT_UP_NEXT,
+}
+
+/**
+ * The three Continue-Watching-derived row variants. All three render through
+ * the shared ContinueWatchingCard, differing only in which slice of the CW
+ * item list they show:
+ *  - [SERIES]  — in-progress + next-up shows/episodes (non-movie).
+ *  - [MOVIES]  — in-progress movies.
+ *  - [UP_NEXT] — next-unwatched-episode (NextUp) items only.
+ */
+enum class ContinueWatchingFilter { SERIES, MOVIES, UP_NEXT }
+
+/** Maps a row kind to its CW filter, or null if the kind is not CW-derived. */
+val LayoutRowKind.continueWatchingFilter: ContinueWatchingFilter?
+    get() = when (this) {
+        LayoutRowKind.CONTINUE_WATCHING_SERIES -> ContinueWatchingFilter.SERIES
+        LayoutRowKind.CONTINUE_WATCHING_MOVIES -> ContinueWatchingFilter.MOVIES
+        LayoutRowKind.TRAKT_UP_NEXT -> ContinueWatchingFilter.UP_NEXT
+        // Legacy single CW kind behaves as Series.
+        LayoutRowKind.CONTINUE_WATCHING -> ContinueWatchingFilter.SERIES
+        else -> null
+    }
 
 /**
  * Card shape for a row's posters.
@@ -117,7 +148,19 @@ object LayoutRowKey {
     fun forTmdbNetwork(networkId: Int, mediaType: String): String =
         "tmdb_network|$networkId|$mediaType"
 
+    /** Legacy single CW row id (pre-split). Kept for migration matching. */
     fun forContinueWatching(): String = "continue_watching"
+
+    fun forContinueWatchingSeries(): String = "continue_watching_series"
+    fun forContinueWatchingMovies(): String = "continue_watching_movies"
+    fun forTraktUpNext(): String = "trakt_up_next"
+
+    /** Canonical id (== rowConfigLookup key) for a given CW filter variant. */
+    fun forContinueWatchingFilter(filter: ContinueWatchingFilter): String = when (filter) {
+        ContinueWatchingFilter.SERIES -> forContinueWatchingSeries()
+        ContinueWatchingFilter.MOVIES -> forContinueWatchingMovies()
+        ContinueWatchingFilter.UP_NEXT -> forTraktUpNext()
+    }
 }
 
 /**

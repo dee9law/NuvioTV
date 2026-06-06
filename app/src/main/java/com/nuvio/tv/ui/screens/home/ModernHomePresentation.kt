@@ -7,6 +7,7 @@ import com.nuvio.tv.LocaleCache
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
+import com.nuvio.tv.domain.model.ContinueWatchingFilter
 import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.LayoutRowConfig
 import com.nuvio.tv.domain.model.LayoutRowKey
@@ -77,55 +78,37 @@ internal fun buildModernHomePresentation(
         val catalogRowLimit = maxCatalogRows?.coerceAtLeast(0)
         var renderedCatalogRows = 0
 
-        // Whether the user has added a Continue Watching row via Settings →
-        // Rows. When configured, the CW row is emitted at its chosen position
-        // in the loop below (and only when enabled — a disabled CW row is
-        // filtered out of [visibleHomeRows] upstream, which fixes the on/off
-        // toggle for Modern/Immersive). When NOT configured, CW is pinned at
-        // the top by default (legacy behaviour), driven purely by history.
-        val continueWatchingConfigured = input.rowConfigLookup[
-            com.nuvio.tv.domain.model.LayoutRowKey.forContinueWatching()
-        ] != null
-        val continueWatchingRow: HeroCarouselRow? = if (input.continueWatchingItems.isNotEmpty()) {
-            val reuseContinueWatchingRow =
-                cache.continueWatchingRow != null &&
-                    cache.continueWatchingItems == input.continueWatchingItems &&
-                    cache.continueWatchingTitle == strContinueWatching &&
-                    cache.continueWatchingAirsDateTemplate == strAirsDate &&
-                    cache.continueWatchingUpcomingLabel == strUpcoming &&
-                    cache.continueWatchingUseLandscapePosters == input.useLandscapePosters
-            val row = if (reuseContinueWatchingRow) {
-                checkNotNull(cache.continueWatchingRow)
-            } else {
-                HeroCarouselRow(
-                    key = MODERN_CONTINUE_WATCHING_ROW_KEY,
-                    title = strContinueWatching,
-                    globalRowIndex = -1,
-                    items = input.continueWatchingItems.map { item ->
-                        buildContinueWatchingItem(
-                            item = item,
-                            useLandscapePosters = input.useLandscapePosters,
-                            airsDateTemplate = strAirsDate,
-                            upcomingLabel = strUpcoming,
-                            context = localizedContext
-                        )
-                    }.asStable()
-                )
-            }
-            cache.continueWatchingItems = input.continueWatchingItems
-            cache.continueWatchingTitle = strContinueWatching
-            cache.continueWatchingAirsDateTemplate = strAirsDate
-            cache.continueWatchingUpcomingLabel = strUpcoming
-            cache.continueWatchingUseLandscapePosters = input.useLandscapePosters
-            cache.continueWatchingRow = row
-            row
-        } else {
-            cache.continueWatchingItems = emptyList()
-            cache.continueWatchingRow = null
-            null
+        // Continue Watching family (Series / Movies / Up Next). Each configured
+        // CW row is emitted at its chosen position in the loop below — and only
+        // when enabled, since disabled rows are filtered out of visibleHomeRows
+        // (this is what makes the on/off toggle work). When NO CW-family row is
+        // configured at all, Series is pinned at the top by default.
+        fun buildCwRow(filter: ContinueWatchingFilter, index: Int): HeroCarouselRow? {
+            val items = input.continueWatchingItems.forContinueWatchingFilter(filter)
+            if (items.isEmpty()) return null
+            val key = com.nuvio.tv.domain.model.LayoutRowKey.forContinueWatchingFilter(filter)
+            return HeroCarouselRow(
+                key = key,
+                title = input.rowConfigLookup[key]?.name ?: strContinueWatching,
+                globalRowIndex = index,
+                items = items.map { item ->
+                    buildContinueWatchingItem(
+                        item = item,
+                        useLandscapePosters = input.useLandscapePosters,
+                        airsDateTemplate = strAirsDate,
+                        upcomingLabel = strUpcoming,
+                        context = localizedContext,
+                    )
+                }.asStable(),
+            )
         }
-        if (continueWatchingRow != null && !continueWatchingConfigured) {
-            add(continueWatchingRow)
+        val anyCwConfigured = ContinueWatchingFilter.entries.any {
+            input.rowConfigLookup.containsKey(
+                com.nuvio.tv.domain.model.LayoutRowKey.forContinueWatchingFilter(it),
+            )
+        }
+        if (!anyCwConfigured) {
+            buildCwRow(ContinueWatchingFilter.SERIES, -1)?.let { add(it) }
         }
 
         visibleHomeRows.forEachIndexed { index, homeRow ->
@@ -321,14 +304,8 @@ internal fun buildModernHomePresentation(
                     add(placeholderRow)
                 }
                 is HomeRow.ContinueWatching -> {
-                    // Configured CW row: emit at its chosen position with a
-                    // matching globalRowIndex (mirrors the catalog-row pattern).
-                    if (continueWatchingRow != null) {
-                        add(
-                            if (continueWatchingRow.globalRowIndex == index) continueWatchingRow
-                            else continueWatchingRow.copy(globalRowIndex = index),
-                        )
-                    }
+                    // Configured CW row: emit at its chosen position, filtered.
+                    buildCwRow(homeRow.filter, index)?.let { add(it) }
                 }
             }
         }

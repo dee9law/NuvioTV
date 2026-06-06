@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.LocalNavBarFocusRequester
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.ContinueWatchingFilter
 import com.nuvio.tv.domain.model.continueWatchingStyle
 import com.nuvio.tv.domain.model.CW_DEFAULT_CARD_WIDTH_DP
 import com.nuvio.tv.domain.model.LayoutCardStyle
@@ -208,19 +209,30 @@ fun SpotlightHomeContent(
     // Spotlight's row list is index-coupled to catalogRows for its hero
     // state, so CW is pinned at the top here rather than threaded into an
     // arbitrary position. ──────────────────────────────────────────────
-    val continueWatchingConfig = uiState.rowConfigLookup[LayoutRowKey.forContinueWatching()]
-    val showSpotlightContinueWatching =
-        uiState.continueWatchingItems.isNotEmpty() &&
-            (continueWatchingConfig == null || continueWatchingConfig.enabled)
-    val spotlightCwStyle =
-        continueWatchingConfig?.continueWatchingStyle ?: ContinueWatchingCardStyle.CARD
-    val spotlightCwFootprint = remember(spotlightCwStyle, continueWatchingConfig?.cardWidthDp) {
-        continueWatchingCardFootprint(
-            style = spotlightCwStyle,
-            baseWidth = (continueWatchingConfig?.cardWidthDp ?: CW_DEFAULT_CARD_WIDTH_DP).dp,
-        )
+    val anyCwConfigured = ContinueWatchingFilter.entries.any {
+        uiState.rowConfigLookup.containsKey(LayoutRowKey.forContinueWatchingFilter(it))
     }
-    val continueWatchingFirstItemFr = remember { FocusRequester() }
+    // The CW-family rows (Series / Movies / Up Next) to show, in a stable order,
+    // each filtered to its slice. Configured rows honour enabled + non-empty;
+    // when nothing is configured at all, Series shows by default.
+    val spotlightCwFilters = remember(uiState.rowConfigLookup, uiState.continueWatchingItems) {
+        val configured = ContinueWatchingFilter.entries.filter { f ->
+            val cfg = uiState.rowConfigLookup[LayoutRowKey.forContinueWatchingFilter(f)]
+            cfg != null && cfg.enabled &&
+                uiState.continueWatchingItems.forContinueWatchingFilter(f).isNotEmpty()
+        }
+        if (configured.isEmpty() && !anyCwConfigured &&
+            uiState.continueWatchingItems
+                .forContinueWatchingFilter(ContinueWatchingFilter.SERIES).isNotEmpty()
+        ) {
+            listOf(ContinueWatchingFilter.SERIES)
+        } else {
+            configured
+        }
+    }
+    val showSpotlightContinueWatching = spotlightCwFilters.isNotEmpty()
+    // One focus requester per CW filter for hero <-> CW… <-> row0 chaining.
+    val cwRowItemFrs = remember { ContinueWatchingFilter.entries.associateWith { FocusRequester() } }
     // Per-row inner LazyRow states, keyed by row index. Registered by each
     // CatalogRowSection while it's composed (see itemsIndexed below) so the
     // Back handler can scroll a row's first card back into composition before
@@ -567,40 +579,58 @@ fun SpotlightHomeContent(
                     }
                     .focusRestorer()
             ) {
-                if (showSpotlightContinueWatching) {
-                    item(key = "spotlight_continue_watching") {
-                        ContinueWatchingSection(
-                            items = uiState.continueWatchingItems,
-                            onItemClick = onContinueWatchingClick,
-                            onRemoveItem = { item ->
-                                val contentId = when (item) {
-                                    is ContinueWatchingItem.InProgress -> item.progress.contentId
-                                    is ContinueWatchingItem.NextUp -> item.info.contentId
-                                }
-                                val season = when (item) {
-                                    is ContinueWatchingItem.InProgress -> item.progress.season
-                                    is ContinueWatchingItem.NextUp -> item.info.seedSeason
-                                }
-                                val episode = when (item) {
-                                    is ContinueWatchingItem.InProgress -> item.progress.episode
-                                    is ContinueWatchingItem.NextUp -> item.info.seedEpisode
-                                }
-                                onRemoveContinueWatching(
-                                    contentId, season, episode, item is ContinueWatchingItem.NextUp,
-                                )
-                            },
-                            onStartFromBeginning = onContinueWatchingStartFromBeginning,
-                            showManualPlayOption = showContinueWatchingManualPlayOption,
-                            onPlayManually = onContinueWatchingPlayManually,
-                            useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
-                            cwStyle = spotlightCwStyle,
-                            cardWidth = spotlightCwFootprint.cardWidth,
-                            imageHeight = spotlightCwFootprint.imageHeight,
-                            upFocusRequester = heroFocusRequester,
-                            downFocusRequester = firstItemRequesters.getOrPut(0) { FocusRequester() },
-                            firstItemFocusRequester = continueWatchingFirstItemFr,
+                itemsIndexed(
+                    items = spotlightCwFilters,
+                    key = { _, filter -> "spotlight_cw_${filter.name}" },
+                ) { cwIndex, cwFilter ->
+                    val cwStyle = uiState.rowConfigLookup[
+                        LayoutRowKey.forContinueWatchingFilter(cwFilter)
+                    ]?.continueWatchingStyle ?: ContinueWatchingCardStyle.CARD
+                    val cwFootprint = remember(cwStyle, cwFilter, uiState.rowConfigLookup) {
+                        continueWatchingCardFootprint(
+                            style = cwStyle,
+                            baseWidth = (uiState.rowConfigLookup[
+                                LayoutRowKey.forContinueWatchingFilter(cwFilter)
+                            ]?.cardWidthDp ?: CW_DEFAULT_CARD_WIDTH_DP).dp,
                         )
                     }
+                    // Chain focus: hero <-> cw[0] <-> cw[1] <-> … <-> row0.
+                    val upTarget = if (cwIndex == 0) heroFocusRequester
+                        else cwRowItemFrs.getValue(spotlightCwFilters[cwIndex - 1])
+                    val downTarget = if (cwIndex == spotlightCwFilters.lastIndex)
+                        firstItemRequesters.getOrPut(0) { FocusRequester() }
+                        else cwRowItemFrs.getValue(spotlightCwFilters[cwIndex + 1])
+                    ContinueWatchingSection(
+                        items = uiState.continueWatchingItems.forContinueWatchingFilter(cwFilter),
+                        onItemClick = onContinueWatchingClick,
+                        onRemoveItem = { item ->
+                            val contentId = when (item) {
+                                is ContinueWatchingItem.InProgress -> item.progress.contentId
+                                is ContinueWatchingItem.NextUp -> item.info.contentId
+                            }
+                            val season = when (item) {
+                                is ContinueWatchingItem.InProgress -> item.progress.season
+                                is ContinueWatchingItem.NextUp -> item.info.seedSeason
+                            }
+                            val episode = when (item) {
+                                is ContinueWatchingItem.InProgress -> item.progress.episode
+                                is ContinueWatchingItem.NextUp -> item.info.seedEpisode
+                            }
+                            onRemoveContinueWatching(
+                                contentId, season, episode, item is ContinueWatchingItem.NextUp,
+                            )
+                        },
+                        onStartFromBeginning = onContinueWatchingStartFromBeginning,
+                        showManualPlayOption = showContinueWatchingManualPlayOption,
+                        onPlayManually = onContinueWatchingPlayManually,
+                        useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
+                        cwStyle = cwStyle,
+                        cardWidth = cwFootprint.cardWidth,
+                        imageHeight = cwFootprint.imageHeight,
+                        upFocusRequester = upTarget,
+                        downFocusRequester = downTarget,
+                        firstItemFocusRequester = cwRowItemFrs.getValue(cwFilter),
+                    )
                 }
                 itemsIndexed(
                     items = catalogRows,
@@ -669,8 +699,9 @@ fun SpotlightHomeContent(
                         isItemWatched = isCatalogItemWatched,
                         onItemLongPress = onCatalogItemLongPress,
                         upFocusRequester = if (index == 0) {
-                            if (showSpotlightContinueWatching) continueWatchingFirstItemFr
-                            else heroFocusRequester
+                            if (showSpotlightContinueWatching) {
+                                cwRowItemFrs.getValue(spotlightCwFilters.last())
+                            } else heroFocusRequester
                         } else null,
                         firstItemFocusRequester = rowFirstItemFr,
                     )

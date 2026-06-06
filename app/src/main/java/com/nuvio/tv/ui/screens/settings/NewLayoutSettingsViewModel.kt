@@ -6,6 +6,7 @@ import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.ContinueWatchingFilter
 import com.nuvio.tv.domain.model.CW_DEFAULT_CARD_WIDTH_DP
 import com.nuvio.tv.domain.model.CW_STYLE_METADATA_KEY
 import com.nuvio.tv.domain.model.HomeLayout
@@ -392,14 +393,24 @@ class NewLayoutSettingsViewModel @Inject constructor(
         )
     }
 
-    fun addContinueWatchingRow() {
-        val id = LayoutRowKey.forContinueWatching()
+    /**
+     * Add a Continue-Watching-derived row (Series / Movies / Up Next). Default
+     * Orient = Card, Size = Medium. Deduped by id, so max one of each variant.
+     */
+    fun addContinueWatchingRow(filter: ContinueWatchingFilter) {
+        val (id, kind, name) = when (filter) {
+            ContinueWatchingFilter.SERIES ->
+                Triple(LayoutRowKey.forContinueWatchingSeries(), LayoutRowKind.CONTINUE_WATCHING_SERIES, "Continue Watching")
+            ContinueWatchingFilter.MOVIES ->
+                Triple(LayoutRowKey.forContinueWatchingMovies(), LayoutRowKind.CONTINUE_WATCHING_MOVIES, "Continue Watching Movies")
+            ContinueWatchingFilter.UP_NEXT ->
+                Triple(LayoutRowKey.forTraktUpNext(), LayoutRowKind.TRAKT_UP_NEXT, "Up Next")
+        }
         addRow(
             LayoutRowConfig(
                 id = id,
-                kind = LayoutRowKind.CONTINUE_WATCHING,
-                name = "Continue Watching",
-                // Default Orient = Card (16:9), Size = Medium (120dp poster scale).
+                kind = kind,
+                name = name,
                 cardWidthDp = CW_DEFAULT_CARD_WIDTH_DP,
                 metadata = mapOf(CW_STYLE_METADATA_KEY to ContinueWatchingCardStyle.CARD.name),
             )

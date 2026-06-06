@@ -53,6 +53,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
@@ -65,6 +66,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
@@ -80,6 +83,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Switch
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.ContinueWatchingFilter
+import com.nuvio.tv.domain.model.continueWatchingFilter
 import com.nuvio.tv.domain.model.continueWatchingStyle
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
@@ -245,7 +250,7 @@ fun NewLayoutSettingsContent(
                             // CW rows cycle their own orientation set (Poster /
                             // Card / Wide); all other rows cycle the generic
                             // card style (Poster / Landscape / Cinema).
-                            if (row.kind == LayoutRowKind.CONTINUE_WATCHING) {
+                            if (row.kind.continueWatchingFilter != null) {
                                 viewModel.setContinueWatchingStyle(
                                     row.id, nextContinueWatchingStyle(row.continueWatchingStyle),
                                 )
@@ -266,9 +271,9 @@ fun NewLayoutSettingsContent(
                         onAddTmdb = { showTmdbPicker = true },
                         onAddTrakt = { showTraktPicker = true },
                         onAddCollection = { showCollectionPicker = true },
-                        onAddContinueWatching = { viewModel.addContinueWatchingRow() },
+                        onAddContinueWatching = { viewModel.addContinueWatchingRow(ContinueWatchingFilter.SERIES) },
                         continueWatchingAlreadyAdded = uiState.rows.any {
-                            it.kind == com.nuvio.tv.domain.model.LayoutRowKind.CONTINUE_WATCHING
+                            it.kind.continueWatchingFilter == ContinueWatchingFilter.SERIES
                         },
                     )
                 }
@@ -398,7 +403,8 @@ private fun RowsManagerContent(
                     onAddTmdb = onAddTmdb,
                     onAddTrakt = onAddTrakt,
                     onAddCollection = onAddCollection,
-                    onAddContinueWatching = { viewModel.addContinueWatchingRow() },
+                    onAddCw = { viewModel.addContinueWatchingRow(it) },
+                    cwExisting = uiState.rows.mapNotNull { it.kind.continueWatchingFilter }.toSet(),
                     onMdbListComingSoon = {
                         Toast.makeText(context, "MDBList rows — coming soon", Toast.LENGTH_SHORT).show()
                     },
@@ -481,7 +487,7 @@ private fun RowsManagerContent(
                             // CW rows cycle their own orientation set (Poster /
                             // Card / Wide); all other rows cycle the generic
                             // card style (Poster / Landscape / Cinema).
-                            if (row.kind == LayoutRowKind.CONTINUE_WATCHING) {
+                            if (row.kind.continueWatchingFilter != null) {
                                 viewModel.setContinueWatchingStyle(
                                     row.id, nextContinueWatchingStyle(row.continueWatchingStyle),
                                 )
@@ -576,7 +582,8 @@ private fun SourcePillsRow(
     onAddTmdb: () -> Unit,
     onAddTrakt: () -> Unit,
     onAddCollection: () -> Unit,
-    onAddContinueWatching: () -> Unit,
+    onAddCw: (ContinueWatchingFilter) -> Unit,
+    cwExisting: Set<ContinueWatchingFilter>,
     onMdbListComingSoon: () -> Unit,
 ) {
     Row(
@@ -586,14 +593,124 @@ private fun SourcePillsRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        AddRowChip(label = "Catalog", onClick = onAddCatalog)
+        // Fixed order: Catalogs | TMDB | MDBList | Trakt | Continue Watching | Collections.
+        AddRowChip(label = "Catalogs", onClick = onAddCatalog)
         AddRowChip(label = "TMDB", onClick = onAddTmdb)
-        AddRowChip(label = "Trakt", onClick = onAddTrakt)
         // MDBList rows have no backing source yet — visible placeholder only.
         ComingSoonChip(label = "MDBList", onClick = onMdbListComingSoon)
-        AddRowChip(label = "Collection", onClick = onAddCollection)
-        // Always visible; the add is a no-op when a CW row already exists.
-        AddRowChip(label = "CW", onClick = onAddContinueWatching)
+        // "+ Trakt" opens a submenu (gated behind Trakt sign-in).
+        AddRowChip(label = "Trakt", onClick = onAddTrakt)
+        // "+ Continue Watching" opens a Series / Movies submenu.
+        ContinueWatchingAddPill(existing = cwExisting, onAdd = onAddCw)
+        AddRowChip(label = "Collections", onClick = onAddCollection)
+    }
+}
+
+/**
+ * "+ Continue Watching" pill that opens a small Series / Movies submenu.
+ * Each option is dimmed + non-adding once that variant exists (max one each).
+ */
+@Composable
+private fun ContinueWatchingAddPill(
+    existing: Set<ContinueWatchingFilter>,
+    onAdd: (ContinueWatchingFilter) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    Box {
+        AddRowChip(label = "Continue Watching", onClick = { expanded = true })
+        if (expanded) {
+            Popup(
+                alignment = Alignment.TopStart,
+                offset = IntOffset(0, with(density) { 46.dp.roundToPx() }),
+                onDismissRequest = { expanded = false },
+                properties = PopupProperties(focusable = true),
+            ) {
+                BackHandler { expanded = false }
+                val firstFr = remember { FocusRequester() }
+                LaunchedEffect(Unit) {
+                    withFrameNanos { }
+                    runCatching { firstFr.requestFocus() }
+                }
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF101418).copy(alpha = 0.96f))
+                        .padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    val options = listOf(
+                        "Series" to ContinueWatchingFilter.SERIES,
+                        "Movies" to ContinueWatchingFilter.MOVIES,
+                    )
+                    options.forEachIndexed { index, (label, filter) ->
+                        SubmenuItem(
+                            label = label,
+                            added = filter in existing,
+                            focusRequester = if (index == 0) firstFr else null,
+                            onClick = {
+                                if (filter !in existing) onAdd(filter)
+                                expanded = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A single row in an "add source" submenu; dims + shows a check when added. */
+@Composable
+private fun SubmenuItem(
+    label: String,
+    added: Boolean,
+    focusRequester: FocusRequester?,
+    onClick: () -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .widthIn(min = 170.dp)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus },
+        shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
+        colors = CardDefaults.colors(
+            containerColor = if (isFocused) Color.White.copy(alpha = 0.16f) else Color.Transparent,
+            focusedContainerColor = Color.White.copy(alpha = 0.16f),
+        ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border(
+                border = BorderStroke(1.2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(8.dp),
+            ),
+        ),
+        scale = CardDefaults.scale(focusedScale = 1f),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (added) NuvioColors.TextSecondary else NuvioColors.TextPrimary,
+                modifier = Modifier.weight(1f),
+            )
+            if (added) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Added",
+                    tint = NuvioColors.FocusRing,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
     }
 }
 
@@ -823,7 +940,7 @@ private fun ManagerRowItem(
                     )
                 }
             }
-            val isContinueWatching = row.kind == LayoutRowKind.CONTINUE_WATCHING
+            val isContinueWatching = row.kind.continueWatchingFilter != null
             Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
                 if (isContinueWatching) {
                     CwStyleShapeButton(

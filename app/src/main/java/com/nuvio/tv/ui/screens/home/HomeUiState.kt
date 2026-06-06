@@ -127,6 +127,27 @@ data class NextUpInfo(
     val contentLanguage: String? = null
 )
 
+/** True when a CW item represents a movie (vs a show/episode). */
+private fun ContinueWatchingItem.isMovie(): Boolean = when (this) {
+    is ContinueWatchingItem.InProgress -> progress.contentType.equals("movie", ignoreCase = true)
+    is ContinueWatchingItem.NextUp -> info.contentType.equals("movie", ignoreCase = true)
+}
+
+/**
+ * Slices the shared continue-watching list for a given row variant:
+ *  - SERIES  → non-movie in-progress + next-up items
+ *  - MOVIES  → in-progress movies
+ *  - UP_NEXT → next-up (next-unwatched-episode) items only
+ */
+fun List<ContinueWatchingItem>.forContinueWatchingFilter(
+    filter: com.nuvio.tv.domain.model.ContinueWatchingFilter,
+): List<ContinueWatchingItem> = when (filter) {
+    com.nuvio.tv.domain.model.ContinueWatchingFilter.SERIES -> filter { !it.isMovie() }
+    com.nuvio.tv.domain.model.ContinueWatchingFilter.MOVIES -> filter { it.isMovie() }
+    com.nuvio.tv.domain.model.ContinueWatchingFilter.UP_NEXT ->
+        filter { it is ContinueWatchingItem.NextUp }
+}
+
 @Immutable
 sealed class HomeRow {
     @Immutable
@@ -136,7 +157,9 @@ sealed class HomeRow {
     data class CollectionRow(val collection: Collection) : HomeRow()
 
     @Immutable
-    data object ContinueWatching : HomeRow()
+    data class ContinueWatching(
+        val filter: com.nuvio.tv.domain.model.ContinueWatchingFilter,
+    ) : HomeRow()
 
     /**
      * Placeholder for a catalog row whose data hasn't been fetched yet.

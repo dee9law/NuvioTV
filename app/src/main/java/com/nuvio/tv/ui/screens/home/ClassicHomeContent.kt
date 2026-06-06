@@ -40,6 +40,7 @@ import com.nuvio.tv.ui.util.asStable
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.ContinueWatchingFilter
 import com.nuvio.tv.domain.model.continueWatchingStyle
 import com.nuvio.tv.domain.model.CW_DEFAULT_CARD_WIDTH_DP
 import com.nuvio.tv.domain.model.LayoutCardStyle
@@ -165,20 +166,23 @@ fun ClassicHomeContent(
         )
     }
     // Continue Watching honours its own per-row orientation (Poster / Card /
-    // Wide) + size from the configured CW row; falls back to Card at the
-    // default width when no CW row override exists.
-    val continueWatchingRowConfig = uiState.rowConfigLookup[LayoutRowKey.forContinueWatching()]
-    val classicContinueWatchingStyle =
-        continueWatchingRowConfig?.continueWatchingStyle ?: ContinueWatchingCardStyle.CARD
-    val classicContinueWatchingFootprint =
-        remember(classicContinueWatchingStyle, continueWatchingRowConfig?.cardWidthDp) {
-            continueWatchingCardFootprint(
-                style = classicContinueWatchingStyle,
-                baseWidth = (continueWatchingRowConfig?.cardWidthDp ?: CW_DEFAULT_CARD_WIDTH_DP).dp,
-            )
-        }
-    val classicContinueWatchingCardWidth = classicContinueWatchingFootprint.cardWidth
-    val classicContinueWatchingImageHeight = classicContinueWatchingFootprint.imageHeight
+    // Wide) + size, resolved PER CW variant (Series / Movies / Up Next) from
+    // that variant's configured row. Helpers are filter-parametric because a
+    // home can now show multiple CW rows.
+    fun cwStyleFor(filter: ContinueWatchingFilter): ContinueWatchingCardStyle =
+        uiState.rowConfigLookup[LayoutRowKey.forContinueWatchingFilter(filter)]
+            ?.continueWatchingStyle ?: ContinueWatchingCardStyle.CARD
+    fun cwFootprintFor(filter: ContinueWatchingFilter) =
+        continueWatchingCardFootprint(
+            style = cwStyleFor(filter),
+            baseWidth = (uiState.rowConfigLookup[LayoutRowKey.forContinueWatchingFilter(filter)]
+                ?.cardWidthDp ?: CW_DEFAULT_CARD_WIDTH_DP).dp,
+        )
+    // True when ANY CW-family row is configured (enabled or not). Gates the
+    // default-on standalone CW so a disabled/deleted CW row stays hidden.
+    val anyCwConfigured = ContinueWatchingFilter.entries.any { f ->
+        uiState.rowConfigLookup.containsKey(LayoutRowKey.forContinueWatchingFilter(f))
+    }
 
     // Nested prefetch: when LazyColumn prefetches a row ahead of scrolling,
     // pre-compose up to 2 ContentCards in its nested LazyRow across multiple frames.
@@ -252,7 +256,7 @@ fun ClassicHomeContent(
             when (row) {
                 is HomeRow.Catalog -> "${row.row.addonId}_${row.row.apiType}_${row.row.catalogId}"
                 is HomeRow.CollectionRow -> "collection_${row.collection.id}"
-                is HomeRow.ContinueWatching -> "continue_watching"
+                is HomeRow.ContinueWatching -> "continue_watching_${row.filter.name}"
                 is HomeRow.PlaceholderCatalog -> row.catalogKey
             }
         }
@@ -275,7 +279,7 @@ fun ClassicHomeContent(
                 when (row) {
                     is HomeRow.Catalog -> "${row.row.addonId}_${row.row.apiType}_${row.row.catalogId}"
                     is HomeRow.CollectionRow -> "collection_${row.collection.id}"
-                    is HomeRow.ContinueWatching -> "continue_watching"
+                    is HomeRow.ContinueWatching -> "continue_watching_${row.filter.name}"
                     is HomeRow.PlaceholderCatalog -> row.catalogKey
                 }
             }
@@ -551,19 +555,21 @@ fun ClassicHomeContent(
             }
         }
 
-        if (uiState.continueWatchingItems.isNotEmpty() && !cwInRowList) {
+        val standaloneCwItems =
+            uiState.continueWatchingItems.forContinueWatchingFilter(ContinueWatchingFilter.SERIES)
+        if (standaloneCwItems.isNotEmpty() && !cwInRowList && !anyCwConfigured) {
             item(key = "continue_watching_standalone", contentType = "continue_watching") {
                 val firstRowKey = visibleHomeRows.firstOrNull()?.let { row ->
                     when (row) {
                         is HomeRow.Catalog -> "${row.row.addonId}_${row.row.apiType}_${row.row.catalogId}"
                         is HomeRow.CollectionRow -> "collection_${row.collection.id}"
-                        is HomeRow.ContinueWatching -> "continue_watching"
+                        is HomeRow.ContinueWatching -> "continue_watching_${row.filter.name}"
                         is HomeRow.PlaceholderCatalog -> row.catalogKey
                     }
                 }
                 val cwDownRequester = firstRowKey?.let { rowEntryFocusRequesters.getOrPut(it) { FocusRequester() } }
                 ContinueWatchingSection(
-                    items = uiState.continueWatchingItems,
+                    items = standaloneCwItems,
                     onItemClick = { item ->
                         onContinueWatchingClick(item)
                     },
@@ -608,16 +614,16 @@ fun ClassicHomeContent(
                         currentFocusSnapshot.rowIndex = -1
                         currentFocusSnapshot.itemIndex = itemIndex
                         if (uiState.classicFocusGradientEnabled) {
-                            focusedArtwork = uiState.continueWatchingItems.getOrNull(itemIndex)
+                            focusedArtwork = standaloneCwItems.getOrNull(itemIndex)
                                 ?.toClassicFocusArtwork(uiState.focusedPosterBackdropExpandEnabled)
                         }
                     },
                     blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
                     useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
                     downFocusRequester = cwDownRequester,
-                    cardWidth = classicContinueWatchingCardWidth,
-                    imageHeight = classicContinueWatchingImageHeight,
-                    cwStyle = classicContinueWatchingStyle,
+                    cardWidth = cwFootprintFor(ContinueWatchingFilter.SERIES).cardWidth,
+                    imageHeight = cwFootprintFor(ContinueWatchingFilter.SERIES).imageHeight,
+                    cwStyle = cwStyleFor(ContinueWatchingFilter.SERIES),
                 )
             }
         }
@@ -631,7 +637,7 @@ fun ClassicHomeContent(
                         "${r.addonId}_${r.apiType}_${r.catalogId}"
                     }
                     is HomeRow.CollectionRow -> "collection_${item.collection.id}"
-                    is HomeRow.ContinueWatching -> "continue_watching"
+                    is HomeRow.ContinueWatching -> "continue_watching_${item.filter.name}"
                     is HomeRow.PlaceholderCatalog -> item.catalogKey
                 }
             },
@@ -787,9 +793,11 @@ fun ClassicHomeContent(
                 }
 
                 is HomeRow.ContinueWatching -> {
-                    if (uiState.continueWatchingItems.isNotEmpty()) {
+                    val cwItems = uiState.continueWatchingItems
+                        .forContinueWatchingFilter(homeRow.filter)
+                    if (cwItems.isNotEmpty()) {
                         ContinueWatchingSection(
-                            items = uiState.continueWatchingItems,
+                            items = cwItems,
                             onItemClick = { item -> onContinueWatchingClick(item) },
                             onStartFromBeginning = onContinueWatchingStartFromBeginning,
                             showManualPlayOption = showContinueWatchingManualPlayOption,
@@ -810,15 +818,15 @@ fun ClassicHomeContent(
                                 currentFocusSnapshot.rowIndex = index
                                 currentFocusSnapshot.itemIndex = itemIndex
                                 if (uiState.classicFocusGradientEnabled) {
-                                    focusedArtwork = uiState.continueWatchingItems.getOrNull(itemIndex)
+                                    focusedArtwork = cwItems.getOrNull(itemIndex)
                                         ?.toClassicFocusArtwork(uiState.focusedPosterBackdropExpandEnabled)
                                 }
                             },
                             blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
                             useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
-                            cardWidth = classicContinueWatchingCardWidth,
-                            imageHeight = classicContinueWatchingImageHeight,
-                            cwStyle = classicContinueWatchingStyle,
+                            cardWidth = cwFootprintFor(homeRow.filter).cardWidth,
+                            imageHeight = cwFootprintFor(homeRow.filter).imageHeight,
+                            cwStyle = cwStyleFor(homeRow.filter),
                         )
                     }
                 }

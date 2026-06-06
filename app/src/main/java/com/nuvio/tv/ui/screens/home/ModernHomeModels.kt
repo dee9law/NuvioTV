@@ -50,7 +50,18 @@ internal const val MODERN_LANDSCAPE_ROWS_FRACTION = 0.49f
  * does not use this.
  */
 internal val MODERN_CINEMA_STATE2_HERO_MIN = 200.dp
-internal const val MODERN_CONTINUE_WATCHING_ROW_KEY = "continue_watching"
+/**
+ * The Modern CW-family row keys. Each equals its [LayoutRowConfig] id, so a
+ * CW HeroCarouselRow looks itself up directly via [layoutConfigKey].
+ */
+internal val MODERN_CONTINUE_WATCHING_ROW_KEYS: Set<String> = setOf(
+    com.nuvio.tv.domain.model.LayoutRowKey.forContinueWatchingSeries(),
+    com.nuvio.tv.domain.model.LayoutRowKey.forContinueWatchingMovies(),
+    com.nuvio.tv.domain.model.LayoutRowKey.forTraktUpNext(),
+)
+
+internal fun isModernContinueWatchingRowKey(key: String): Boolean =
+    key in MODERN_CONTINUE_WATCHING_ROW_KEYS
 internal val MODERN_LANDSCAPE_LOGO_GRADIENT = Brush.verticalGradient(
     colorStops = arrayOf(
         0.0f to Color.Transparent,
@@ -156,8 +167,9 @@ internal val HeroCarouselRow.layoutConfigKey: String?
         // The Continue Watching row IS user-configurable (orientation + size +
         // on/off) via the "+ CW" row — resolve it to the CW row's config id so
         // renderers can read its LayoutRowConfig.
-        if (key == MODERN_CONTINUE_WATCHING_ROW_KEY) {
-            return com.nuvio.tv.domain.model.LayoutRowKey.forContinueWatching()
+        // CW-family row keys ARE their config ids.
+        if (isModernContinueWatchingRowKey(key)) {
+            return key
         }
         val addon = addonId
         val type = apiType

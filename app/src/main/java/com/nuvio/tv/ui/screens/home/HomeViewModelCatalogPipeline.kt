@@ -11,11 +11,14 @@ import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.usesModernPresentation
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.ContinueWatchingFilter
+import com.nuvio.tv.domain.model.continueWatchingFilter
 import com.nuvio.tv.domain.model.CW_DEFAULT_CARD_WIDTH_DP
 import com.nuvio.tv.domain.model.CW_STYLE_METADATA_KEY
 import com.nuvio.tv.domain.model.LayoutRowConfig
 import com.nuvio.tv.domain.model.LayoutRowKey
 import com.nuvio.tv.domain.model.LayoutRowKind
+import com.nuvio.tv.domain.model.LayoutScreenScope
 import com.nuvio.tv.domain.model.skipStep
 import com.nuvio.tv.domain.model.supportsExtra
 import kotlinx.coroutines.flow.combine
@@ -245,18 +248,38 @@ internal fun BaseHomeViewModel.observeConfiguredHomeRowsForScopePipeline() {
  */
 internal fun BaseHomeViewModel.seedDefaultContinueWatchingRowIfNeeded() {
     viewModelScope.launch {
+        // Migrate legacy single CONTINUE_WATCHING rows → CONTINUE_WATCHING_SERIES
+        // across every scope (idempotent — once converted there are none left).
+        for (scope in LayoutScreenScope.entries) {
+            val rows = layoutPreferenceDataStore.rowsForScope(scope).first()
+            if (rows.any { it.kind == LayoutRowKind.CONTINUE_WATCHING }) {
+                val migrated = rows.map { row ->
+                    if (row.kind == LayoutRowKind.CONTINUE_WATCHING) {
+                        row.copy(
+                            id = LayoutRowKey.forContinueWatchingSeries(),
+                            kind = LayoutRowKind.CONTINUE_WATCHING_SERIES,
+                        )
+                    } else {
+                        row
+                    }
+                }
+                layoutPreferenceDataStore.setRowsForScope(scope, migrated)
+            }
+        }
+
+        // Seed a default Series CW row at the top of HOME once.
         if (layoutPreferenceDataStore.continueWatchingDefaultSeeded.first()) return@launch
-        val rows = layoutPreferenceDataStore.rowsForScope(homeScope).first { it.isNotEmpty() }
-        if (rows.none { it.kind == LayoutRowKind.CONTINUE_WATCHING }) {
+        val homeRows = layoutPreferenceDataStore.rowsForScope(homeScope).first { it.isNotEmpty() }
+        if (homeRows.none { it.kind.continueWatchingFilter != null }) {
             val cwRow = LayoutRowConfig(
-                id = LayoutRowKey.forContinueWatching(),
-                kind = LayoutRowKind.CONTINUE_WATCHING,
+                id = LayoutRowKey.forContinueWatchingSeries(),
+                kind = LayoutRowKind.CONTINUE_WATCHING_SERIES,
                 name = "Continue Watching",
                 cardWidthDp = CW_DEFAULT_CARD_WIDTH_DP,
                 viewContext = homeScope,
                 metadata = mapOf(CW_STYLE_METADATA_KEY to ContinueWatchingCardStyle.CARD.name),
             )
-            layoutPreferenceDataStore.setRowsForScope(homeScope, listOf(cwRow) + rows)
+            layoutPreferenceDataStore.setRowsForScope(homeScope, listOf(cwRow) + homeRows)
         }
         layoutPreferenceDataStore.setContinueWatchingDefaultSeeded(true)
     }
@@ -301,8 +324,12 @@ internal fun BaseHomeViewModel.applyConfiguredHomeRows(
                 val key = "collection_$collectionId"
                 if (allowed.add(key)) orderedKeys.add(key)
             }
-            LayoutRowKind.CONTINUE_WATCHING -> {
-                val key = "continue_watching"
+            LayoutRowKind.CONTINUE_WATCHING,
+            LayoutRowKind.CONTINUE_WATCHING_SERIES,
+            LayoutRowKind.CONTINUE_WATCHING_MOVIES,
+            LayoutRowKind.TRAKT_UP_NEXT -> {
+                val filter = row.kind.continueWatchingFilter ?: return@forEach
+                val key = LayoutRowKey.forContinueWatchingFilter(filter)
                 if (allowed.add(key)) orderedKeys.add(key)
             }
             LayoutRowKind.TRAKT,
@@ -908,8 +935,14 @@ internal suspend fun BaseHomeViewModel.updateCatalogRowsPipeline() {
         // }
         for (key in orderedKeys) {
             if (key in disabledHomeCatalogKeys) continue
-            if (key == "continue_watching") {
-                add(HomeRow.ContinueWatching)
+            val cwFilter = when (key) {
+                LayoutRowKey.forContinueWatchingSeries() -> ContinueWatchingFilter.SERIES
+                LayoutRowKey.forContinueWatchingMovies() -> ContinueWatchingFilter.MOVIES
+                LayoutRowKey.forTraktUpNext() -> ContinueWatchingFilter.UP_NEXT
+                else -> null
+            }
+            if (cwFilter != null) {
+                add(HomeRow.ContinueWatching(cwFilter))
                 continue
             }
             val collectionEntry = collectionsSnapshot[key]
