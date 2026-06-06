@@ -110,6 +110,52 @@ private fun resolveRowPosterCardStyle(
     return basePosterCardStyle.copy(width = w, height = h)
 }
 
+/**
+ * Maps the currently-focused Continue Watching card to a [MetaPreview] so it can
+ * drive the Spotlight hero (title + episode info + backdrop) exactly like a
+ * focused catalog card does. Episode info goes into [MetaPreview.description].
+ */
+private fun ContinueWatchingItem.toSpotlightFocusMeta(): MetaPreview {
+    val id: String; val contentType: String; val name: String
+    val poster: String?; val backdrop: String?; val logo: String?
+    val season: Int?; val episode: Int?; val episodeTitle: String?
+    val genres: List<String>; val rating: Float?
+    when (this) {
+        is ContinueWatchingItem.InProgress -> {
+            id = progress.contentId; contentType = progress.contentType; name = progress.name
+            poster = progress.poster; backdrop = progress.backdrop; logo = progress.logo
+            season = progress.season; episode = progress.episode; episodeTitle = progress.episodeTitle
+            genres = this.genres; rating = this.episodeImdbRating
+        }
+        is ContinueWatchingItem.NextUp -> {
+            id = info.contentId; contentType = info.contentType; name = info.name
+            poster = info.poster; backdrop = info.backdrop; logo = info.logo
+            season = info.season; episode = info.episode; episodeTitle = info.episodeTitle
+            genres = info.genres; rating = info.imdbRating
+        }
+    }
+    val episodeInfo = if (season != null && episode != null) {
+        buildString {
+            append("S"); append(season); append(" · E"); append(episode)
+            if (!episodeTitle.isNullOrBlank()) { append(" · "); append(episodeTitle) }
+        }
+    } else null
+    return MetaPreview(
+        id = id,
+        type = com.nuvio.tv.domain.model.ContentType.fromString(contentType),
+        rawType = contentType,
+        name = name,
+        poster = poster,
+        posterShape = com.nuvio.tv.domain.model.PosterShape.POSTER,
+        background = backdrop ?: poster,
+        logo = logo,
+        description = episodeInfo,
+        releaseInfo = null,
+        imdbRating = rating,
+        genres = genres,
+    )
+}
+
 private fun MetaPreview.toSpotlightHeroPreview(): HeroPreview = HeroPreview(
     title = name,
     logo = logo,
@@ -192,6 +238,10 @@ fun SpotlightHomeContent(
 
     // ── Focus tracking ──────────────────────────────────────────────
     var rowsAreaHasFocus by remember { mutableStateOf(false) }
+    // True while a Continue Watching card is focused. CW rows aren't part of
+    // catalogRows (so focusedRowIndex stays stale on them) — this flag forces
+    // the hero into its CONSTRAINED state and drives it with the CW item.
+    var cwCardFocused by remember { mutableStateOf(false) }
     // Tracks whether focus is actually inside the hero section. Distinct from
     // `heroState == CAROUSEL`, which is merely `!rowsAreaHasFocus` and is also
     // true when focus is up on the TopBar channel pills. The Back handler must
@@ -311,6 +361,7 @@ fun SpotlightHomeContent(
     // row and the hero restores.
     val heroState = when {
         !rowsAreaHasFocus -> SpotlightHeroState.CAROUSEL
+        cwCardFocused -> SpotlightHeroState.CONSTRAINED
         focusedRowIsCinema -> SpotlightHeroState.HIDDEN
         showHeroForFocusedRow -> SpotlightHeroState.CONSTRAINED
         else -> SpotlightHeroState.HIDDEN
@@ -600,8 +651,9 @@ fun SpotlightHomeContent(
                     val downTarget = if (cwIndex == spotlightCwFilters.lastIndex)
                         firstItemRequesters.getOrPut(0) { FocusRequester() }
                         else cwRowItemFrs.getValue(spotlightCwFilters[cwIndex + 1])
+                    val cwRowItems = uiState.continueWatchingItems.forContinueWatchingFilter(cwFilter)
                     ContinueWatchingSection(
-                        items = uiState.continueWatchingItems.forContinueWatchingFilter(cwFilter),
+                        items = cwRowItems,
                         onItemClick = onContinueWatchingClick,
                         onRemoveItem = { item ->
                             val contentId = when (item) {
@@ -623,6 +675,14 @@ fun SpotlightHomeContent(
                         onStartFromBeginning = onContinueWatchingStartFromBeginning,
                         showManualPlayOption = showContinueWatchingManualPlayOption,
                         onPlayManually = onContinueWatchingPlayManually,
+                        // Drive the Spotlight hero (State B) with the focused CW
+                        // card's metadata + backdrop, like a catalog card does.
+                        onItemFocused = { idx ->
+                            cwRowItems.getOrNull(idx)?.let { item ->
+                                cwCardFocused = true
+                                pendingFocusedItem = item.toSpotlightFocusMeta()
+                            }
+                        },
                         useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
                         cwStyle = cwStyle,
                         cardWidth = cwFootprint.cardWidth,
@@ -689,6 +749,7 @@ fun SpotlightHomeContent(
                         },
                         showSeeAll = row.items.size >= 15,
                         onItemFocus = { item ->
+                            cwCardFocused = false
                             if (focusedRowIndex != index) {
                                 focusedRowIndex = index
                             }

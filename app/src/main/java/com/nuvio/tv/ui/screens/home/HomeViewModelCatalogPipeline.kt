@@ -267,8 +267,11 @@ internal fun BaseHomeViewModel.seedDefaultContinueWatchingRowIfNeeded() {
             }
         }
 
-        // Seed a default Series CW row at the top of HOME once.
-        if (layoutPreferenceDataStore.continueWatchingDefaultSeeded.first()) return@launch
+        // Ensure a default Series CW row exists in HOME so it shows in the Rows
+        // Manager. Gated by the split-seed flag (runs once even for users who
+        // already had the pre-split flag set), so upgraders who ended up with
+        // no CW-family row get one; a later manual delete stays sticky.
+        if (layoutPreferenceDataStore.continueWatchingSplitSeeded.first()) return@launch
         val homeRows = layoutPreferenceDataStore.rowsForScope(homeScope).first { it.isNotEmpty() }
         if (homeRows.none { it.kind.continueWatchingFilter != null }) {
             val cwRow = LayoutRowConfig(
@@ -281,6 +284,7 @@ internal fun BaseHomeViewModel.seedDefaultContinueWatchingRowIfNeeded() {
             )
             layoutPreferenceDataStore.setRowsForScope(homeScope, listOf(cwRow) + homeRows)
         }
+        layoutPreferenceDataStore.setContinueWatchingSplitSeeded(true)
         layoutPreferenceDataStore.setContinueWatchingDefaultSeeded(true)
     }
 }

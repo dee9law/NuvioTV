@@ -934,6 +934,23 @@ class LayoutPreferenceDataStore @Inject constructor(
         store().edit { prefs -> prefs[continueWatchingDefaultSeededKey] = seeded }
     }
 
+    private val continueWatchingSplitSeededKey =
+        booleanPreferencesKey("cw_split_seeded")
+
+    /**
+     * One-shot flag for the Series/Movies split. Runs once even for users who
+     * already had the pre-split [continueWatchingDefaultSeededKey] set, so the
+     * default **Series** row is guaranteed to exist in HOME (and therefore show
+     * in the Rows Manager) after upgrading. A later manual delete stays sticky.
+     */
+    val continueWatchingSplitSeeded: Flow<Boolean> = profileFlow { prefs ->
+        prefs[continueWatchingSplitSeededKey] ?: false
+    }
+
+    suspend fun setContinueWatchingSplitSeeded(seeded: Boolean) {
+        store().edit { prefs -> prefs[continueWatchingSplitSeededKey] = seeded }
+    }
+
     suspend fun setSelectedLayoutForScope(scope: LayoutScreenScope, layout: HomeLayout) {
         if (scope == LayoutScreenScope.HOME) {
             // Reuse the global setter — it also flips hasChosenKey and seeds
