@@ -135,6 +135,13 @@ fun ContinueWatchingSection(
     cardWidth: Dp = 288.dp,
     imageHeight: Dp = 162.dp,
     cwStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
+    /**
+     * Row header. Null → the default "Continue Watching" label. Callers pass
+     * the row's configured name so distinct CW-family rows (Series / Movies /
+     * Up Next / Both) show their own title instead of all reading "Continue
+     * Watching" (matches Modern, which titles from the row config).
+     */
+    title: String? = null,
 ) {
     if (items.isEmpty()) return
 
@@ -181,7 +188,7 @@ fun ContinueWatchingSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = stringResource(R.string.continue_watching),
+                text = title ?: stringResource(R.string.continue_watching),
                 style = MaterialTheme.typography.headlineMedium,
                 color = NuvioColors.TextPrimary
             )

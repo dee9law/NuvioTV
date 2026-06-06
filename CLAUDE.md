@@ -687,17 +687,20 @@ renders pure rows (no hero), CW **Both** shows mixed series + movies, no crashes
 - ✅ Up Next row present (NextUp items). ✅ BACK exits to launcher (For You is root).
 - ✅ No crashes. ✅ TopBar renders with pills.
 
-### Known cosmetic follow-ups (Classic shared-component limitations, NOT touched
-per the additive constraint)
+### Cosmetic fixes (follow-on commit — Classic shared components)
 
-1. **Up Next row shows the header "Continue Watching"** in Classic —
-   `ContinueWatchingSection` hardcodes `R.string.continue_watching` (no title param),
-   so For You shows two identically-titled CW rows. Fix: add `title: String? = null`
-   to `ContinueWatchingSection` + pass the row's configured name from
-   `ClassicHomeContent` (Modern already titles from `rowConfigLookup`).
-2. **First row title overlaps the TopBar** on For You — Classic has no hero to push
-   rows down, so row 0's title collides with the TopBar overlay. Fix: reserve a top
-   content inset for the TopBar when `heroSectionEnabled == false`.
+1. **FIXED — CW row title.** `ContinueWatchingSection` gained a `title: String? =
+   null` param (null → the default "Continue Watching" label). `ClassicHomeContent`
+   now passes each CW row's configured name (`rowConfigLookup[...].name`), so For
+   You's Up Next row reads **"Up Next"** instead of a second "Continue Watching"
+   (matches Modern, which already titles from the row config). Backward compatible.
+2. **FIXED — no-hero top overlap.** Classic's LazyColumn now reserves
+   `LocalTopBarOverlayHeight` (measured TopBar height + 8dp, 68dp fallback) as top
+   content padding when `heroVisible == false` (was a flat 24dp), so the first row
+   title clears the TopBar. General fix for any hero-disabled Classic screen.
+
+### Remaining follow-up
+
 3. Trakt catalog rows (Recommended/Watchlist/Calendars) still deferred — the
    addable-but-not-default rows from the For You spec need the from-scratch Trakt→
    home-row pipeline (research done; `/calendars/my/*` is genuinely complementary to

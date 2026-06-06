@@ -522,7 +522,18 @@ fun ClassicHomeContent(
                     null // Classic uses imperative requestFocus for now
                 },
             ),
-        contentPadding = PaddingValues(top = if (heroVisible) 0.dp else 24.dp, bottom = 24.dp),
+        // No hero → the first row would sit under the TopBar overlay. Reserve
+        // the measured TopBar height (LocalTopBarOverlayHeight = bar height +
+        // 8dp, or 68dp before measurement) so the first row title clears the
+        // bar. With a hero, the hero runs full-bleed to y=0 as before.
+        contentPadding = PaddingValues(
+            top = if (heroVisible) {
+                0.dp
+            } else {
+                com.nuvio.tv.LocalTopBarOverlayHeight.current.takeIf { it > 0.dp } ?: 68.dp
+            },
+            bottom = 24.dp,
+        ),
         verticalArrangement = Arrangement.spacedBy(32.dp)
     ) {
         if (heroVisible) {
@@ -827,6 +838,9 @@ fun ClassicHomeContent(
                             cardWidth = cwFootprintFor(homeRow.filter).cardWidth,
                             imageHeight = cwFootprintFor(homeRow.filter).imageHeight,
                             cwStyle = cwStyleFor(homeRow.filter),
+                            title = uiState.rowConfigLookup[
+                                LayoutRowKey.forContinueWatchingFilter(homeRow.filter)
+                            ]?.name?.takeIf { it.isNotBlank() },
                         )
                     }
                 }
