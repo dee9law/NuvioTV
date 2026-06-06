@@ -411,6 +411,8 @@ class NewLayoutSettingsViewModel @Inject constructor(
                 Triple(LayoutRowKey.forContinueWatchingMovies(), LayoutRowKind.CONTINUE_WATCHING_MOVIES, "Continue Watching Movies")
             ContinueWatchingFilter.UP_NEXT ->
                 Triple(LayoutRowKey.forTraktUpNext(), LayoutRowKind.TRAKT_UP_NEXT, "Up Next")
+            ContinueWatchingFilter.BOTH ->
+                Triple(LayoutRowKey.forContinueWatchingBoth(), LayoutRowKind.CONTINUE_WATCHING, "Continue Watching")
         }
         addRow(
             LayoutRowConfig(

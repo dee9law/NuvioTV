@@ -138,6 +138,7 @@ private fun ContinueWatchingItem.isMovie(): Boolean = when (this) {
  *  - SERIES  → non-movie in-progress + next-up items
  *  - MOVIES  → in-progress movies
  *  - UP_NEXT → next-up (next-unwatched-episode) items only
+ *  - BOTH    → the full list, series + movies mixed (original CW behavior)
  */
 fun List<ContinueWatchingItem>.forContinueWatchingFilter(
     filter: com.nuvio.tv.domain.model.ContinueWatchingFilter,
@@ -146,6 +147,7 @@ fun List<ContinueWatchingItem>.forContinueWatchingFilter(
     com.nuvio.tv.domain.model.ContinueWatchingFilter.MOVIES -> filter { it.isMovie() }
     com.nuvio.tv.domain.model.ContinueWatchingFilter.UP_NEXT ->
         filter { it is ContinueWatchingItem.NextUp }
+    com.nuvio.tv.domain.model.ContinueWatchingFilter.BOTH -> this
 }
 
 @Immutable

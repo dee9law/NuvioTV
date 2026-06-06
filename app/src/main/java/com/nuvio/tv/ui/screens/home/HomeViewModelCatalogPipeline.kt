@@ -248,8 +248,22 @@ internal fun BaseHomeViewModel.observeConfiguredHomeRowsForScopePipeline() {
  */
 internal fun BaseHomeViewModel.seedDefaultContinueWatchingRowIfNeeded() {
     viewModelScope.launch {
-        // Migrate legacy single CONTINUE_WATCHING rows → CONTINUE_WATCHING_SERIES
-        // across every scope (idempotent — once converted there are none left).
+        // Only the HOME-scope ViewModel performs the default CW seed + legacy
+        // migration. Other scopes (Movies / TV / For You) share this base init
+        // but must never grab the seed — otherwise a non-Home scope that
+        // initializes first would seed a CW row into ITS scope and set the
+        // global flag, blocking Home.
+        if (homeScope != LayoutScreenScope.HOME) return@launch
+
+        // One-shot: gated by the split-seed flag. Moved AHEAD of the legacy
+        // migration so the migration is also one-shot — otherwise it would
+        // re-run every launch and rewrite the new user-facing "Both" rows
+        // (kind CONTINUE_WATCHING) into Series. Existing users already ran the
+        // migration on a prior build, so gating here is safe.
+        if (layoutPreferenceDataStore.continueWatchingSplitSeeded.first()) return@launch
+
+        // Migrate any pre-split legacy single CONTINUE_WATCHING rows →
+        // CONTINUE_WATCHING_SERIES across every scope (idempotent). Runs once.
         for (scope in LayoutScreenScope.entries) {
             val rows = layoutPreferenceDataStore.rowsForScope(scope).first()
             if (rows.any { it.kind == LayoutRowKind.CONTINUE_WATCHING }) {
@@ -268,10 +282,8 @@ internal fun BaseHomeViewModel.seedDefaultContinueWatchingRowIfNeeded() {
         }
 
         // Ensure a default Series CW row exists in HOME so it shows in the Rows
-        // Manager. Gated by the split-seed flag (runs once even for users who
-        // already had the pre-split flag set), so upgraders who ended up with
-        // no CW-family row get one; a later manual delete stays sticky.
-        if (layoutPreferenceDataStore.continueWatchingSplitSeeded.first()) return@launch
+        // Manager, so upgraders who ended up with no CW-family row get one; a
+        // later manual delete stays sticky.
         val homeRows = layoutPreferenceDataStore.rowsForScope(homeScope).first { it.isNotEmpty() }
         if (homeRows.none { it.kind.continueWatchingFilter != null }) {
             val cwRow = LayoutRowConfig(
@@ -943,6 +955,7 @@ internal suspend fun BaseHomeViewModel.updateCatalogRowsPipeline() {
                 LayoutRowKey.forContinueWatchingSeries() -> ContinueWatchingFilter.SERIES
                 LayoutRowKey.forContinueWatchingMovies() -> ContinueWatchingFilter.MOVIES
                 LayoutRowKey.forTraktUpNext() -> ContinueWatchingFilter.UP_NEXT
+                LayoutRowKey.forContinueWatchingBoth() -> ContinueWatchingFilter.BOTH
                 else -> null
             }
             if (cwFilter != null) {

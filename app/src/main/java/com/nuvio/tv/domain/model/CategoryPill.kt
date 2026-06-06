@@ -22,6 +22,11 @@ enum class CategoryPill(
     val displayLabel: String,
     val defaultVisibility: PillVisibility,
 ) {
+    // First position → leftmost TopBar pill on fresh installs (the default
+    // first-launch order is the [entries] order). Existing users keep their
+    // saved order; a one-shot migration promotes For You to the front for
+    // Trakt-authenticated upgraders.
+    FOR_YOU("for_you", "For You", PillVisibility.TOPBAR),
     HOME("home", "Home", PillVisibility.TOPBAR),
     MOVIES("movies", "Movies", PillVisibility.TOPBAR),
     TV_SHOWS("tv_shows", "TV Shows", PillVisibility.TOPBAR),

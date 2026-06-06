@@ -103,6 +103,7 @@
     <string name="home_no_rows_configured">No rows added yet — go to Settings → Appearance → Rows to add content.</string>
     <string name="movies_no_rows_configured">No rows added yet — go to Settings → Appearance → Rows to add content.</string>
     <string name="tv_no_rows_configured">No rows added yet — go to Settings → Appearance → Rows to add content.</string>
+    <string name="for_you_no_rows_configured">No rows added yet — go to Settings → Appearance → Rows to add content.</string>
     <string name="empty_state_add_your_content">Add Your Content</string>
     <string name="empty_state_add_your_addons">Add Your Addons</string>
     <string name="empty_state_add_your_catalogs">Add Your Catalogs</string>

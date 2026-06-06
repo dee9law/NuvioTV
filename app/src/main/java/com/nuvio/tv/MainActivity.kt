@@ -77,6 +77,7 @@ import com.nuvio.tv.data.remote.supabase.AvatarRepository
 import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Folder
@@ -214,6 +215,12 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var avatarRepository: AvatarRepository
+
+    @Inject
+    lateinit var categoryPillOrderDataStore: com.nuvio.tv.data.local.CategoryPillOrderDataStore
+
+    @Inject
+    lateinit var traktAuthDataStore: com.nuvio.tv.data.local.TraktAuthDataStore
 
     @Inject
     lateinit var trailerPlayerPool: com.nuvio.tv.core.player.TrailerPlayerPool
@@ -460,7 +467,15 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val layoutChosen = mainUiPrefs.hasChosenLayout
-                    if (layoutChosen == null || !mainUiPrefs.experienceModeLoaded || installedAddons == null) {
+                    // For You launch behavior: when Trakt is authenticated, For
+                    // You is the default landing tab; otherwise Home. Resolved
+                    // before the NavHost composes (gated below) so the start
+                    // destination is correct on first frame.
+                    val traktAuthed by traktAuthDataStore.isAuthenticated
+                        .collectAsState(initial = null)
+                    if (layoutChosen == null || !mainUiPrefs.experienceModeLoaded ||
+                        installedAddons == null || traktAuthed == null
+                    ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -492,8 +507,17 @@ class MainActivity : ComponentActivity() {
                     // Settings → Experience for users who want to flip it
                     // later; we just no longer prompt at startup.
                     val startDestination = when {
+                        layoutChosen && traktAuthed == true -> Screen.ForYou.route
                         layoutChosen -> Screen.Home.route
                         else -> Screen.LayoutSelection.route
+                    }
+                    // One-shot: promote the For You pill to first position for
+                    // Trakt-authenticated upgraders (fresh installs already have
+                    // it first). Idempotent + flag-guarded inside the store.
+                    LaunchedEffect(traktAuthed) {
+                        if (traktAuthed == true) {
+                            categoryPillOrderDataStore.promoteForYouToFrontOnce()
+                        }
                     }
                     val navController = rememberNavController()
                     var optimisticRoute by remember { mutableStateOf<String?>(null) }
@@ -527,6 +551,7 @@ class MainActivity : ComponentActivity() {
 
                     val rootRoutes = remember {
                         setOf(
+                            Screen.ForYou.route,
                             Screen.Home.route,
                             Screen.Search.route,
                             Screen.Discover.route,
@@ -652,6 +677,7 @@ private fun TopNavBarScaffold(
     val isModernFeel = navigationFeel == Feel.MODERN
     val layoutRoutes = remember {
         setOf(
+            Screen.ForYou.route,
             Screen.Home.route,
             Screen.Movies.route,
             Screen.TvShows.route,
@@ -734,6 +760,7 @@ private fun TopNavBarScaffold(
     val pillForRoute: (String?) -> CategoryPill? = remember {
         { route ->
             when (route) {
+                Screen.ForYou.route -> CategoryPill.FOR_YOU
                 Screen.Home.route -> CategoryPill.HOME
                 Screen.Movies.route -> CategoryPill.MOVIES
                 Screen.TvShows.route -> CategoryPill.TV_SHOWS
@@ -749,6 +776,7 @@ private fun TopNavBarScaffold(
     val routeForPill: (CategoryPill) -> String = remember {
         { pill ->
             when (pill) {
+                CategoryPill.FOR_YOU -> Screen.ForYou.route
                 CategoryPill.HOME -> Screen.Home.route
                 CategoryPill.MOVIES -> Screen.Movies.route
                 CategoryPill.TV_SHOWS -> Screen.TvShows.route
@@ -764,6 +792,7 @@ private fun TopNavBarScaffold(
     val iconForPill: (CategoryPill) -> androidx.compose.ui.graphics.vector.ImageVector = remember {
         { pill ->
             when (pill) {
+                CategoryPill.FOR_YOU -> Icons.Default.AutoAwesome
                 CategoryPill.HOME -> Icons.Default.Home
                 CategoryPill.MOVIES -> Icons.Default.Movie
                 CategoryPill.TV_SHOWS -> Icons.Default.Tv
@@ -784,6 +813,7 @@ private fun TopNavBarScaffold(
     // so user-reordered pills track the active route correctly.
     val legacyAllowedPillsForIndex = remember {
         setOf(
+            CategoryPill.FOR_YOU,
             CategoryPill.HOME,
             CategoryPill.MOVIES,
             CategoryPill.TV_SHOWS,
@@ -1009,6 +1039,7 @@ private fun TopNavBarScaffold(
                 // category pill, so filter it out of the renderable list.
                 val orderSnapshot = pillOrderFull.orEmpty()
                 val legacyAllowedPills = setOf(
+                    CategoryPill.FOR_YOU,
                     CategoryPill.HOME,
                     CategoryPill.MOVIES,
                     CategoryPill.TV_SHOWS,

@@ -880,6 +880,11 @@ class LayoutPreferenceDataStore @Inject constructor(
     fun selectedLayoutForScope(scope: LayoutScreenScope): Flow<HomeLayout> = profileFlow { prefs ->
         val defaultLayout = when (scope) {
             LayoutScreenScope.MOVIES, LayoutScreenScope.TV -> HomeLayout.GRID
+            // For You is a fixed pure-rows canvas: always Classic (no hero, no
+            // backdrop, no layout picker). The FOR_YOU layout key is never
+            // written (the Rows Manager opens FOR_YOU in ROWS_ONLY mode), so
+            // this default is effectively permanent.
+            LayoutScreenScope.FOR_YOU -> HomeLayout.CLASSIC
             else -> HomeLayout.MODERN
         }
         val raw = prefs[scopedLayoutKey(scope)] ?: defaultLayout.name
@@ -949,6 +954,23 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     suspend fun setContinueWatchingSplitSeeded(seeded: Boolean) {
         store().edit { prefs -> prefs[continueWatchingSplitSeededKey] = seeded }
+    }
+
+    private val forYouSeededKey = booleanPreferencesKey("for_you_seeded")
+
+    /**
+     * One-shot flag for the For You scope's default rows (Continue Watching —
+     * Both + Up Next). Only seeded when Trakt is authenticated; the flag stays
+     * false until that first successful seed so a user who signs in later still
+     * gets the defaults on their next For You visit. A later manual delete
+     * stays sticky.
+     */
+    val forYouSeeded: Flow<Boolean> = profileFlow { prefs ->
+        prefs[forYouSeededKey] ?: false
+    }
+
+    suspend fun setForYouSeeded(seeded: Boolean) {
+        store().edit { prefs -> prefs[forYouSeededKey] = seeded }
     }
 
     suspend fun setSelectedLayoutForScope(scope: LayoutScreenScope, layout: HomeLayout) {
@@ -1025,7 +1047,8 @@ class LayoutPreferenceDataStore @Inject constructor(
         else booleanPreferencesKey("focused_poster_backdrop_trailer_muted_${scope.scopeKey}")
 
     fun heroSectionEnabledForScope(scope: LayoutScreenScope): Flow<Boolean> = profileFlow { prefs ->
-        prefs[scopedHeroSectionEnabledKey(scope)] ?: true
+        // For You never shows a hero — it's a pure-rows canvas.
+        prefs[scopedHeroSectionEnabledKey(scope)] ?: (scope != LayoutScreenScope.FOR_YOU)
     }
 
     fun searchDiscoverEnabledForScope(scope: LayoutScreenScope): Flow<Boolean> = profileFlow { prefs ->

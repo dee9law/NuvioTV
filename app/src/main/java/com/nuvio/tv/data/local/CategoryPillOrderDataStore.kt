@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.local
 
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.google.gson.Gson
@@ -10,6 +11,7 @@ import com.nuvio.tv.domain.model.CategoryPillDisplayMode
 import com.nuvio.tv.domain.model.CategoryPillOrderEntry
 import com.nuvio.tv.domain.model.PillVisibility
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -39,6 +41,7 @@ class CategoryPillOrderDataStore @Inject constructor(
     companion object {
         private const val FEATURE = "category_pill_order"
         private val ORDER_KEY = stringPreferencesKey("order_json")
+        private val FOR_YOU_PROMOTED_KEY = booleanPreferencesKey("for_you_promoted")
     }
 
     private val gson = Gson()
@@ -63,6 +66,30 @@ class CategoryPillOrderDataStore @Inject constructor(
         store().edit { prefs ->
             prefs[ORDER_KEY] = gson.toJson(order.map { it.toSerializable() })
         }
+    }
+
+    /**
+     * One-shot: move [CategoryPill.FOR_YOU] to the front of the persisted pill
+     * order (keeping it on the TopBar) so Trakt-authenticated upgraders get the
+     * For You pill in first position. Fresh installs already have it first via
+     * [CategoryPillOrderEntry.defaultOrder]; existing users have it appended at
+     * the end by [reconcileWithDefaults] until this runs. Guarded by its own
+     * flag so a user who later reorders the pill isn't overridden again.
+     */
+    suspend fun promoteForYouToFrontOnce() {
+        val s = store()
+        val prefs = s.data.first()
+        if (prefs[FOR_YOU_PROMOTED_KEY] == true) return
+        val current = reconcileWithDefaults(parseOrder(prefs[ORDER_KEY]))
+        if (current.firstOrNull()?.pill != CategoryPill.FOR_YOU) {
+            val forYou = current.firstOrNull { it.pill == CategoryPill.FOR_YOU }
+                ?.copy(visibility = PillVisibility.TOPBAR)
+            if (forYou != null) {
+                val reordered = listOf(forYou) + current.filterNot { it.pill == CategoryPill.FOR_YOU }
+                save(reordered)
+            }
+        }
+        s.edit { it[FOR_YOU_PROMOTED_KEY] = true }
     }
 
     // ── Serialization mirrors ────────────────────────────────────────────

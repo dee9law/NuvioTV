@@ -50,14 +50,16 @@ enum class LayoutRowKind {
 }
 
 /**
- * The three Continue-Watching-derived row variants. All three render through
- * the shared ContinueWatchingCard, differing only in which slice of the CW
- * item list they show:
+ * The four Continue-Watching-derived row variants. All render through the
+ * shared ContinueWatchingCard, differing only in which slice of the CW item
+ * list they show:
  *  - [SERIES]  — in-progress + next-up shows/episodes (non-movie).
  *  - [MOVIES]  — in-progress movies.
  *  - [UP_NEXT] — next-unwatched-episode (NextUp) items only.
+ *  - [BOTH]    — the original mixed CW behavior: series + movies together.
+ *               Backed by the legacy [LayoutRowKind.CONTINUE_WATCHING] kind.
  */
-enum class ContinueWatchingFilter { SERIES, MOVIES, UP_NEXT }
+enum class ContinueWatchingFilter { SERIES, MOVIES, UP_NEXT, BOTH }
 
 /** Maps a row kind to its CW filter, or null if the kind is not CW-derived. */
 val LayoutRowKind.continueWatchingFilter: ContinueWatchingFilter?
@@ -65,8 +67,11 @@ val LayoutRowKind.continueWatchingFilter: ContinueWatchingFilter?
         LayoutRowKind.CONTINUE_WATCHING_SERIES -> ContinueWatchingFilter.SERIES
         LayoutRowKind.CONTINUE_WATCHING_MOVIES -> ContinueWatchingFilter.MOVIES
         LayoutRowKind.TRAKT_UP_NEXT -> ContinueWatchingFilter.UP_NEXT
-        // Legacy single CW kind behaves as Series.
-        LayoutRowKind.CONTINUE_WATCHING -> ContinueWatchingFilter.SERIES
+        // The legacy single CW kind is now the user-facing "Both" variant —
+        // the original mixed series + movies behavior. (A one-shot migration
+        // already rewrote any pre-split legacy rows to SERIES, so this no
+        // longer collides with old data.)
+        LayoutRowKind.CONTINUE_WATCHING -> ContinueWatchingFilter.BOTH
         else -> null
     }
 
@@ -155,11 +160,15 @@ object LayoutRowKey {
     fun forContinueWatchingMovies(): String = "continue_watching_movies"
     fun forTraktUpNext(): String = "trakt_up_next"
 
+    /** "Both" (mixed series + movies) reuses the legacy single-CW id. */
+    fun forContinueWatchingBoth(): String = forContinueWatching()
+
     /** Canonical id (== rowConfigLookup key) for a given CW filter variant. */
     fun forContinueWatchingFilter(filter: ContinueWatchingFilter): String = when (filter) {
         ContinueWatchingFilter.SERIES -> forContinueWatchingSeries()
         ContinueWatchingFilter.MOVIES -> forContinueWatchingMovies()
         ContinueWatchingFilter.UP_NEXT -> forTraktUpNext()
+        ContinueWatchingFilter.BOTH -> forContinueWatchingBoth()
     }
 }
 
@@ -177,6 +186,9 @@ enum class LayoutScreenScope(val scopeKey: String, val displayName: String) {
     MOVIES("movies", "Movies"),
     TV("tv", "TV Shows"),
     COLLECTIONS("collections", "Collections"),
+    // "For You" — a standalone pure-rows canvas (no hero). Configurable via
+    // the Rows Manager like any other scope.
+    FOR_YOU("for_you", "For You"),
     DETAIL("detail", "Detail Page"),
 }
 

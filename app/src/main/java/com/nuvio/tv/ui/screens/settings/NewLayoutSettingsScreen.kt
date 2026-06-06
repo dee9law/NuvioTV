@@ -160,6 +160,9 @@ fun NewLayoutSettingsContent(
                 // Detail Page is no longer a scope — it's a standalone
                 // Appearance sub-item (Task 6).
                 showDetailPage = false,
+                // For You has no configurable layout; keep it out of the
+                // layout picker (it's managed in the Rows Manager).
+                showForYou = false,
             )
         }
         if (showLayout) {
@@ -735,6 +738,7 @@ private fun ContinueWatchingAddPill(
                     val options = listOf(
                         "Series" to ContinueWatchingFilter.SERIES,
                         "Movies" to ContinueWatchingFilter.MOVIES,
+                        "Both" to ContinueWatchingFilter.BOTH,
                     )
                     options.forEachIndexed { index, (label, filter) ->
                         SubmenuItem(
@@ -1422,12 +1426,15 @@ private fun ScopePills(
     onSelect: (LayoutScreenScope) -> Unit,
     firstPillFocusRequester: FocusRequester?,
     showDetailPage: Boolean = true,
+    // For You is a fixed pure-rows canvas with no configurable layout — hide it
+    // from the layout-picker scope tabs (ALL / LAYOUT_ONLY). It still appears in
+    // the Rows Manager (ROWS_ONLY), which passes true.
+    showForYou: Boolean = true,
 ) {
-    val scopes = remember(showDetailPage) {
-        if (showDetailPage) {
-            LayoutScreenScope.entries.toList()
-        } else {
-            LayoutScreenScope.entries.filter { it != LayoutScreenScope.DETAIL }
+    val scopes = remember(showDetailPage, showForYou) {
+        LayoutScreenScope.entries.filter {
+            (showDetailPage || it != LayoutScreenScope.DETAIL) &&
+                (showForYou || it != LayoutScreenScope.FOR_YOU)
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

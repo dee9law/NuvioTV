@@ -628,3 +628,83 @@ on-device.
 installed `app-full-armeabi-v7a-debug.apk` (`com.nuviodebug.com`) on the Jawwy
 TV (`192.168.8.170`). Smoke-tested via ADB remote control — **no crashes**;
 **FIX 1 verified on-device**; FIX 2 + Up Next need watch history to exercise.
+
+---
+
+## 📅 Session log — 2026-06-06 (Part 2: "For You" standalone screen shell + CW "Both" filter)
+
+### Headline
+
+Added a new top-level **For You** navigation screen (STEP 1 shell — no Trakt
+API yet, additive) and the missing **"Both"** Continue-Watching filter. Compiled
+green, installed on the Jawwy TV (`com.nuviodebug.com` @ `192.168.8.187` — IP
+drifted from .170). Smoke-tested via ADB: For You is the authed landing route,
+renders pure rows (no hero), CW **Both** shows mixed series + movies, no crashes.
+
+### PART 1 — CW "Both" filter (mixed series + movies, original CW behavior)
+
+- New `ContinueWatchingFilter.BOTH`; `LayoutRowKind.CONTINUE_WATCHING` now maps
+  to **BOTH** (was Series). `LayoutRowKey.forContinueWatchingBoth()` reuses the
+  legacy `"continue_watching"` id. `forContinueWatchingFilter(items)` → full list.
+- Pipeline: `updateCatalogRowsPipeline` maps the `"continue_watching"` key → BOTH.
+- **Migration made one-shot:** `seedDefaultContinueWatchingRowIfNeeded` now (a)
+  early-returns for non-HOME scopes and (b) gates the legacy CONTINUE_WATCHING→
+  SERIES migration behind `cw_split_seeded` (was ungated/every-launch). Required
+  so user-added "Both" rows (kind CONTINUE_WATCHING) aren't rewritten to Series.
+  Safe because existing users already migrated on `f4119b09`.
+- UI: "+ Continue Watching" submenu gains **Both**; `addContinueWatchingRow(BOTH)`.
+
+### PART 2 — For You screen shell (additive)
+
+- `LayoutScreenScope.FOR_YOU` ("for_you" / "For You") + `CategoryPill.FOR_YOU`
+  (first enum entry → first pill on fresh installs) + `Screen.ForYou`.
+- **Reuses HomeScreen wholesale** via a thin wrapper (like MoviesScreen): the
+  FOR_YOU scope is forced to **Classic + hero-off** by defaults in
+  `LayoutPreferenceDataStore.selectedLayoutForScope` / `heroSectionEnabledForScope`
+  (the FOR_YOU layout key is never written — Rows Manager opens it ROWS_ONLY).
+  No new rendering/pipeline code.
+- Default seed (`forYouSeeded` flag, **only when Trakt authed**): CW **Both** +
+  **Up Next**. Not authed → seeds nothing, flag stays false (seeds later on sign-in).
+- **Default tab:** Trakt authed → For You is the start destination (+ one-shot
+  `CategoryPillOrderDataStore.promoteForYouToFrontOnce()` for upgraders); else Home.
+  MainActivity gates first frame on Trakt auth resolving.
+- Rows Manager: FOR_YOU scope tab appears automatically (`LayoutScreenScope.entries`);
+  **excluded from the layout-picker** scope tabs (new `ScopePills.showForYou=false`
+  on the ALL/LAYOUT_ONLY path) so its fixed pure-rows layout can't be changed.
+- MainActivity wiring: `layoutRoutes`, `rootRoutes`, `pillForRoute`/`routeForPill`/
+  `iconForPill` (sparkle `Icons.Default.AutoAwesome`), both legacy pill sets.
+
+### New files
+
+- `ui/screens/foryou/ForYouViewModel.kt` — BaseHomeViewModel @ FOR_YOU scope + seed.
+- `ui/screens/foryou/ForYouScreen.kt` — thin HomeScreen wrapper.
+
+### Smoke test (ADB, Jawwy TV `192.168.8.187`, `com.nuviodebug.com`)
+
+- ✅ Lands on `Screen: for_you` (Trakt authed) — confirmed via logcat.
+- ✅ Pure rows, no hero/backdrop. ✅ CW **Both** = mixed series (Detective Conan,
+  According to Jim) + movies (Balls Up, INVINCIBLE, Spartacus) in one row.
+- ✅ Up Next row present (NextUp items). ✅ BACK exits to launcher (For You is root).
+- ✅ No crashes. ✅ TopBar renders with pills.
+
+### Known cosmetic follow-ups (Classic shared-component limitations, NOT touched
+per the additive constraint)
+
+1. **Up Next row shows the header "Continue Watching"** in Classic —
+   `ContinueWatchingSection` hardcodes `R.string.continue_watching` (no title param),
+   so For You shows two identically-titled CW rows. Fix: add `title: String? = null`
+   to `ContinueWatchingSection` + pass the row's configured name from
+   `ClassicHomeContent` (Modern already titles from `rowConfigLookup`).
+2. **First row title overlaps the TopBar** on For You — Classic has no hero to push
+   rows down, so row 0's title collides with the TopBar overlay. Fix: reserve a top
+   content inset for the TopBar when `heroSectionEnabled == false`.
+3. Trakt catalog rows (Recommended/Watchlist/Calendars) still deferred — the
+   addable-but-not-default rows from the For You spec need the from-scratch Trakt→
+   home-row pipeline (research done; `/calendars/my/*` is genuinely complementary to
+   Up Next, not redundant — see PART 3 analysis).
+
+### Build / deploy
+
+`BUILD SUCCESSFUL` (`installFullDebug`, exit 0). Installed
+`app-full-armeabi-v7a-debug.apk` (`com.nuviodebug.com`) on the Jawwy TV
+(`192.168.8.187`). Committed on `dev` (not pushed). Smoke-tested via ADB.

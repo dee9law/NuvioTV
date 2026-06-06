@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Folder
@@ -332,6 +333,7 @@ private fun IconChipButton(
 }
 
 private fun iconFor(pill: CategoryPill): ImageVector = when (pill) {
+    CategoryPill.FOR_YOU -> Icons.Default.AutoAwesome
     CategoryPill.HOME -> Icons.Default.Home
     CategoryPill.MOVIES -> Icons.Default.Movie
     CategoryPill.TV_SHOWS -> Icons.Default.Tv
