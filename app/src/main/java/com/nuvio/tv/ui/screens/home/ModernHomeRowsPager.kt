@@ -43,10 +43,14 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.LocalNavBarFocusRequester
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.continueWatchingStyle
+import com.nuvio.tv.domain.model.CW_DEFAULT_CARD_WIDTH_DP
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.LayoutRowConfig
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.ui.components.continueWatchingCardFootprint
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.util.StableMap
 import com.nuvio.tv.ui.util.StableRef
@@ -597,7 +601,14 @@ private fun modernPagerRowCardHeight(
     landscapeCardHeight: Dp,
     cwCardHeight: Dp,
 ): Dp {
-    if (row.key == MODERN_CONTINUE_WATCHING_ROW_KEY) return cwCardHeight
+    if (row.key == MODERN_CONTINUE_WATCHING_ROW_KEY) {
+        // Match ModernRowSection's CW footprint so Poster/Wide aren't clipped.
+        val cwConfig = row.layoutConfigKey?.let { rowConfigLookup[it] }
+        val cwStyle = cwConfig?.continueWatchingStyle ?: ContinueWatchingCardStyle.CARD
+        val sizeScale = (cwConfig?.cardWidthDp ?: CW_DEFAULT_CARD_WIDTH_DP)
+            .toFloat() / CW_DEFAULT_CARD_WIDTH_DP
+        return continueWatchingCardFootprint(cwStyle, cwCardHeight * sizeScale).imageHeight
+    }
     val resolved = row.layoutConfigKey?.let { rowConfigLookup[it] }?.let {
         resolveRowDisplayConfig(it, it.viewContext, globalExpandForScope = false)
     }

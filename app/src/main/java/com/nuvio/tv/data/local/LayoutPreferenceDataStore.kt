@@ -917,6 +917,23 @@ class LayoutPreferenceDataStore @Inject constructor(
     fun rowConfigsForScope(scope: LayoutScreenScope): Flow<Map<String, LayoutRowConfig>> =
         rowsForScope(scope).map { rows -> rows.associateBy { it.id } }
 
+    private val continueWatchingDefaultSeededKey =
+        booleanPreferencesKey("cw_default_row_seeded")
+
+    /**
+     * One-shot migration flag: whether the default Continue Watching row has
+     * been seeded into the HOME scope. Set once so a user who later deletes the
+     * CW row isn't re-seeded on every launch (delete stays sticky; re-add via
+     * the "+ CW" button).
+     */
+    val continueWatchingDefaultSeeded: Flow<Boolean> = profileFlow { prefs ->
+        prefs[continueWatchingDefaultSeededKey] ?: false
+    }
+
+    suspend fun setContinueWatchingDefaultSeeded(seeded: Boolean) {
+        store().edit { prefs -> prefs[continueWatchingDefaultSeededKey] = seeded }
+    }
+
     suspend fun setSelectedLayoutForScope(scope: LayoutScreenScope, layout: HomeLayout) {
         if (scope == LayoutScreenScope.HOME) {
             // Reuse the global setter — it also flips hasChosenKey and seeds

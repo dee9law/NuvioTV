@@ -77,7 +77,16 @@ internal fun buildModernHomePresentation(
         val catalogRowLimit = maxCatalogRows?.coerceAtLeast(0)
         var renderedCatalogRows = 0
 
-        if (input.continueWatchingItems.isNotEmpty()) {
+        // Whether the user has added a Continue Watching row via Settings →
+        // Rows. When configured, the CW row is emitted at its chosen position
+        // in the loop below (and only when enabled — a disabled CW row is
+        // filtered out of [visibleHomeRows] upstream, which fixes the on/off
+        // toggle for Modern/Immersive). When NOT configured, CW is pinned at
+        // the top by default (legacy behaviour), driven purely by history.
+        val continueWatchingConfigured = input.rowConfigLookup[
+            com.nuvio.tv.domain.model.LayoutRowKey.forContinueWatching()
+        ] != null
+        val continueWatchingRow: HeroCarouselRow? = if (input.continueWatchingItems.isNotEmpty()) {
             val reuseContinueWatchingRow =
                 cache.continueWatchingRow != null &&
                     cache.continueWatchingItems == input.continueWatchingItems &&
@@ -85,7 +94,7 @@ internal fun buildModernHomePresentation(
                     cache.continueWatchingAirsDateTemplate == strAirsDate &&
                     cache.continueWatchingUpcomingLabel == strUpcoming &&
                     cache.continueWatchingUseLandscapePosters == input.useLandscapePosters
-            val continueWatchingRow = if (reuseContinueWatchingRow) {
+            val row = if (reuseContinueWatchingRow) {
                 checkNotNull(cache.continueWatchingRow)
             } else {
                 HeroCarouselRow(
@@ -108,11 +117,15 @@ internal fun buildModernHomePresentation(
             cache.continueWatchingAirsDateTemplate = strAirsDate
             cache.continueWatchingUpcomingLabel = strUpcoming
             cache.continueWatchingUseLandscapePosters = input.useLandscapePosters
-            cache.continueWatchingRow = continueWatchingRow
-            add(continueWatchingRow)
+            cache.continueWatchingRow = row
+            row
         } else {
             cache.continueWatchingItems = emptyList()
             cache.continueWatchingRow = null
+            null
+        }
+        if (continueWatchingRow != null && !continueWatchingConfigured) {
+            add(continueWatchingRow)
         }
 
         visibleHomeRows.forEachIndexed { index, homeRow ->
@@ -307,7 +320,16 @@ internal fun buildModernHomePresentation(
                     )
                     add(placeholderRow)
                 }
-                is HomeRow.ContinueWatching -> { }
+                is HomeRow.ContinueWatching -> {
+                    // Configured CW row: emit at its chosen position with a
+                    // matching globalRowIndex (mirrors the catalog-row pattern).
+                    if (continueWatchingRow != null) {
+                        add(
+                            if (continueWatchingRow.globalRowIndex == index) continueWatchingRow
+                            else continueWatchingRow.copy(globalRowIndex = index),
+                        )
+                    }
+                }
             }
         }
 

@@ -51,6 +51,38 @@ enum class LayoutRowKind { ADDON, COLLECTION, TRAKT, TMDB_DISCOVER, TMDB_NETWORK
 enum class LayoutCardStyle { POSTER, LANDSCAPE, CINEMA }
 
 /**
+ * Orientation options for a Continue Watching row. These are CW-specific and
+ * deliberately separate from [LayoutCardStyle] — CW has no CINEMA, and its
+ * "Wide" is a horizontal artwork-left + text-right strip that has no generic
+ * card-style equivalent. Stored on the CW row's [LayoutRowConfig.metadata]
+ * under [CW_STYLE_METADATA_KEY] so the generic cardStyle/CINEMA size-hiding
+ * logic is untouched.
+ *  - [POSTER] — tall portrait card, progress-bar pill at the bottom of the image.
+ *  - [CARD]   — 16:9 landscape card, progress bar along the bottom edge (default).
+ *  - [WIDE]   — horizontal strip: artwork left, title/episode/progress + % right.
+ */
+enum class ContinueWatchingCardStyle { POSTER, CARD, WIDE }
+
+/** Metadata key under which a CONTINUE_WATCHING row stores its orientation. */
+const val CW_STYLE_METADATA_KEY = "cw_style"
+
+/**
+ * Default poster-scale width for a Continue Watching row ("Medium" on the
+ * Compact→Large size scale — the 120dp "Standard" step). The actual card
+ * footprint is derived from this base per orientation by the CW card.
+ */
+const val CW_DEFAULT_CARD_WIDTH_DP = 120
+
+/**
+ * Resolved Continue Watching orientation for a row, read from [metadata].
+ * Defaults to [ContinueWatchingCardStyle.CARD] for legacy / unset rows.
+ */
+val LayoutRowConfig.continueWatchingStyle: ContinueWatchingCardStyle
+    get() = metadata[CW_STYLE_METADATA_KEY]
+        ?.let { raw -> runCatching { ContinueWatchingCardStyle.valueOf(raw) }.getOrNull() }
+        ?: ContinueWatchingCardStyle.CARD
+
+/**
  * Canonical row IDs used as the persistence key for [LayoutRowConfig] and for
  * the per-row config lookup performed by row renderers. The format must match
  * what the layout settings screen writes — see [NewLayoutSettingsViewModel].

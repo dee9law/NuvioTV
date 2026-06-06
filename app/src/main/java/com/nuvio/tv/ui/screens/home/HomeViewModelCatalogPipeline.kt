@@ -10,7 +10,11 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.usesModernPresentation
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.CW_DEFAULT_CARD_WIDTH_DP
+import com.nuvio.tv.domain.model.CW_STYLE_METADATA_KEY
 import com.nuvio.tv.domain.model.LayoutRowConfig
+import com.nuvio.tv.domain.model.LayoutRowKey
 import com.nuvio.tv.domain.model.LayoutRowKind
 import com.nuvio.tv.domain.model.skipStep
 import com.nuvio.tv.domain.model.supportsExtra
@@ -228,6 +232,36 @@ internal fun BaseHomeViewModel.observeConfiguredHomeRowsForScopePipeline() {
  * [com.nuvio.tv.domain.model.LayoutRowKey.forAddon]). The internal catalog key
  * uses underscores instead of pipes (see [catalogKey]).
  */
+/**
+ * One-shot migration: seed an enabled Continue Watching row at the top of the
+ * HOME scope so existing users keep seeing CW after it became a real,
+ * toggleable/reorderable row (it used to be force-injected in Modern).
+ *
+ * Guarded by [LayoutPreferenceDataStore.continueWatchingDefaultSeeded] so a
+ * user who later deletes the row isn't re-seeded. Waits for the scope's rows
+ * to be non-empty before seeding — seeding a *lone* CW row would flip the home
+ * into rows-only mode showing only CW (there is no "all addon catalogs" auto
+ * mode). The CW row is NOT pinned: it's an ordinary reorderable row.
+ */
+internal fun BaseHomeViewModel.seedDefaultContinueWatchingRowIfNeeded() {
+    viewModelScope.launch {
+        if (layoutPreferenceDataStore.continueWatchingDefaultSeeded.first()) return@launch
+        val rows = layoutPreferenceDataStore.rowsForScope(homeScope).first { it.isNotEmpty() }
+        if (rows.none { it.kind == LayoutRowKind.CONTINUE_WATCHING }) {
+            val cwRow = LayoutRowConfig(
+                id = LayoutRowKey.forContinueWatching(),
+                kind = LayoutRowKind.CONTINUE_WATCHING,
+                name = "Continue Watching",
+                cardWidthDp = CW_DEFAULT_CARD_WIDTH_DP,
+                viewContext = homeScope,
+                metadata = mapOf(CW_STYLE_METADATA_KEY to ContinueWatchingCardStyle.CARD.name),
+            )
+            layoutPreferenceDataStore.setRowsForScope(homeScope, listOf(cwRow) + rows)
+        }
+        layoutPreferenceDataStore.setContinueWatchingDefaultSeeded(true)
+    }
+}
+
 internal fun BaseHomeViewModel.applyConfiguredHomeRows(
     addons: List<Addon>,
     rows: List<LayoutRowConfig>,

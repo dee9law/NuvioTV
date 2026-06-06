@@ -153,6 +153,12 @@ data class HeroCarouselRow(
  */
 internal val HeroCarouselRow.layoutConfigKey: String?
     get() {
+        // The Continue Watching row IS user-configurable (orientation + size +
+        // on/off) via the "+ CW" row — resolve it to the CW row's config id so
+        // renderers can read its LayoutRowConfig.
+        if (key == MODERN_CONTINUE_WATCHING_ROW_KEY) {
+            return com.nuvio.tv.domain.model.LayoutRowKey.forContinueWatching()
+        }
         val addon = addonId
         val type = apiType
         val cat = catalogId

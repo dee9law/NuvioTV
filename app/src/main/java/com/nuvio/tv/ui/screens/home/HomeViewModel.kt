@@ -325,6 +325,7 @@ open class BaseHomeViewModel(
             observeCollections()
             observeConfiguredHomeRowsPipeline()
             observeInstalledAddons()
+            seedDefaultContinueWatchingRowIfNeeded()
 
             // Clear CW state when profile changes so items don't leak between profiles.
             var previousProfileId = profileManager.activeProfileId.value

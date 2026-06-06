@@ -503,6 +503,11 @@ fun HomeScreen(
                                 onNavigateToFolderDetail = onNavigateToFolderDetailStable,
                                 isCatalogItemWatched = isCatalogItemWatched,
                                 onCatalogItemLongPress = onCatalogItemLongPress,
+                                onContinueWatchingClick = onContinueWatchingClickStable,
+                                onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginningStable,
+                                onContinueWatchingPlayManually = onContinueWatchingPlayManuallyStable,
+                                showContinueWatchingManualPlayOption = effectiveAutoplayEnabled,
+                                onRemoveContinueWatching = onRemoveContinueWatchingStable,
                             )
                         }
                     }
@@ -695,6 +700,11 @@ private fun SpotlightHomeRoute(
     onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> },
     isCatalogItemWatched: (MetaPreview) -> Boolean,
     onCatalogItemLongPress: (MetaPreview, String) -> Unit,
+    onContinueWatchingClick: (ContinueWatchingItem) -> Unit = {},
+    onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit = {},
+    onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit = {},
+    showContinueWatchingManualPlayOption: Boolean = false,
+    onRemoveContinueWatching: (String, Int?, Int?, Boolean) -> Unit = { _, _, _, _ -> },
 ) {
     val focusState by viewModel.focusState.collectAsStateWithLifecycle()
     val onItemFocus = remember(viewModel) { { item: MetaPreview -> viewModel.onItemFocus(item) } }
@@ -711,6 +721,11 @@ private fun SpotlightHomeRoute(
         onRequestLazyCatalogLoad = remember(viewModel) {
             { catalogKey: String -> viewModel.requestLazyCatalogLoad(catalogKey) }
         },
+        onContinueWatchingClick = onContinueWatchingClick,
+        onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginning,
+        onContinueWatchingPlayManually = onContinueWatchingPlayManually,
+        showContinueWatchingManualPlayOption = showContinueWatchingManualPlayOption,
+        onRemoveContinueWatching = onRemoveContinueWatching,
     )
 }
 

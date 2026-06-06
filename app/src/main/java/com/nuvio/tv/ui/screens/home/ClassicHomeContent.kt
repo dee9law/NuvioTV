@@ -39,9 +39,13 @@ import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 import com.nuvio.tv.ui.util.asStable
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.continueWatchingStyle
+import com.nuvio.tv.domain.model.CW_DEFAULT_CARD_WIDTH_DP
 import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.LayoutRowConfig
 import com.nuvio.tv.domain.model.LayoutRowKey
+import com.nuvio.tv.ui.components.continueWatchingCardFootprint
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.CollectionFolder
@@ -160,12 +164,21 @@ fun ClassicHomeContent(
             height = posterCardStyle.height * CLASSIC_SECONDARY_ROW_POSTER_SCALE
         )
     }
-    val classicContinueWatchingCardWidth = remember(classicSecondaryPosterCardStyle) {
-        classicSecondaryPosterCardStyle.width * (16f / 9f)
-    }
-    val classicContinueWatchingImageHeight = remember(classicSecondaryPosterCardStyle) {
-        classicSecondaryPosterCardStyle.width
-    }
+    // Continue Watching honours its own per-row orientation (Poster / Card /
+    // Wide) + size from the configured CW row; falls back to Card at the
+    // default width when no CW row override exists.
+    val continueWatchingRowConfig = uiState.rowConfigLookup[LayoutRowKey.forContinueWatching()]
+    val classicContinueWatchingStyle =
+        continueWatchingRowConfig?.continueWatchingStyle ?: ContinueWatchingCardStyle.CARD
+    val classicContinueWatchingFootprint =
+        remember(classicContinueWatchingStyle, continueWatchingRowConfig?.cardWidthDp) {
+            continueWatchingCardFootprint(
+                style = classicContinueWatchingStyle,
+                baseWidth = (continueWatchingRowConfig?.cardWidthDp ?: CW_DEFAULT_CARD_WIDTH_DP).dp,
+            )
+        }
+    val classicContinueWatchingCardWidth = classicContinueWatchingFootprint.cardWidth
+    val classicContinueWatchingImageHeight = classicContinueWatchingFootprint.imageHeight
 
     // Nested prefetch: when LazyColumn prefetches a row ahead of scrolling,
     // pre-compose up to 2 ContentCards in its nested LazyRow across multiple frames.
@@ -603,7 +616,8 @@ fun ClassicHomeContent(
                     useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
                     downFocusRequester = cwDownRequester,
                     cardWidth = classicContinueWatchingCardWidth,
-                    imageHeight = classicContinueWatchingImageHeight
+                    imageHeight = classicContinueWatchingImageHeight,
+                    cwStyle = classicContinueWatchingStyle,
                 )
             }
         }
@@ -803,7 +817,8 @@ fun ClassicHomeContent(
                             blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
                             useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
                             cardWidth = classicContinueWatchingCardWidth,
-                            imageHeight = classicContinueWatchingImageHeight
+                            imageHeight = classicContinueWatchingImageHeight,
+                            cwStyle = classicContinueWatchingStyle,
                         )
                     }
                 }

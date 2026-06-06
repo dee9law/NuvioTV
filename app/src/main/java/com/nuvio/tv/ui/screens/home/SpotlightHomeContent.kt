@@ -53,10 +53,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.LocalNavBarFocusRequester
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.continueWatchingStyle
+import com.nuvio.tv.domain.model.CW_DEFAULT_CARD_WIDTH_DP
 import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.LayoutRowKey
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.CatalogRowSection
+import com.nuvio.tv.ui.components.ContinueWatchingSection
+import com.nuvio.tv.ui.components.continueWatchingCardFootprint
 import com.nuvio.tv.ui.components.HeroCarousel
 import com.nuvio.tv.ui.components.PosterCardStyle
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -152,6 +157,11 @@ fun SpotlightHomeContent(
     onCatalogItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
     onItemFocus: (MetaPreview) -> Unit = {},
     onRequestLazyCatalogLoad: (String) -> Unit = {},
+    onContinueWatchingClick: (ContinueWatchingItem) -> Unit = {},
+    onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit = {},
+    onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit = {},
+    showContinueWatchingManualPlayOption: Boolean = false,
+    onRemoveContinueWatching: (String, Int?, Int?, Boolean) -> Unit = { _, _, _, _ -> },
 ) {
     // ── Data sources ────────────────────────────────────────────────
     val catalogRows = remember(uiState.catalogRows, uiState.homeRows) {
@@ -192,6 +202,25 @@ fun SpotlightHomeContent(
     var pendingFocusedItem by remember { mutableStateOf<MetaPreview?>(null) }
     var debouncedFocusedItem by remember { mutableStateOf<MetaPreview?>(null) }
     val firstItemRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+
+    // ── Continue Watching (rendered as a leading row above the catalog
+    // rows when configured+enabled, or by default when no CW row exists).
+    // Spotlight's row list is index-coupled to catalogRows for its hero
+    // state, so CW is pinned at the top here rather than threaded into an
+    // arbitrary position. ──────────────────────────────────────────────
+    val continueWatchingConfig = uiState.rowConfigLookup[LayoutRowKey.forContinueWatching()]
+    val showSpotlightContinueWatching =
+        uiState.continueWatchingItems.isNotEmpty() &&
+            (continueWatchingConfig == null || continueWatchingConfig.enabled)
+    val spotlightCwStyle =
+        continueWatchingConfig?.continueWatchingStyle ?: ContinueWatchingCardStyle.CARD
+    val spotlightCwFootprint = remember(spotlightCwStyle, continueWatchingConfig?.cardWidthDp) {
+        continueWatchingCardFootprint(
+            style = spotlightCwStyle,
+            baseWidth = (continueWatchingConfig?.cardWidthDp ?: CW_DEFAULT_CARD_WIDTH_DP).dp,
+        )
+    }
+    val continueWatchingFirstItemFr = remember { FocusRequester() }
     // Per-row inner LazyRow states, keyed by row index. Registered by each
     // CatalogRowSection while it's composed (see itemsIndexed below) so the
     // Back handler can scroll a row's first card back into composition before
@@ -503,7 +532,7 @@ fun SpotlightHomeContent(
         }
 
         // ── Rows section: fills remaining space ─────────────────────
-        if (catalogRows.isNotEmpty()) {
+        if (catalogRows.isNotEmpty() || showSpotlightContinueWatching) {
             LazyColumn(
                 state = rowsListState,
                 modifier = Modifier
@@ -538,6 +567,41 @@ fun SpotlightHomeContent(
                     }
                     .focusRestorer()
             ) {
+                if (showSpotlightContinueWatching) {
+                    item(key = "spotlight_continue_watching") {
+                        ContinueWatchingSection(
+                            items = uiState.continueWatchingItems,
+                            onItemClick = onContinueWatchingClick,
+                            onRemoveItem = { item ->
+                                val contentId = when (item) {
+                                    is ContinueWatchingItem.InProgress -> item.progress.contentId
+                                    is ContinueWatchingItem.NextUp -> item.info.contentId
+                                }
+                                val season = when (item) {
+                                    is ContinueWatchingItem.InProgress -> item.progress.season
+                                    is ContinueWatchingItem.NextUp -> item.info.seedSeason
+                                }
+                                val episode = when (item) {
+                                    is ContinueWatchingItem.InProgress -> item.progress.episode
+                                    is ContinueWatchingItem.NextUp -> item.info.seedEpisode
+                                }
+                                onRemoveContinueWatching(
+                                    contentId, season, episode, item is ContinueWatchingItem.NextUp,
+                                )
+                            },
+                            onStartFromBeginning = onContinueWatchingStartFromBeginning,
+                            showManualPlayOption = showContinueWatchingManualPlayOption,
+                            onPlayManually = onContinueWatchingPlayManually,
+                            useEpisodeThumbnails = uiState.useEpisodeThumbnailsInCw,
+                            cwStyle = spotlightCwStyle,
+                            cardWidth = spotlightCwFootprint.cardWidth,
+                            imageHeight = spotlightCwFootprint.imageHeight,
+                            upFocusRequester = heroFocusRequester,
+                            downFocusRequester = firstItemRequesters.getOrPut(0) { FocusRequester() },
+                            firstItemFocusRequester = continueWatchingFirstItemFr,
+                        )
+                    }
+                }
                 itemsIndexed(
                     items = catalogRows,
                     key = { _, row -> "${row.addonId}_${row.apiType}_${row.catalogId}" }
@@ -604,7 +668,10 @@ fun SpotlightHomeContent(
                         onItemFocused = { itemIndex -> focusedItemInRow = itemIndex },
                         isItemWatched = isCatalogItemWatched,
                         onItemLongPress = onCatalogItemLongPress,
-                        upFocusRequester = if (index == 0) heroFocusRequester else null,
+                        upFocusRequester = if (index == 0) {
+                            if (showSpotlightContinueWatching) continueWatchingFirstItemFr
+                            else heroFocusRequester
+                        } else null,
                         firstItemFocusRequester = rowFirstItemFr,
                     )
                 }

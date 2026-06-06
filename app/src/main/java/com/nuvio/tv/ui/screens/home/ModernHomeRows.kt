@@ -98,12 +98,16 @@ import coil3.request.ImageRequest
 import coil3.request.CachePolicy
 import coil3.request.crossfade
 import com.nuvio.tv.R
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.continueWatchingStyle
+import com.nuvio.tv.domain.model.CW_DEFAULT_CARD_WIDTH_DP
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.LayoutRowConfig
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.LocalSideRailController
 import com.nuvio.tv.ui.components.ContinueWatchingCard
+import com.nuvio.tv.ui.components.continueWatchingCardFootprint
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.components.placeholderCardShimmer
@@ -150,6 +154,7 @@ private fun ModernContinueWatchingRowItem(
     isTargetItem: Boolean = false,
     cardWidth: Dp,
     imageHeight: Dp,
+    cwStyle: ContinueWatchingCardStyle,
     blurUnwatchedEpisodes: Boolean,
     useEpisodeThumbnails: Boolean,
     onFocused: () -> Unit,
@@ -188,6 +193,7 @@ private fun ModernContinueWatchingRowItem(
         onLongPress = onLongPress,
         cardWidth = cardWidth,
         imageHeight = imageHeight,
+        cwStyle = cwStyle,
         blurUnwatchedEpisodes = blurUnwatchedEpisodes,
         useEpisodeThumbnails = useEpisodeThumbnails,
         modifier = modifier
@@ -935,12 +941,29 @@ internal fun ModernRowSection(
                     ) {
                     when (val payload = item.payload) {
                         is ModernPayload.ContinueWatching -> {
+                            // Resolve the CW row's orientation + size from its
+                            // own config. Default keeps the legacy Modern Card
+                            // footprint exactly (footprint(CARD, base) where base
+                            // == continueWatchingCardHeight); the size setting
+                            // scales that base, orientation reshapes it.
+                            val cwStyle = rowConfig?.continueWatchingStyle
+                                ?: ContinueWatchingCardStyle.CARD
+                            val cwFootprint = remember(
+                                cwStyle, rowConfig?.cardWidthDp, continueWatchingCardHeight,
+                            ) {
+                                val sizeScale = (rowConfig?.cardWidthDp ?: CW_DEFAULT_CARD_WIDTH_DP)
+                                    .toFloat() / CW_DEFAULT_CARD_WIDTH_DP
+                                continueWatchingCardFootprint(
+                                    cwStyle, continueWatchingCardHeight * sizeScale,
+                                )
+                            }
                             ModernContinueWatchingRowItem(
                                 payload = payload,
                                 requester = requester,
                                 isTargetItem = isTargetItem,
-                                cardWidth = continueWatchingCardWidth,
-                                imageHeight = continueWatchingCardHeight,
+                                cardWidth = cwFootprint.cardWidth,
+                                imageHeight = cwFootprint.imageHeight,
+                                cwStyle = cwStyle,
                                 blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                                 useEpisodeThumbnails = useEpisodeThumbnails,
                                 onFocused = onFocused,

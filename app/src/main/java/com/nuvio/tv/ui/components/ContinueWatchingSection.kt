@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -63,6 +65,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Text
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -88,6 +91,29 @@ private val CwNewSeasonBadgeColor = Color(0xFFB45309)
 /** URLs that failed to load — skip them immediately on next recomposition. */
 internal val brokenImageUrls = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
+/** Resolved Continue Watching card footprint (outer width + image/strip height). */
+data class CwCardFootprint(val cardWidth: Dp, val imageHeight: Dp)
+
+/**
+ * Maps a CW orientation + a poster-scale base width to the card footprint:
+ *  - POSTER → portrait 2:3   (width = base, image height = base * 1.5)
+ *  - CARD   → 16:9 landscape (width = base * 16/9, image height = base)
+ *  - WIDE   → horizontal strip (artwork is 16:9 of the strip height; total
+ *    width ≈ base * 2.6 to leave room for the text column)
+ *
+ * The single source of truth for CW sizing — every layout passes the resolved
+ * row width as [baseWidth] so the "Size" setting (Compact→Large) applies
+ * uniformly across all three orientations.
+ */
+fun continueWatchingCardFootprint(
+    style: ContinueWatchingCardStyle,
+    baseWidth: Dp,
+): CwCardFootprint = when (style) {
+    ContinueWatchingCardStyle.POSTER -> CwCardFootprint(baseWidth, baseWidth * 1.5f)
+    ContinueWatchingCardStyle.CARD -> CwCardFootprint(baseWidth * (16f / 9f), baseWidth)
+    ContinueWatchingCardStyle.WIDE -> CwCardFootprint(baseWidth * 2.6f, baseWidth * 0.62f)
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun ContinueWatchingSection(
@@ -104,8 +130,11 @@ fun ContinueWatchingSection(
     blurUnwatchedEpisodes: Boolean = false,
     useEpisodeThumbnails: Boolean = true,
     downFocusRequester: FocusRequester? = null,
+    upFocusRequester: FocusRequester? = null,
+    firstItemFocusRequester: FocusRequester? = null,
     cardWidth: Dp = 288.dp,
-    imageHeight: Dp = 162.dp
+    imageHeight: Dp = 162.dp,
+    cwStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
 ) {
     if (items.isEmpty()) return
 
@@ -223,6 +252,7 @@ fun ContinueWatchingSection(
                     useEpisodeThumbnails = useEpisodeThumbnails,
                     cardWidth = cardWidth,
                     imageHeight = imageHeight,
+                    cwStyle = cwStyle,
                     modifier = Modifier
                         .onFocusChanged { focusState ->
                             if (focusState.isFocused && lastFocusedIndex != index) {
@@ -233,6 +263,16 @@ fun ContinueWatchingSection(
                         .then(
                             if (downFocusRequester != null) {
                                 Modifier.focusProperties { down = downFocusRequester }
+                            } else Modifier
+                        )
+                        .then(
+                            if (upFocusRequester != null) {
+                                Modifier.focusProperties { up = upFocusRequester }
+                            } else Modifier
+                        )
+                        .then(
+                            if (firstItemFocusRequester != null && index == 0) {
+                                Modifier.focusRequester(firstItemFocusRequester)
                             } else Modifier
                         )
                         .then(focusModifier)
@@ -295,6 +335,7 @@ fun ContinueWatchingCard(
     modifier: Modifier = Modifier,
     cardWidth: Dp = 288.dp,
     imageHeight: Dp = 162.dp,
+    cwStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
     blurUnwatchedEpisodes: Boolean = false,
     useEpisodeThumbnails: Boolean = true
 ) {
@@ -488,134 +529,270 @@ fun ContinueWatchingCard(
         ),
         scale = CardDefaults.scale(focusedScale = 1f)
     ) {
-        Column {
-            // Thumbnail with progress overlay
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(imageHeight)
-                    .clip(CwClipShape)
-            ) {
-                // Background image with size hints for efficient decoding
-                if (effectiveImageModel.isNullOrBlank()) {
-                    MonochromePosterPlaceholder()
-                } else {
-                    AsyncImage(
-                        model = imageRequest,
-                        contentDescription = titleText,
+        when (cwStyle) {
+            ContinueWatchingCardStyle.WIDE -> {
+                // Horizontal strip: artwork on the left, title / episode /
+                // progress on the right. Height is driven by [imageHeight].
+                Row(modifier = Modifier.fillMaxWidth().height(imageHeight)) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                compositingStrategy =
-                                    CompositingStrategy.Offscreen
+                            .fillMaxHeight()
+                            .width(imageHeight * (16f / 9f))
+                            .clip(CwCardShape)
+                    ) {
+                        if (effectiveImageModel.isNullOrBlank()) {
+                            MonochromePosterPlaceholder()
+                        } else {
+                            AsyncImage(
+                                model = imageRequest,
+                                contentDescription = titleText,
+                                modifier = Modifier.fillMaxSize().clip(CwCardShape),
+                                placeholder = backgroundPainter,
+                                error = backgroundPainter,
+                                fallback = backgroundPainter,
+                                contentScale = ContentScale.Crop,
+                                onError = {
+                                    if (!usesFallbackImage && effectiveImageModel != null) {
+                                        brokenImageUrls.add(effectiveImageModel)
+                                        if (fallbackImageModel != null && fallbackImageModel != effectiveImageModel) {
+                                            usesFallbackImage = true
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                        if (progress != null) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .fillMaxWidth()
+                                    .height(3.dp)
+                                    .background(Color.Black.copy(alpha = 0.3f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(progressFraction)
+                                        .height(3.dp)
+                                        .background(NuvioColors.Primary)
+                                )
                             }
+                        }
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        if (episodeStr != null) {
+                            Text(
+                                text = episodeStr,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = NuvioTheme.extendedColors.textSecondary,
+                            )
+                        }
+                        Text(
+                            text = titleText,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = NuvioColors.TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        episodeTitle?.let { title ->
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NuvioTheme.extendedColors.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (progress != null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(percent = 50))
+                                    .height(4.dp)
+                                    .background(Color.White.copy(alpha = 0.12f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(progressFraction)
+                                        .clip(RoundedCornerShape(percent = 50))
+                                        .height(4.dp)
+                                        .background(NuvioColors.Primary)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                        Text(
+                            text = badgeText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NuvioTheme.extendedColors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+            else -> {
+                // POSTER (portrait) + CARD (16:9) share this image-overlay
+                // layout — the caller supplies a style-specific footprint
+                // (cardWidth / imageHeight). Only the progress bar differs:
+                // POSTER gets an inset pill, CARD a thin bottom-edge bar.
+                Column {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(imageHeight)
                             .clip(CwClipShape)
+                    ) {
+                        // Background image with size hints for efficient decoding
+                        if (effectiveImageModel.isNullOrBlank()) {
+                            MonochromePosterPlaceholder()
+                        } else {
+                            AsyncImage(
+                                model = imageRequest,
+                                contentDescription = titleText,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        compositingStrategy =
+                                            CompositingStrategy.Offscreen
+                                    }
+                                    .clip(CwClipShape)
 
-                            // Gradient overlay for text legibility
-                            .drawWithContent {
-                                drawContent()
+                                    // Gradient overlay for text legibility
+                                    .drawWithContent {
+                                        drawContent()
 
-                                val startYPos = size.height * 0.45f
-                                val gradient = Brush.verticalGradient(
-                                    colorStops = arrayOf(
-                                        0.0f to Color.Transparent,
-                                        0.6f to bgColor.copy(alpha = 0.7f),
-                                        1.0f to bgColor.copy(alpha = 0.95f)
-                                    ),
-                                    startY = startYPos,
-                                    endY = size.height
+                                        val startYPos = size.height * 0.45f
+                                        val gradient = Brush.verticalGradient(
+                                            colorStops = arrayOf(
+                                                0.0f to Color.Transparent,
+                                                0.6f to bgColor.copy(alpha = 0.7f),
+                                                1.0f to bgColor.copy(alpha = 0.95f)
+                                            ),
+                                            startY = startYPos,
+                                            endY = size.height
+                                        )
+
+                                        drawRect(
+                                            brush = gradient,
+                                            topLeft = Offset(-2f, startYPos),
+                                            size = Size(size.width + 4f, (size.height - startYPos) + 4f)
+                                        )
+                                    },
+                                placeholder = backgroundPainter,
+                                error = backgroundPainter,
+                                fallback = backgroundPainter,
+                                contentScale = ContentScale.Crop,
+                                onError = {
+                                    // Primary image failed (e.g. broken thumbnail URL) — remember and try fallback.
+                                    if (!usesFallbackImage && effectiveImageModel != null) {
+                                        brokenImageUrls.add(effectiveImageModel)
+                                        if (fallbackImageModel != null && fallbackImageModel != effectiveImageModel) {
+                                            usesFallbackImage = true
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
+                        // Content info at bottom
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(12.dp)
+                        ) {
+                            // Episode info (for series)
+                            if (episodeStr != null) {
+                                Text(
+                                    text = episodeStr,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = NuvioColors.TextPrimary
                                 )
+                            }
 
-                                drawRect(
-                                    brush = gradient,
-                                    topLeft = Offset(-2f, startYPos),
-                                    size = Size(size.width + 4f, (size.height - startYPos) + 4f)
+                            Text(
+                                text = titleText,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = NuvioColors.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            // Episode title if available
+                            episodeTitle?.let { title ->
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NuvioTheme.extendedColors.textSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                            },
-                        placeholder = backgroundPainter,
-                        error = backgroundPainter,
-                        fallback = backgroundPainter,
-                        contentScale = ContentScale.Crop,
-                        onError = {
-                            // Primary image failed (e.g. broken thumbnail URL) — remember and try fallback.
-                            if (!usesFallbackImage && effectiveImageModel != null) {
-                                brokenImageUrls.add(effectiveImageModel)
-                                if (fallbackImageModel != null && fallbackImageModel != effectiveImageModel) {
-                                    usesFallbackImage = true
+                            }
+                        }
+
+                        // Remaining time badge
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp)
+                                .clip(BadgeShape)
+                                .background(badgeBackground)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = badgeText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NuvioColors.TextPrimary
+                            )
+                        }
+
+                        if (progress != null) {
+                            if (cwStyle == ContinueWatchingCardStyle.POSTER) {
+                                // Inset pill near the bottom of the poster image.
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(percent = 50))
+                                        .height(4.dp)
+                                        .background(Color.Black.copy(alpha = 0.35f))
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(progressFraction)
+                                            .clip(RoundedCornerShape(percent = 50))
+                                            .height(4.dp)
+                                            .background(NuvioColors.Primary)
+                                    )
+                                }
+                            } else {
+                                // CARD: thin bottom-edge bar (original behaviour).
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(1.5.dp))
+                                        .height(3.dp)
+                                        .background(Color.Black.copy(alpha = 0.3f))
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(progressFraction)
+                                            .clip(RoundedCornerShape(1.5.dp))
+                                            .height(3.dp)
+                                            .background(NuvioColors.Primary)
+                                    )
                                 }
                             }
                         }
-                    )
-                }
-
-                // Content info at bottom
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(12.dp)
-                ) {
-                    // Episode info (for series)
-                    if (episodeStr != null) {
-                        Text(
-                            text = episodeStr,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = NuvioColors.TextPrimary
-                        )
-                    }
-
-                    Text(
-                        text = titleText,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = NuvioColors.TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    // Episode title if available
-                    episodeTitle?.let { title ->
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = NuvioTheme.extendedColors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                // Remaining time badge
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .clip(BadgeShape)
-                        .background(badgeBackground)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = badgeText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NuvioColors.TextPrimary
-                    )
-                }
-
-                if (progress != null) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(1.5.dp))
-                            .height(3.dp)
-                            .background(Color.Black.copy(alpha = 0.3f))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(progressFraction)
-                                .clip(RoundedCornerShape(1.5.dp))
-                                .height(3.dp)
-                                .background(NuvioColors.Primary)
-                        )
                     }
                 }
             }

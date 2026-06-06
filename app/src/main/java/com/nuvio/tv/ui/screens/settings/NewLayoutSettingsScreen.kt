@@ -79,10 +79,13 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Switch
 import androidx.tv.material3.Text
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.continueWatchingStyle
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.LayoutRowConfig
+import com.nuvio.tv.domain.model.LayoutRowKind
 import com.nuvio.tv.domain.model.LayoutScreenScope
 import com.nuvio.tv.ui.theme.NuvioColors
 
@@ -239,7 +242,16 @@ fun NewLayoutSettingsContent(
                         onMoveUp = { viewModel.moveRow(row.id, -1) },
                         onMoveDown = { viewModel.moveRow(row.id, +1) },
                         onToggleStyle = {
-                            viewModel.setRowCardStyle(row.id, nextCardStyle(row.cardStyle))
+                            // CW rows cycle their own orientation set (Poster /
+                            // Card / Wide); all other rows cycle the generic
+                            // card style (Poster / Landscape / Cinema).
+                            if (row.kind == LayoutRowKind.CONTINUE_WATCHING) {
+                                viewModel.setContinueWatchingStyle(
+                                    row.id, nextContinueWatchingStyle(row.continueWatchingStyle),
+                                )
+                            } else {
+                                viewModel.setRowCardStyle(row.id, nextCardStyle(row.cardStyle))
+                            }
                         },
                         onWidthChange = { viewModel.setRowCardWidth(row.id, it) },
                         onToggleEnabled = { viewModel.toggleRowEnabled(row.id) },
@@ -466,7 +478,16 @@ private fun RowsManagerContent(
                         onMoveUp = { viewModel.moveRow(row.id, -1) },
                         onMoveDown = { viewModel.moveRow(row.id, +1) },
                         onToggleStyle = {
-                            viewModel.setRowCardStyle(row.id, nextCardStyle(row.cardStyle))
+                            // CW rows cycle their own orientation set (Poster /
+                            // Card / Wide); all other rows cycle the generic
+                            // card style (Poster / Landscape / Cinema).
+                            if (row.kind == LayoutRowKind.CONTINUE_WATCHING) {
+                                viewModel.setContinueWatchingStyle(
+                                    row.id, nextContinueWatchingStyle(row.continueWatchingStyle),
+                                )
+                            } else {
+                                viewModel.setRowCardStyle(row.id, nextCardStyle(row.cardStyle))
+                            }
                         },
                         onWidthChange = { viewModel.setRowCardWidth(row.id, it) },
                         onCycleExpand = {
@@ -802,23 +823,38 @@ private fun ManagerRowItem(
                     )
                 }
             }
+            val isContinueWatching = row.kind == LayoutRowKind.CONTINUE_WATCHING
             Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
-                StyleShapeButton(
-                    style = row.cardStyle,
-                    enabled = true,
-                    onClick = onToggleStyle,
-                    focusRequester = orientationFocusRequester,
-                )
+                if (isContinueWatching) {
+                    CwStyleShapeButton(
+                        style = row.continueWatchingStyle,
+                        enabled = true,
+                        onClick = onToggleStyle,
+                        focusRequester = orientationFocusRequester,
+                    )
+                } else {
+                    StyleShapeButton(
+                        style = row.cardStyle,
+                        enabled = true,
+                        onClick = onToggleStyle,
+                        focusRequester = orientationFocusRequester,
+                    )
+                }
             }
             Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
                 // CINEMA is a single fixed size — the size picker doesn't apply,
-                // so it's hidden (the column box stays for alignment).
+                // so it's hidden (the column box stays for alignment). CW always
+                // shows the size picker (all three CW orientations are resizable).
                 if (row.cardStyle != LayoutCardStyle.CINEMA) {
                     SizeShapeButton(widthDp = row.cardWidthDp, enabled = true, onSelect = onWidthChange)
                 }
             }
             Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
-                ExpandShapeButton(state = row.expandEnabled, onClick = onCycleExpand)
+                // Continue Watching has no expand-to-backdrop mechanic — hide the
+                // chip (the column box stays for alignment).
+                if (!isContinueWatching) {
+                    ExpandShapeButton(state = row.expandEnabled, onClick = onCycleExpand)
+                }
             }
             Box(modifier = Modifier.width(RowToggleColWidth), contentAlignment = Alignment.Center) {
                 // Accent focus ring so the toggle reads as focused under D-pad,
@@ -912,6 +948,51 @@ private fun nextCardStyle(current: LayoutCardStyle): LayoutCardStyle = when (cur
     LayoutCardStyle.POSTER -> LayoutCardStyle.LANDSCAPE
     LayoutCardStyle.LANDSCAPE -> LayoutCardStyle.CINEMA
     LayoutCardStyle.CINEMA -> LayoutCardStyle.POSTER
+}
+
+/** Cycle order for the Continue Watching orientation: Poster → Card → Wide → Poster. */
+private fun nextContinueWatchingStyle(
+    current: ContinueWatchingCardStyle,
+): ContinueWatchingCardStyle = when (current) {
+    ContinueWatchingCardStyle.POSTER -> ContinueWatchingCardStyle.CARD
+    ContinueWatchingCardStyle.CARD -> ContinueWatchingCardStyle.WIDE
+    ContinueWatchingCardStyle.WIDE -> ContinueWatchingCardStyle.POSTER
+}
+
+/**
+ * Plain-rectangle glyph for a Continue Watching orientation:
+ *  - Poster → tall narrow rectangle (portrait).
+ *  - Card   → 16:9 landscape rectangle.
+ *  - Wide   → ultra-wide flat strip (artwork+text strip).
+ */
+@Composable
+private fun CwStyleGlyph(style: ContinueWatchingCardStyle, tint: Color) {
+    val (w, h) = when (style) {
+        ContinueWatchingCardStyle.POSTER -> 14.dp to 21.dp
+        ContinueWatchingCardStyle.CARD -> 22.dp to 13.dp
+        ContinueWatchingCardStyle.WIDE -> 28.dp to 11.dp
+    }
+    Box(
+        modifier = Modifier
+            .size(width = w, height = h)
+            .clip(RoundedCornerShape(3.dp))
+            .background(tint),
+    )
+}
+
+@Composable
+private fun CwStyleShapeButton(
+    style: ContinueWatchingCardStyle,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+) {
+    ShapeChip(onClick = onClick, enabled = enabled, focusRequester = focusRequester) {
+        CwStyleGlyph(
+            style = style,
+            tint = if (enabled) NuvioColors.TextPrimary else NuvioColors.TextSecondary.copy(alpha = 0.4f),
+        )
+    }
 }
 
 /**

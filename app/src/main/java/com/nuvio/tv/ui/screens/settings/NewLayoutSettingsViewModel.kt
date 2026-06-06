@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.Collection
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.CW_DEFAULT_CARD_WIDTH_DP
+import com.nuvio.tv.domain.model.CW_STYLE_METADATA_KEY
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.LayoutRowConfig
@@ -396,8 +399,22 @@ class NewLayoutSettingsViewModel @Inject constructor(
                 id = id,
                 kind = LayoutRowKind.CONTINUE_WATCHING,
                 name = "Continue Watching",
+                // Default Orient = Card (16:9), Size = Medium (120dp poster scale).
+                cardWidthDp = CW_DEFAULT_CARD_WIDTH_DP,
+                metadata = mapOf(CW_STYLE_METADATA_KEY to ContinueWatchingCardStyle.CARD.name),
             )
         )
+    }
+
+    /** Continue Watching orientation (Poster / Card / Wide) — CW-specific. */
+    fun setContinueWatchingStyle(rowId: String, style: ContinueWatchingCardStyle) = mutateRows { rows ->
+        rows.map { row ->
+            if (row.id == rowId) {
+                row.copy(metadata = row.metadata + (CW_STYLE_METADATA_KEY to style.name))
+            } else {
+                row
+            }
+        }
     }
 
     fun removeRow(rowId: String) = mutateRows { it.filterNot { row -> row.id == rowId } }
