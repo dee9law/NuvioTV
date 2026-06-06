@@ -20,6 +20,7 @@ import com.nuvio.tv.domain.model.DiscoverLocation
 import com.nuvio.tv.domain.model.Feel
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.usesModernPresentation
 import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.LayoutRowConfig
 import com.nuvio.tv.domain.model.LayoutRowKind
@@ -509,7 +510,7 @@ class LayoutPreferenceDataStore @Inject constructor(
             val hadChosenLayout = prefs[hasChosenKey] ?: false
             prefs[layoutKey] = layout.name
             if (
-                layout == HomeLayout.MODERN &&
+                layout.usesModernPresentation &&
                 !hadChosenLayout &&
                 prefs[focusedPosterBackdropTrailerPlaybackTargetKey] == null
             ) {

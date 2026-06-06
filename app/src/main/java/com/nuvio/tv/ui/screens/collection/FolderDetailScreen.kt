@@ -745,7 +745,7 @@ private fun FollowLayoutContent(
             posterCardStyle = posterCardStyle,
             onSaveGridFocusState = onSaveGridFocusState
         )
-        HomeLayout.MODERN -> ModernHomeContent(
+        HomeLayout.MODERN, HomeLayout.IMMERSIVE -> ModernHomeContent(
             uiState = homeState,
             focusState = focusState,
             enrichingItemId = enrichingItemId,

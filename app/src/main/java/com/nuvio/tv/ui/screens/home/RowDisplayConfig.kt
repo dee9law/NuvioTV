@@ -6,15 +6,13 @@ import com.nuvio.tv.domain.model.LayoutScreenScope
 
 /**
  * Fixed dimensions for the [LayoutCardStyle.CINEMA] card style. Cinema is a
- * single fixed size (no width variants): 380dp wide × 214dp tall — a true 16:9
- * widescreen ratio. "Cinema" should read as cinematic/widescreen (the prior 4:3
- * 380×285 looked boxy); width is kept identical to the old value so the change
- * is purely the aspect ratio — no horizontal layout shift in any row. Every
- * layout that resolves card dimensions short-circuits to these when the
- * effective style is CINEMA, ignoring [LayoutRowConfig.cardWidthDp].
+ * single fixed size (no width variants): 260dp wide × 370dp tall — a tall
+ * "premium" portrait card (roughly 5:7). Every layout that resolves card
+ * dimensions short-circuits to these when the effective style is CINEMA,
+ * ignoring [LayoutRowConfig.cardWidthDp].
  */
-const val CINEMA_CARD_WIDTH_DP = 380
-const val CINEMA_CARD_HEIGHT_DP = 214
+const val CINEMA_CARD_WIDTH_DP = 260
+const val CINEMA_CARD_HEIGHT_DP = 370
 
 /**
  * Fully-resolved per-row display values, consumed by every row-based home

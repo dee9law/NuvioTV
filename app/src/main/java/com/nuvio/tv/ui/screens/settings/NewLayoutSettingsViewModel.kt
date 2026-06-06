@@ -53,7 +53,7 @@ data class HeroCatalogChoice(
  * Stripped-down Layout settings state. Per the simplification spec, the
  * Layout screen exposes ONLY the layout picker plus a handful of toggles
  * tied to the currently selected layout:
- *  - Modern  → fullscreenHero
+ *  - Modern / Immersive → no per-layout toggles
  *  - Grid    → showHeroSection + heroCatalogKeys
  *  - Classic → focusItemGradient + showHeroSection + heroCatalogKeys
  *
@@ -65,7 +65,6 @@ data class HeroCatalogChoice(
 data class NewLayoutUiState(
     val selectedScope: LayoutScreenScope = LayoutScreenScope.HOME,
     val layout: HomeLayout = HomeLayout.MODERN,
-    val fullscreenHero: Boolean = false,
     val showHeroSection: Boolean = true,
     val heroCatalogKeys: List<String> = emptyList(),
     val availableHeroCatalogs: List<HeroCatalogChoice> = emptyList(),
@@ -93,7 +92,6 @@ data class NewLayoutUiState(
 private data class CoreLayoutState(
     val scope: LayoutScreenScope,
     val layout: HomeLayout,
-    val fullscreenHero: Boolean,
     val showHeroSection: Boolean,
     val heroCatalogKeys: List<String>,
     val focusItemGradient: Boolean,
@@ -118,8 +116,6 @@ class NewLayoutSettingsViewModel @Inject constructor(
 
     private val layoutFlow: Flow<HomeLayout> = _selectedScope
         .flatMapLatest { layoutPreferenceDataStore.selectedLayoutForScope(it) }
-    private val fullscreenHeroFlow: Flow<Boolean> = _selectedScope
-        .flatMapLatest { layoutPreferenceDataStore.fullscreenHeroBackdropForScope(it) }
     private val showHeroSectionFlow: Flow<Boolean> = _selectedScope
         .flatMapLatest { layoutPreferenceDataStore.heroSectionEnabledForScope(it) }
     private val heroCatalogKeysFlow: Flow<List<String>> = _selectedScope
@@ -194,15 +190,14 @@ class NewLayoutSettingsViewModel @Inject constructor(
         }
 
     private val coreState: Flow<CoreLayoutState> = combine(
-        combine(_selectedScope, layoutFlow, fullscreenHeroFlow) { s, l, fh -> Triple(s, l, fh) },
+        combine(_selectedScope, layoutFlow) { s, l -> s to l },
         combine(showHeroSectionFlow, heroCatalogKeysFlow, focusItemGradientFlow) { sh, hk, fg ->
             Triple(sh, hk, fg)
         },
-    ) { firstThree, secondThree ->
+    ) { scopeAndLayout, secondThree ->
         CoreLayoutState(
-            scope = firstThree.first,
-            layout = firstThree.second,
-            fullscreenHero = firstThree.third,
+            scope = scopeAndLayout.first,
+            layout = scopeAndLayout.second,
             showHeroSection = secondThree.first,
             heroCatalogKeys = secondThree.second,
             focusItemGradient = secondThree.third,
@@ -223,7 +218,6 @@ class NewLayoutSettingsViewModel @Inject constructor(
         NewLayoutUiState(
             selectedScope = core.scope,
             layout = core.layout,
-            fullscreenHero = core.fullscreenHero,
             showHeroSection = core.showHeroSection,
             heroCatalogKeys = core.heroCatalogKeys,
             availableHeroCatalogs = rs.heroCatalogs,
@@ -243,10 +237,6 @@ class NewLayoutSettingsViewModel @Inject constructor(
 
     fun setLayout(layout: HomeLayout) = viewModelScope.launch {
         layoutPreferenceDataStore.setSelectedLayoutForScope(_selectedScope.value, layout)
-    }
-
-    fun setFullscreenHero(enabled: Boolean) = viewModelScope.launch {
-        layoutPreferenceDataStore.setFullscreenHeroBackdropForScope(_selectedScope.value, enabled)
     }
 
     fun setShowHeroSection(enabled: Boolean) = viewModelScope.launch {

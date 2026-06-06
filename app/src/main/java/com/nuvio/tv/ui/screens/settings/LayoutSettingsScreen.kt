@@ -920,6 +920,9 @@ internal fun LayoutCard(
                         HomeLayout.CLASSIC -> ClassicLayoutPreview(modifier = Modifier.fillMaxWidth())
                         HomeLayout.GRID -> GridLayoutPreview(modifier = Modifier.fillMaxWidth())
                         HomeLayout.MODERN -> ModernLayoutPreview(modifier = Modifier.fillMaxWidth())
+                        HomeLayout.IMMERSIVE -> com.nuvio.tv.ui.components.ImmersiveLayoutPreview(
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         HomeLayout.SPOTLIGHT -> com.nuvio.tv.ui.components.SpotlightLayoutPreview(
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -950,6 +953,7 @@ internal fun LayoutCard(
                         HomeLayout.CLASSIC -> stringResource(R.string.layout_classic)
                         HomeLayout.GRID -> stringResource(R.string.layout_grid)
                         HomeLayout.MODERN -> stringResource(R.string.layout_modern)
+                        HomeLayout.IMMERSIVE -> stringResource(R.string.layout_immersive)
                         HomeLayout.SPOTLIGHT -> stringResource(R.string.layout_spotlight)
                     },
                     style = MaterialTheme.typography.labelLarge,

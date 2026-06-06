@@ -167,10 +167,10 @@ fun NewLayoutSettingsContent(
             // lives under Settings → Appearance → Global and the Rows tab.
             item(key = "per_layout_settings") {
                 when (uiState.layout) {
-                    HomeLayout.MODERN -> ModernLayoutSettings(
-                        fullscreenHero = uiState.fullscreenHero,
-                        onFullscreenHeroChange = viewModel::setFullscreenHero,
-                    )
+                    // Modern (State 2) and Immersive (State 1) have no per-layout
+                    // toggles. The old "Fullscreen Hero Backdrop" switch is gone —
+                    // fullscreen is now its own standalone Immersive layout.
+                    HomeLayout.MODERN, HomeLayout.IMMERSIVE -> Unit
                     HomeLayout.GRID -> GridLayoutSettings(
                         showHero = uiState.showHeroSection,
                         onShowHeroChange = viewModel::setShowHeroSection,
@@ -1241,19 +1241,6 @@ private val CardWidthOptions = listOf(
 // Each layout type only renders its own short toggle list. The Hero Catalogs
 // multi-picker is shared between Grid and Classic, gated on the Show Hero
 // Section toggle being ON.
-
-@Composable
-private fun ModernLayoutSettings(
-    fullscreenHero: Boolean,
-    onFullscreenHeroChange: (Boolean) -> Unit,
-) {
-    LayoutSettingsToggleRow(
-        title = "Fullscreen Hero Backdrop",
-        subtitle = "Hero artwork expands edge-to-edge behind the entire screen, with rows fading over it.",
-        checked = fullscreenHero,
-        onCheckedChange = onFullscreenHeroChange,
-    )
-}
 
 @Composable
 private fun GridLayoutSettings(

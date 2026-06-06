@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -215,6 +216,116 @@ fun SpotlightLayoutPreview(
                 if (x + cardWidth > -cardWidth && x < w + cardWidth) {
                     drawRoundRect(
                         color = if (i % 3 == 1) accentColor.copy(alpha = 0.55f) else accentColor.copy(alpha = 0.32f),
+                        topLeft = Offset(x, cardY),
+                        size = Size(cardWidth, cardHeight),
+                        cornerRadius = CornerRadius(h * 0.02f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Animated preview of the Immersive layout.
+ * A full-bleed dark backdrop fills ~70% of the card height (edge-to-edge, no
+ * padding — conveying the fullscreen hero), metadata text lines sit at the
+ * lower-left over the backdrop, and a single row of cards is pinned to the
+ * bottom and scrolls horizontally over the dark base.
+ */
+@Composable
+fun ImmersiveLayoutPreview(
+    modifier: Modifier = Modifier,
+    accentColor: Color = NuvioColors.Primary
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "immersivePreview")
+    val scrollOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "immersiveScroll"
+    )
+    val backdropPulse by infiniteTransition.animateFloat(
+        initialValue = 0.34f,
+        targetValue = 0.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4200, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "immersiveBackdropPulse"
+    )
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(NuvioColors.Background)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+
+            // Full-bleed backdrop occupying ~70% of the card height.
+            val backdropHeight = h * 0.70f
+            drawRect(
+                color = accentColor.copy(alpha = backdropPulse),
+                topLeft = Offset(0f, 0f),
+                size = Size(w, backdropHeight)
+            )
+            // Bottom scrim over the backdrop for metadata legibility.
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
+                    startY = backdropHeight * 0.35f,
+                    endY = backdropHeight
+                ),
+                topLeft = Offset(0f, 0f),
+                size = Size(w, backdropHeight)
+            )
+
+            // Metadata text lines on the left (title + two short detail lines).
+            val metaLeft = w * 0.06f
+            val titleW = w * 0.42f
+            val lineH = h * 0.05f
+            val titleY = backdropHeight - h * 0.27f
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.85f),
+                topLeft = Offset(metaLeft, titleY),
+                size = Size(titleW, lineH * 1.3f),
+                cornerRadius = CornerRadius(h * 0.01f)
+            )
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.5f),
+                topLeft = Offset(metaLeft, titleY + lineH * 1.9f),
+                size = Size(titleW * 0.72f, lineH * 0.65f),
+                cornerRadius = CornerRadius(h * 0.01f)
+            )
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.5f),
+                topLeft = Offset(metaLeft, titleY + lineH * 2.95f),
+                size = Size(titleW * 0.52f, lineH * 0.65f),
+                cornerRadius = CornerRadius(h * 0.01f)
+            )
+
+            // Single row of cards pinned to the bottom, scrolling horizontally.
+            val rowTop = backdropHeight + h * 0.04f
+            val rowArea = h - rowTop
+            val cardHeight = rowArea * 0.82f
+            val cardWidth = cardHeight * 0.72f
+            val gap = w * 0.025f
+            val cardY = rowTop + (rowArea - cardHeight) / 2f
+            val shift = scrollOffset * (cardWidth + gap) * 2.2f
+            for (i in 0..8) {
+                val x = w * 0.05f + i * (cardWidth + gap) - shift
+                if (x + cardWidth > -cardWidth && x < w + cardWidth) {
+                    drawRoundRect(
+                        color = if (i % 3 == 1) {
+                            accentColor.copy(alpha = 0.5f)
+                        } else {
+                            accentColor.copy(alpha = 0.3f)
+                        },
                         topLeft = Offset(x, cardY),
                         size = Size(cardWidth, cardHeight),
                         cornerRadius = CornerRadius(h * 0.02f)

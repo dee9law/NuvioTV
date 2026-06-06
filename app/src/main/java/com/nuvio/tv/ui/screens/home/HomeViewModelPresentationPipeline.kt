@@ -8,6 +8,7 @@ import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.tmdb.TmdbEnrichment
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.usesModernPresentation
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.TmdbSettings
@@ -43,7 +44,6 @@ import kotlinx.coroutines.withContext
  */
 private data class LayoutCorePrefs(
     val layout: HomeLayout,
-    val fullscreenHero: Boolean,
     val showHeroSection: Boolean,
     val heroCatalogKeys: List<String>,
     val focusItemGradient: Boolean,
@@ -54,12 +54,11 @@ internal fun BaseHomeViewModel.observeLayoutPreferencesPipeline() {
     viewModelScope.launch {
         combine(
             layoutPreferenceDataStore.selectedLayoutForScope(homeScope),
-            layoutPreferenceDataStore.fullscreenHeroBackdropForScope(homeScope),
             layoutPreferenceDataStore.heroSectionEnabledForScope(homeScope),
             layoutPreferenceDataStore.heroCatalogSelectionsForScope(homeScope),
             layoutPreferenceDataStore.classicFocusGradientEnabledForScope(homeScope),
-        ) { layout, fullscreenHero, showHero, heroKeys, focusGradient ->
-            LayoutCorePrefs(layout, fullscreenHero, showHero, heroKeys, focusGradient)
+        ) { layout, showHero, heroKeys, focusGradient ->
+            LayoutCorePrefs(layout, showHero, heroKeys, focusGradient)
         }
             .distinctUntilChanged()
             .debounce(300)
@@ -84,7 +83,9 @@ internal fun BaseHomeViewModel.observeLayoutPreferencesPipeline() {
                         heroCatalogKeys = prefs.heroCatalogKeys,
                         heroSectionEnabled = prefs.showHeroSection,
                         classicFocusGradientEnabled = prefs.focusItemGradient && prefs.layout == HomeLayout.CLASSIC,
-                        modernHeroFullScreenBackdropEnabled = prefs.fullscreenHero,
+                        // Fullscreen backdrop (State 1) is now intrinsic to the
+                        // Immersive layout; Modern always renders State 2.
+                        modernHeroFullScreenBackdropEnabled = prefs.layout == HomeLayout.IMMERSIVE,
                     )
                 }
                 if (shouldRefreshCatalogPresentation) {
@@ -115,7 +116,7 @@ internal fun BaseHomeViewModel.observeDisplayPreferencesPipeline() {
             .distinctUntilChanged()
             .collect { enabled ->
                 _uiState.update { state ->
-                    val effective = if (state.homeLayout == HomeLayout.MODERN) false else enabled
+                    val effective = if (state.homeLayout.usesModernPresentation) false else enabled
                     if (state.posterLabelsEnabled == effective) state
                     else state.copy(posterLabelsEnabled = effective)
                 }
@@ -500,7 +501,7 @@ internal fun BaseHomeViewModel.onItemFocusPipeline(item: MetaPreview) {
     }
 
     val tmdbEnabledForCurrentLayout = currentTmdbSettings.enabled &&
-        (_uiState.value.homeLayout != HomeLayout.MODERN || currentTmdbSettings.modernHomeEnabled)
+        (!_uiState.value.homeLayout.usesModernPresentation || currentTmdbSettings.modernHomeEnabled)
     val willEnrich = tmdbEnabledForCurrentLayout || externalMetaPrefetchEnabled
 
     if (willEnrich) setEnrichingItemId(item.id)
@@ -580,7 +581,7 @@ internal fun BaseHomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
     adjacentItemPrefetchJob?.cancel()
     adjacentItemPrefetchJob = viewModelScope.launch(Dispatchers.IO) {
         val tmdbEnabledForCurrentLayout = currentTmdbSettings.enabled &&
-            (_uiState.value.homeLayout != HomeLayout.MODERN || currentTmdbSettings.modernHomeEnabled)
+            (!_uiState.value.homeLayout.usesModernPresentation || currentTmdbSettings.modernHomeEnabled)
         delay(BaseHomeViewModel.EXTERNAL_META_PREFETCH_ADJACENT_DEBOUNCE_MS)
         if (pendingAdjacentPrefetchItemId != item.id) return@launch
 
@@ -629,7 +630,7 @@ internal fun BaseHomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
 }
 
 private fun BaseHomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment: TmdbEnrichment) {
-    val isModernLayout = _uiState.value.homeLayout == HomeLayout.MODERN
+    val isModernLayout = _uiState.value.homeLayout.usesModernPresentation
     fun mergeItem(currentItem: MetaPreview): MetaPreview {
         var merged = currentItem
         if (currentTmdbSettings.useBasicInfo) {

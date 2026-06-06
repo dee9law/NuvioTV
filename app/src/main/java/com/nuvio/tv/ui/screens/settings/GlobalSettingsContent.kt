@@ -716,6 +716,7 @@ internal fun ChoicePill(
 
 internal fun HomeLayout.displayLabel(): String = when (this) {
     HomeLayout.MODERN -> "Modern"
+    HomeLayout.IMMERSIVE -> "Immersive"
     HomeLayout.CLASSIC -> "Classic"
     HomeLayout.GRID -> "Grid"
     HomeLayout.SPOTLIGHT -> "Spotlight"

@@ -45,6 +45,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.usesModernPresentation
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MetaPreview
@@ -102,7 +103,7 @@ fun HomeScreen(
     val hasCollectionContent = uiState.homeRows.any { it is HomeRow.CollectionRow }
     val hasHeroContent = uiState.heroItems.isNotEmpty()
     val modernPresentationReady =
-        uiState.homeLayout != HomeLayout.MODERN ||
+        !uiState.homeLayout.usesModernPresentation ||
             uiState.modernHomePresentation.rows.list.isNotEmpty() ||
             (uiState.heroSectionEnabled && hasHeroContent && !hasCatalogContent && !hasCollectionContent)
     var showHomeContentWithAnimation by rememberSaveable { mutableStateOf(false) }
@@ -114,7 +115,7 @@ fun HomeScreen(
     var posterOptionsTarget by remember { mutableStateOf<HomePosterOptionsTarget?>(null) }
 
     LaunchedEffect(uiState.homeLayout) {
-        if (uiState.homeLayout != HomeLayout.MODERN) {
+        if (!uiState.homeLayout.usesModernPresentation) {
             HeroBackdropState.update(null)
         }
     }
@@ -474,7 +475,12 @@ fun HomeScreen(
                                 onCatalogItemLongPress = onCatalogItemLongPress
                             )
 
-                            HomeLayout.MODERN -> ModernHomeRoute(
+                            // Modern (State 2) and Immersive (State 1) share the
+                            // same route; the fullscreen-backdrop branch inside
+                            // ModernHomeContent is driven by
+                            // uiState.modernHeroFullScreenBackdropEnabled, which
+                            // the pipeline now derives from the Immersive layout.
+                            HomeLayout.MODERN, HomeLayout.IMMERSIVE -> ModernHomeRoute(
                                 viewModel = viewModel,
                                 uiState = uiState,
                                 onNavigateToDetail = onNavigateToDetailStable,

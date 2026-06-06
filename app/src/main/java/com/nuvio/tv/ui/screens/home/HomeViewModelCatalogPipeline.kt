@@ -9,6 +9,7 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.usesModernPresentation
 import com.nuvio.tv.domain.model.LayoutRowConfig
 import com.nuvio.tv.domain.model.LayoutRowKind
 import com.nuvio.tv.domain.model.skipStep
@@ -113,7 +114,7 @@ internal fun BaseHomeViewModel.observeTmdbSettingsPipeline() {
                 val languageChanged = currentTmdbSettings.language != settings.language
                 currentTmdbSettings = settings
                 val tmdbEnabledForLayout = settings.enabled &&
-                    (_uiState.value.homeLayout != HomeLayout.MODERN || settings.modernHomeEnabled)
+                    (!_uiState.value.homeLayout.usesModernPresentation || settings.modernHomeEnabled)
                 val enrichEnabled = tmdbEnabledForLayout || externalMetaPrefetchEnabled
                 _uiState.update { it.copy(heroEnrichmentEnabled = enrichEnabled) }
                 if (languageChanged) {
@@ -816,7 +817,7 @@ internal suspend fun BaseHomeViewModel.updateCatalogRowsPipeline() {
             // carousels show the complete catalog instead of being truncated to
             // 25. Other layouts (Classic/Grid) keep the truncation.
             val shouldKeepFullRow =
-                (currentLayout == HomeLayout.MODERN || currentLayout == HomeLayout.SPOTLIGHT) &&
+                (currentLayout.usesModernPresentation || currentLayout == HomeLayout.SPOTLIGHT) &&
                     row.supportsSkip
             if (row.items.size > 25 && !shouldKeepFullRow) {
                 val key = "${row.addonId}_${row.apiType}_${row.catalogId}"
@@ -890,7 +891,7 @@ internal suspend fun BaseHomeViewModel.updateCatalogRowsPipeline() {
                 } else {
                     val placeholder = placeholdersByKey[key]
                     if (placeholder != null) {
-                        if (currentLayout == HomeLayout.MODERN) {
+                        if (currentLayout.usesModernPresentation) {
                             add(HomeRow.PlaceholderCatalog(
                                 catalogKey = placeholder.catalogKey,
                                 addonId = placeholder.addonId,
@@ -1024,7 +1025,7 @@ internal suspend fun BaseHomeViewModel.updateCatalogRowsPipeline() {
 
     val tmdbSettings = currentTmdbSettings
     val tmdbEnabledForCurrentLayout = tmdbSettings.enabled &&
-        (currentLayout != HomeLayout.MODERN || tmdbSettings.modernHomeEnabled)
+        (!currentLayout.usesModernPresentation || tmdbSettings.modernHomeEnabled)
     val shouldUseEnrichedHeroItems = tmdbEnabledForCurrentLayout &&
         (tmdbSettings.useArtwork || tmdbSettings.useBasicInfo || tmdbSettings.useDetails || tmdbSettings.useReleaseDates)
 

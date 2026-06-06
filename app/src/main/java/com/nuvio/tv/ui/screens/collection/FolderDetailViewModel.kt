@@ -20,6 +20,7 @@ import com.nuvio.tv.domain.model.CollectionFolder
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.FolderViewMode
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.usesModernPresentation
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.TmdbCollectionSource
 import com.nuvio.tv.domain.model.TraktCollectionSource
@@ -230,7 +231,9 @@ class FolderDetailViewModel @Inject constructor(
             val hideUnreleasedContent = layoutPreferenceDataStore.hideUnreleasedContent.first()
             val showFullReleaseDate = layoutPreferenceDataStore.showFullReleaseDate.first()
             val modernLandscapePosters = layoutPreferenceDataStore.modernLandscapePostersEnabled.first()
-            val modernFullScreenBackdrop = layoutPreferenceDataStore.modernHeroFullScreenBackdropEnabled.first()
+            // Fullscreen backdrop (State 1) is intrinsic to the Immersive
+            // layout; Modern always renders State 2.
+            val modernFullScreenBackdrop = homeLayout == HomeLayout.IMMERSIVE
             val focusedPosterBackdropExpandEnabled = layoutPreferenceDataStore.focusedPosterBackdropExpandEnabled.first()
             val focusedPosterBackdropExpandDelaySeconds = layoutPreferenceDataStore.focusedPosterBackdropExpandDelaySeconds.first()
             val focusedPosterBackdropTrailerEnabled = layoutPreferenceDataStore.focusedPosterBackdropTrailerEnabled.first()
@@ -373,7 +376,7 @@ class FolderDetailViewModel @Inject constructor(
         val anyLoading = sourceTabs.any { it.isLoading }
 
         // Build modern presentation off the main thread to avoid jank.
-        val needsModernPresentation = _uiState.value.homeLayout == HomeLayout.MODERN
+        val needsModernPresentation = _uiState.value.homeLayout.usesModernPresentation
         if (needsModernPresentation) {
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
                 val modernPresentation = buildModernHomePresentation(
@@ -398,7 +401,7 @@ class FolderDetailViewModel @Inject constructor(
                         heroSectionEnabled = false,
                         isLoading = anyLoading,
                         homeLayout = s.homeLayout,
-                        posterLabelsEnabled = if (s.homeLayout == HomeLayout.MODERN) false else s.posterLabelsEnabled,
+                        posterLabelsEnabled = if (s.homeLayout.usesModernPresentation) false else s.posterLabelsEnabled,
                         modernLandscapePostersEnabled = s.modernLandscapePostersEnabled,
                         modernHeroFullScreenBackdropEnabled = s.modernHeroFullScreenBackdropEnabled,
                         catalogAddonNameEnabled = s.catalogAddonNameEnabled,
@@ -928,7 +931,7 @@ class FolderDetailViewModel @Inject constructor(
             val tmdbSettings = tmdbSettingsDataStore.settings.first()
             val homeLayout = _uiState.value.homeLayout
             val tmdbEnabled = tmdbSettings.enabled &&
-                (homeLayout != HomeLayout.MODERN || tmdbSettings.modernHomeEnabled)
+                (!homeLayout.usesModernPresentation || tmdbSettings.modernHomeEnabled)
             val externalMetaEnabled = layoutPreferenceDataStore.preferExternalMetaAddonDetail.first()
 
             // Only signal enriching if at least one source is active and we're
@@ -936,7 +939,7 @@ class FolderDetailViewModel @Inject constructor(
             // when no enrichment source can provide data.
             val viewMode = _uiState.value.viewMode
             val willEnrich = tmdbEnabled || externalMetaEnabled
-            if (willEnrich && viewMode == FolderViewMode.FOLLOW_LAYOUT && homeLayout == HomeLayout.MODERN) {
+            if (willEnrich && viewMode == FolderViewMode.FOLLOW_LAYOUT && homeLayout.usesModernPresentation) {
                 _enrichingItemId.value = item.id
             }
 
@@ -980,7 +983,7 @@ class FolderDetailViewModel @Inject constructor(
                     var result = merged
                 if (finalEnrichment != null) {
                     if (tmdbSettings.useBasicInfo) {
-                        val isModern = _uiState.value.homeLayout == HomeLayout.MODERN
+                        val isModern = _uiState.value.homeLayout.usesModernPresentation
                         result = result.copy(
                             name = if (isModern) finalEnrichment.localizedTitle ?: result.name else result.name,
                             description = finalEnrichment.description ?: result.description,
@@ -1194,7 +1197,7 @@ class FolderDetailViewModel @Inject constructor(
             val tmdbSettings = tmdbSettingsDataStore.settings.first()
             val homeLayout = _uiState.value.homeLayout
             val tmdbEnabled = tmdbSettings.enabled &&
-                (homeLayout != HomeLayout.MODERN || tmdbSettings.modernHomeEnabled)
+                (!homeLayout.usesModernPresentation || tmdbSettings.modernHomeEnabled)
             val externalMetaEnabled = layoutPreferenceDataStore.preferExternalMetaAddonDetail.first()
 
             if (!tmdbEnabled && !externalMetaEnabled) return@launch
@@ -1218,7 +1221,7 @@ class FolderDetailViewModel @Inject constructor(
                             updateItemInTabs(item.id) { merged ->
                                 var result = merged
                                 if (tmdbSettings.useBasicInfo) {
-                                    val isModern = _uiState.value.homeLayout == HomeLayout.MODERN
+                                    val isModern = _uiState.value.homeLayout.usesModernPresentation
                                     result = result.copy(
                                         name = if (isModern) enrichment.localizedTitle ?: result.name else result.name,
                                         description = enrichment.description ?: result.description,

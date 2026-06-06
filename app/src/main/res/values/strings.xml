@@ -704,10 +704,12 @@
     <string name="layout_classic">Classic View</string>
     <string name="layout_grid">Grid View</string>
     <string name="layout_modern">Modern View</string>
+    <string name="layout_immersive">Immersive View</string>
     <string name="layout_spotlight">Spotlight View</string>
     <string name="layout_classic_desc">Scroll through categories horizontally</string>
     <string name="layout_grid_desc">Browse everything in a vertical grid with a hero section</string>
     <string name="layout_modern_desc">Fixed hero with a single active row for faster browsing</string>
+    <string name="layout_immersive_desc">Fullscreen backdrop with a single active row floating over it</string>
     <string name="layout_spotlight_desc">Full-bleed hero with a single live row strip at the bottom</string>
     <string name="layout_section_home">Home Layout</string>
     <string name="layout_section_home_desc">Choose structure and hero source.</string>

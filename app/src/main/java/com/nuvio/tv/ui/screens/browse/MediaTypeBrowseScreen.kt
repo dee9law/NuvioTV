@@ -109,7 +109,7 @@ internal fun MediaTypeBrowseBody(
                 onFolderClick = onFolderClick,
                 contentFocusRequester = contentFocusRequester,
             )
-            HomeLayout.MODERN -> ModernBody(
+            HomeLayout.MODERN, HomeLayout.IMMERSIVE -> ModernBody(
                 state = state,
                 onMetaClick = onMetaClick,
                 contentFocusRequester = contentFocusRequester,
