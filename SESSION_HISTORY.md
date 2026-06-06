@@ -1590,6 +1590,145 @@ Final structure — fixed top, scrollable middle, no bottom bar:
 
 ---
 
+## 📅 Session log — 2026-06-03/04 (Cinema card style, backdrop images, focus-driven hero collapse, landscape resize fix, corner-radius UI)
+
+### Headline
+
+Added a third card style — **`LayoutCardStyle.CINEMA`** — and the supporting
+rendering/settings work, then fixed three follow-on issues the new style
+exposed (backdrop images, hero collapse, landscape sizing). All compiled green
+and installed to the Jawwy TV (`192.168.8.170`); **not yet smoke-tested**.
+
+### Cinema card style (`LayoutCardStyle.CINEMA`)
+
+- `LayoutRowConfig.LayoutCardStyle` is now `{ POSTER, LANDSCAPE, CINEMA }`.
+  Gson round-trips safely (`valueOf(...).getOrDefault(POSTER)` at both the row
+  serializer and `globalCardStyle`); no exhaustive `when` on the enum existed
+  to break.
+- **Fixed size 380×285 (4:3)** — `CINEMA_CARD_WIDTH_DP` / `CINEMA_CARD_HEIGHT_DP`
+  in `RowDisplayConfig.kt`. (Started 420×236/16:9, retuned to 380×285/4:3 for an
+  Apple-TV feel.) Every layout that computes card dimensions short-circuits to
+  these for CINEMA: the resolver forces width; Classic (`resolvePosterCardStyle`),
+  Spotlight (`resolveRowCardHeight`/`resolveRowPosterCardStyle`), Modern
+  (`ModernRowSection` per-row scaling block + `ModernHomeRowsList` prefetch),
+  the home uniform Grid (`HomeScreen.gridPosterCardStyle`, gated on
+  `globalCardStyle == CINEMA`), and the Movies/TV grid (`MediaTypeBrowseScreen`).
+- `ModernHomePresentation.rowEffectiveLandscape` returns true for CINEMA too so
+  Modern bakes the landscape/backdrop image URL.
+- **Single fixed size** — the per-row Size picker hides when a row is CINEMA;
+  the global Size header hides when **all** rows in scope are CINEMA. LANDSCAPE
+  keeps every size option.
+
+### 3-state style selector (Rows Manager, `NewLayoutSettingsScreen.kt`)
+
+- The orientation `▯/▭` toggle became a **3-state style selector** cycling
+  **Poster → Landscape → Cinema → Poster** (`nextCardStyle()`), via plain-rectangle
+  glyphs whose proportions communicate the style (Poster tall, Landscape wide,
+  Cinema ultra-wide). `OrientationGlyph`/`OrientationShapeButton` → `StyleGlyph`/
+  `StyleShapeButton`. Applies per-row (`ManagerRowItem`) and globally
+  (`ColumnHeaderRow` cycles all rows at once). Legacy ALL-mode `RowItem` +
+  `ToggleStylePill` updated to match (3-label, width hidden for cinema).
+
+### Backdrop image + permanent logo overlay for Landscape/Cinema (`ContentCard.kt`, `CatalogRowSection.kt`)
+
+- **Audit first (vs `upstream/dev`):** upstream `ContentCard`/`GridContentCard`
+  always load `item.poster`; backdrop is used only during expand-on-focus.
+  Upstream's "landscape" is **item-driven** via `item.posterShape` (addon supplies
+  a landscape poster as `item.poster`) — there's no per-row card-style override,
+  so it never needed backdrop-selection. Our fork's per-row LANDSCAPE/CINEMA is a
+  deliberate divergence.
+- `ContentCard` gained `cardStyle: LayoutCardStyle = POSTER` (`isWideCardStyle` =
+  LANDSCAPE||CINEMA). Image URL: `when { expand && expanded → backdrop; wide →
+  backdrop; else → poster }`. The bottom-left scrim+logo overlay (previously only
+  during expand) is now **permanent** for wide styles:
+  `if (isBackdropExpanded || isWideCardStyle)`. Falls back to title text when no
+  logo. `CatalogRowSection` threads `cardStyle` through; Classic + Spotlight
+  compute `rowCardStyle` from the resolver and pass it. `MediaTypeBrowseScreen`
+  also threads `rowConfig.cardStyle`.
+- ⚠️ **Caveat:** the condition keys on `cardStyle`, not `posterShape`, so a
+  catalog whose items are *natively* `posterShape == LANDSCAPE` (curated landscape
+  posters, sometimes with baked-in titles) will also be swapped to `backdropUrl`.
+  If an addon serves such art, gate with `&& item.posterShape != LANDSCAPE`.
+
+### Focus-driven hero collapse (Fix — Spotlight + Modern)
+
+- There was **no** static "cinema row exists → hide hero" check to replace —
+  added an explicit **focus-driven** rule reading the *currently focused row's*
+  style only.
+- **Spotlight** (`SpotlightHomeContent`): new `focusedRowIsCinema` (derived from
+  `catalogRows[focusedRowIndex]`'s resolved style); the hero state machine returns
+  **State C (HIDDEN)** when the focused row is Cinema, restoring to
+  CAROUSEL/CONSTRAINED on any non-Cinema row.
+- **Modern** (`ModernHomeContent`): new `focusedRowIsCinema` (from `activeRowKey`
+  → `rowByKey` → `layoutConfigKey` → config); an animated `heroCinemaAlpha`
+  (220ms) fades the hero backdrop + `HeroTitleBlock` out on a Cinema row and back
+  in otherwise. **Caveat:** rows do not reflow — the hero is an absolute backdrop
+  layer, so while a Cinema row is focused the top area shows the page background.
+- **Classic** left untouched (per spec).
+
+### Landscape sizing bug (Fix — `ContentCard.kt`, `MediaTypeBrowseScreen.kt`)
+
+- **Root cause:** the resolver was correct (`LANDSCAPE → row.cardWidthDp`), but
+  `ContentCard.baseCardWidth/Height` derived size **solely from `item.posterShape`**,
+  and `PosterShape.LANDSCAPE → 260×148` is hardcoded. So a catalog whose items are
+  natively landscape-shaped rendered a LANDSCAPE row at a fixed 260×148, ignoring
+  the size selection (POSTER-shape items happened to resize, which masked it).
+- **Fix:** when the row's `cardStyle` is an explicit wide override
+  (`isWideCardStyle`), size from the resolved `posterCardStyle` instead of the
+  `posterShape` hardcode — LANDSCAPE = the selected width (fully resizable),
+  CINEMA = the fixed 380×285. Also threaded `cardStyle` into the Movies/TV grid's
+  direct `ContentCard` call so its landscape rows resize too.
+
+### Corner radius setting exposed (`GlobalSettingsContent.kt`, `LayoutPreferenceDataStore.kt`)
+
+- The setting already existed in the fork (`poster_card_corner_radius_dp`,
+  consumed by the home pipeline) but was only reachable from the dormant
+  `LayoutSettingsScreen.kt`. Exposed it under **Appearance → Global → "Card Style"**
+  as a **visual selector** (real corner-clipped previews: Sharp 0 / Subtle 4 /
+  Classic 8 / Rounded 12 / Pill 16) on `GlobalSettingsViewModel`.
+- Made it **truly global:** `posterCardCornerRadiusForScope` now falls non-HOME
+  scopes back to the base global key before the hard default, so one value covers
+  Home/Movies/TV/Collections. The global card-style picker label was generalized
+  to a 3-value `LayoutCardStyle.displayLabel()`.
+
+### Architectural decisions
+
+- **CINEMA dimensions live in two `const`s** (`RowDisplayConfig.kt`); every
+  consumer references them symbolically, so retuning size is a one-line change.
+- **`isWideCardStyle` (an explicit per-row override) wins over the item's intrinsic
+  `posterShape`** for both image selection (backdrop) and sizing — that's the
+  hinge for both the backdrop and landscape-resize fixes.
+- **Hero collapse is focus-state, never layout-content** — it reads the focused
+  row, not whether Cinema rows exist anywhere.
+
+### Pending follow-ups
+
+1. **On-device smoke test** of all Cinema/Landscape changes (sizes, backdrop art,
+   logo overlay, hero collapse/restore, landscape resize Compact→Large).
+2. **Modern hero alpha fade during Cinema** — top area shows page background, rows
+   don't reflow into the freed space. Revisit if it reads poorly.
+3. **`posterShape == LANDSCAPE` caveat** — if any addon serves native landscape
+   posters with baked-in titles, the backdrop swap may degrade them; gate on
+   `posterShape` if observed.
+4. Prior follow-ups (Apple-TV "Cinema" *width preset* idea now superseded by the
+   real Cinema style; instant-expand flicker; TMDB picker loop-wrap; dead
+   `bottomScrimMaxAlpha`/`openProfileOverlay`; Phase 8 localization; 23 skipped
+   upstream commits; ContinueWatching render in Classic; SideRail order consumption)
+   still open.
+
+### Notes for future sessions
+
+- **CINEMA is a per-row style** — it reaches Modern/Classic/Spotlight rows and the
+  Movies/TV grid via Rows Manager. The home *uniform* Grid honors it only through
+  the **global** card-style picker (`gridPosterCardStyle`).
+- **`ContentCard` now takes `cardStyle`** (default POSTER). To get backdrop +
+  permanent logo + per-row sizing on a wide card, the caller must thread the
+  resolved style; the default keeps every other `ContentCard` caller poster-only.
+- **`upstream/dev` has no per-row card style** — don't expect to port landscape/
+  cinema behavior from upstream; it's fork-specific.
+
+---
+
 ## 📅 Session log — 2026-06-04/05 (Spotlight cinema-hero fix, Modern State-2 cinema reflow, Modern State-1 one-row crossfade pager, image tuning, cinema 16:9)
 
 ### Headline
@@ -1695,3 +1834,125 @@ no horizontal layout shift). **FOLLOW-UP:** revise to **260×370** (tall premium
 `BUILD SUCCESSFUL`; installed `app-full-armeabi-v7a-debug.apk` on the Jawwy TV
 (`192.168.8.170`). Commits: `26aee19c` (Fixes 1/5/4/2 checkpoint), `031fc030`
 (Fix 3 pager), `bc86d812` (lint baseline) — all on `origin/dev`. **Not smoke-tested.**
+
+---
+
+## 📅 Session log — 2026-06-06 (Immersive standalone layout, Continue Watching row subsystem + Series/Movies split, staged Trakt submenu, two fixes)
+
+### Headline
+
+Promoted **Immersive** to a standalone layout, built the full **Continue
+Watching row subsystem** (configurable, in every layout), split it into
+**Series / Movies**, added a gated **Trakt** submenu with a functional **Up
+Next** row, and fixed two follow-on issues. Five feature commits on `dev`,
+all compiled green and installed to the Jawwy TV (`com.nuviodebug.com` on
+`192.168.8.170`). Smoke-tested via ADB remote — no crashes; FIX 1 verified
+on-device.
+
+### Immersive layout promoted to standalone (commit `e5be1683` — prior-session WIP)
+
+- New `HomeLayout.IMMERSIVE` + `usesModernPresentation` extension (Modern and
+  Immersive share the content pipeline; differ only in hero State 1 vs State 2).
+  Every `HomeLayout.MODERN` gate switched to `usesModernPresentation`.
+- **Removed the "Fullscreen Hero Backdrop" toggle** — fullscreen is now its own
+  Immersive layout. `modernHeroFullScreenBackdropEnabled` is derived from
+  `layout == IMMERSIVE` in the presentation pipeline.
+- **Cinema card dims retuned** `380×214` → **`260×370`** (tall premium portrait)
+  in `RowDisplayConfig.kt` (`CINEMA_CARD_WIDTH_DP` / `CINEMA_CARD_HEIGHT_DP`).
+
+### Continue Watching row subsystem (commit `4c5cf314`)
+
+- New `ContinueWatchingCardStyle { POSTER, CARD, WIDE }` stored on the CW row's
+  `metadata["cw_style"]` (CW-specific — deliberately separate from
+  `LayoutCardStyle`, whose CINEMA semantics clash with "Wide"). The unified
+  `ui.components.ContinueWatchingCard` (already shared by Classic + Modern)
+  renders all three orientations with a per-style progress bar;
+  `continueWatchingCardFootprint(style, base)` is the single sizing source.
+- **Rows Manager CW controls:** CW rows get a CW-specific Orient selector
+  (Poster/Card/Wide), keep Size (Compact→Large), and **hide Expand**.
+- **Toggle fix (STEP 6):** Modern/Immersive built CW from `continueWatchingItems`,
+  ignoring the row's `enabled` flag + order. Now driven by the configured
+  `HomeRow.ContinueWatching` (default-on only when no CW row is configured).
+- **Spotlight (STEP 5):** CW now renders as a leading row with hero↔CW↔row0
+  focus chaining.
+- **One-shot seed** of a default enabled CW row at top, guarded to never create
+  a *lone* CW row (would flip the home into rows-only mode showing only CW).
+
+### CW Series / Movies split (commit `652b0604`)
+
+- New kinds `CONTINUE_WATCHING_SERIES` / `CONTINUE_WATCHING_MOVIES` (+
+  `TRAKT_UP_NEXT`), `ContinueWatchingFilter { SERIES, MOVIES, UP_NEXT }`, and a
+  `List<ContinueWatchingItem>.forContinueWatchingFilter()` partition by
+  `WatchProgress.contentType` ("movie" vs series). `HomeRow.ContinueWatching`
+  now carries the filter; the pipeline emits up to 3 CW rows; Modern builds one
+  `HeroCarouselRow` per filter; Spotlight chains focus across multiple CW rows.
+- **"+ Continue Watching" pill opens a Series/Movies submenu** (max one each,
+  dimmed when added) — modelled on `SizePopover`.
+- One-shot migration: legacy `CONTINUE_WATCHING` rows → `CONTINUE_WATCHING_SERIES`
+  across all scopes. Fixed a latent Classic toggle gap (default-on standalone CW
+  is now gated on "no CW configured").
+- **Pill reorder:** `Catalogs | TMDB | MDBList | Trakt | Continue Watching | Collections`.
+
+### Staged Trakt submenu (commit `c0cf26d1`)
+
+- **"+ Trakt" is a submenu gated behind Trakt sign-in** (toast otherwise), via
+  `NewLayoutSettingsViewModel.traktSignedIn` (`TraktAuthDataStore.isAuthenticated`).
+- **Up Next is fully functional:** a `TRAKT_UP_NEXT` row that rides the existing
+  CW pipeline (`UP_NEXT` filter = NextUp / next-unwatched-episode items),
+  rendered by the shared `ContinueWatchingCard`. Honours Orient/Size/On-Off/Delete,
+  no Expand.
+- **Watchlist Shows/Movies, New Episodes/Movies, Recommended Shows/Movies** are
+  shown as **"Soon"** — deferred. ⚠️ **Critical finding:** Trakt (and
+  TMDB_DISCOVER / TMDB_NETWORK) rows are **non-functional stubs** today — the
+  `applyConfiguredHomeRows` branch for them is empty `{}`, so they fetch/render
+  nothing. The catalog rows need a **from-scratch Trakt→home-row pipeline**
+  (fetch → `MetaPreview` → non-addon `CatalogRow` injection + caching). The
+  mappers already exist (`TraktRelatedService.toMetaPreview`,
+  `TraktLibraryService.fetchWatchlistEntries`) which makes that pass tractable.
+
+### Two fixes (commit `f4119b09`)
+
+- **FIX 1 — seeded CW row missing from Rows Manager:** the pre-split build set
+  `continueWatchingDefaultSeeded = true`, so upgraders could end up with the flag
+  set but no CW-family row, and the seed never re-ran. Added a dedicated
+  `cw_split_seeded` flag that re-ensures a **Series** CW row once on the split
+  build (a later manual delete stays sticky). **Verified on-device** — the CW row
+  now shows in the Rows Manager with Orient/Size/On-Off/Delete from launch.
+- **FIX 2 — Spotlight CW cards now drive the hero:** added
+  `ContinueWatchingItem.toSpotlightFocusMeta()` (title + episode info in
+  `description` + backdrop) and a `cwCardFocused` flag that forces the hero into
+  CONSTRAINED (State B) — CW rows aren't in `catalogRows`, so `focusedRowIndex`
+  was stale on them. Focusing a CW card now updates the Spotlight hero like a
+  catalog card; catalog focus clears the flag. **Needs watch history to verify
+  on-device** (this profile has none).
+
+### Architectural decisions
+
+- **CW orientation is its own enum in `metadata`** — leaves the generic
+  `cardStyle`/CINEMA size-hiding logic untouched; CW keeps Size on all three
+  orientations.
+- **Up Next ≠ a Trakt catalog row** — it's CW-derived (NextUp filter), which is
+  why it works while the true Trakt catalog rows don't.
+- **`HomeRow.ContinueWatching` carries a `ContinueWatchingFilter`** — one render
+  path, three slices; renderers resolve style/size/items + config key per filter.
+
+### Pending follow-ups
+
+1. **"Both" option** in the CW submenu (Series / Movies / Both).
+2. **Trakt catalog pipeline:** Watchlist, New Episodes, New Movies, Recommended
+   Shows/Movies (the "Soon" items) — build the from-scratch Trakt→home-row
+   pipeline + 30-min (calendars) / 60-min (watchlist/recommendations) caching.
+3. **Performance + Apple-TV animations** session.
+4. **Manual verification of FIX 2** (Spotlight CW hero) with real watch history.
+5. Prior open follow-ups (Modern State-2 proportions, Cinema dims revisit, 23
+   skipped upstream commits, ContinueWatching render in Classic, SideRail order
+   consumption) still open.
+
+### Build / deploy
+
+5 feature commits on `dev` — `e5be1683` (Immersive WIP checkpoint), `4c5cf314`
+(CW row subsystem), `652b0604` (Series/Movies split + pill reorder), `c0cf26d1`
+(staged Trakt), `f4119b09` (two fixes). `BUILD SUCCESSFUL`; force-stopped +
+installed `app-full-armeabi-v7a-debug.apk` (`com.nuviodebug.com`) on the Jawwy
+TV (`192.168.8.170`). Smoke-tested via ADB remote control — **no crashes**;
+**FIX 1 verified on-device**; FIX 2 + Up Next need watch history to exercise.
