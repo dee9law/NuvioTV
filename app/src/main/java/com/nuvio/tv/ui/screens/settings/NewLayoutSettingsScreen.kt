@@ -397,11 +397,22 @@ private fun RowsManagerContent(
                 showDetailPage = false,
             )
             if (showScopedControls) {
+                val traktSignedIn by viewModel.traktSignedIn.collectAsStateWithLifecycle()
                 // Row 2 — source pills (moved up from the old bottom bar)
                 SourcePillsRow(
                     onAddCatalog = onAddCatalog,
                     onAddTmdb = onAddTmdb,
-                    onAddTrakt = onAddTrakt,
+                    traktSignedIn = traktSignedIn,
+                    upNextAdded = uiState.rows.any {
+                        it.kind.continueWatchingFilter == ContinueWatchingFilter.UP_NEXT
+                    },
+                    onAddUpNext = { viewModel.addContinueWatchingRow(ContinueWatchingFilter.UP_NEXT) },
+                    onTraktSignInRequired = {
+                        Toast.makeText(context, "Sign in to Trakt first (Settings → Trakt)", Toast.LENGTH_SHORT).show()
+                    },
+                    onTraktComingSoon = {
+                        Toast.makeText(context, "Trakt row — coming soon", Toast.LENGTH_SHORT).show()
+                    },
                     onAddCollection = onAddCollection,
                     onAddCw = { viewModel.addContinueWatchingRow(it) },
                     cwExisting = uiState.rows.mapNotNull { it.kind.continueWatchingFilter }.toSet(),
@@ -580,7 +591,11 @@ private val RowRemoveColWidth = 42.dp
 private fun SourcePillsRow(
     onAddCatalog: () -> Unit,
     onAddTmdb: () -> Unit,
-    onAddTrakt: () -> Unit,
+    traktSignedIn: Boolean,
+    upNextAdded: Boolean,
+    onAddUpNext: () -> Unit,
+    onTraktSignInRequired: () -> Unit,
+    onTraktComingSoon: () -> Unit,
     onAddCollection: () -> Unit,
     onAddCw: (ContinueWatchingFilter) -> Unit,
     cwExisting: Set<ContinueWatchingFilter>,
@@ -599,10 +614,88 @@ private fun SourcePillsRow(
         // MDBList rows have no backing source yet — visible placeholder only.
         ComingSoonChip(label = "MDBList", onClick = onMdbListComingSoon)
         // "+ Trakt" opens a submenu (gated behind Trakt sign-in).
-        AddRowChip(label = "Trakt", onClick = onAddTrakt)
+        TraktAddPill(
+            signedIn = traktSignedIn,
+            upNextAdded = upNextAdded,
+            onAddUpNext = onAddUpNext,
+            onSignInRequired = onTraktSignInRequired,
+            onComingSoon = onTraktComingSoon,
+        )
         // "+ Continue Watching" opens a Series / Movies submenu.
         ContinueWatchingAddPill(existing = cwExisting, onAdd = onAddCw)
         AddRowChip(label = "Collections", onClick = onAddCollection)
+    }
+}
+
+/**
+ * "+ Trakt" pill. Gated behind Trakt sign-in (toast otherwise). Opens a submenu
+ * of Trakt-backed rows. Currently only "Up Next" is functional; the catalog
+ * rows (watchlist / calendars / recommendations) are staged as "Coming soon".
+ */
+@Composable
+private fun TraktAddPill(
+    signedIn: Boolean,
+    upNextAdded: Boolean,
+    onAddUpNext: () -> Unit,
+    onSignInRequired: () -> Unit,
+    onComingSoon: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    Box {
+        AddRowChip(
+            label = "Trakt",
+            onClick = { if (signedIn) expanded = true else onSignInRequired() },
+        )
+        if (expanded) {
+            Popup(
+                alignment = Alignment.TopStart,
+                offset = IntOffset(0, with(density) { 46.dp.roundToPx() }),
+                onDismissRequest = { expanded = false },
+                properties = PopupProperties(focusable = true),
+            ) {
+                BackHandler { expanded = false }
+                val firstFr = remember { FocusRequester() }
+                LaunchedEffect(Unit) {
+                    withFrameNanos { }
+                    runCatching { firstFr.requestFocus() }
+                }
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF101418).copy(alpha = 0.96f))
+                        .padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    SubmenuItem(
+                        label = "Up Next",
+                        added = upNextAdded,
+                        focusRequester = firstFr,
+                        onClick = {
+                            if (!upNextAdded) onAddUpNext()
+                            expanded = false
+                        },
+                    )
+                    // Staged: these need the Trakt catalog pipeline (a focused
+                    // follow-up). Shown so the menu is complete + discoverable.
+                    listOf(
+                        "Watchlist Shows", "Watchlist Movies", "New Episodes",
+                        "New Movies", "Recommended Shows", "Recommended Movies",
+                    ).forEach { label ->
+                        SubmenuItem(
+                            label = label,
+                            added = false,
+                            comingSoon = true,
+                            focusRequester = null,
+                            onClick = {
+                                onComingSoon()
+                                expanded = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -667,12 +760,13 @@ private fun SubmenuItem(
     added: Boolean,
     focusRequester: FocusRequester?,
     onClick: () -> Unit,
+    comingSoon: Boolean = false,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     Card(
         onClick = onClick,
         modifier = Modifier
-            .widthIn(min = 170.dp)
+            .widthIn(min = 180.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { isFocused = it.isFocused || it.hasFocus },
         shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
@@ -699,7 +793,7 @@ private fun SubmenuItem(
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (added) NuvioColors.TextSecondary else NuvioColors.TextPrimary,
+                color = if (added || comingSoon) NuvioColors.TextSecondary else NuvioColors.TextPrimary,
                 modifier = Modifier.weight(1f),
             )
             if (added) {
@@ -708,6 +802,12 @@ private fun SubmenuItem(
                     contentDescription = "Added",
                     tint = NuvioColors.FocusRing,
                     modifier = Modifier.size(14.dp),
+                )
+            } else if (comingSoon) {
+                Text(
+                    text = "Soon",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NuvioColors.TextSecondary.copy(alpha = 0.7f),
                 )
             }
         }

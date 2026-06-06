@@ -114,9 +114,15 @@ class NewLayoutSettingsViewModel @Inject constructor(
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val addonRepository: AddonRepository,
     private val collectionsDataStore: CollectionsDataStore,
+    traktAuthDataStore: com.nuvio.tv.data.local.TraktAuthDataStore,
 ) : ViewModel() {
 
     private val _selectedScope = MutableStateFlow(LayoutScreenScope.HOME)
+
+    /** Whether the user is signed into Trakt — gates the "+ Trakt" submenu. */
+    val traktSignedIn: StateFlow<Boolean> = traktAuthDataStore.state
+        .map { it.isAuthenticated }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val layoutFlow: Flow<HomeLayout> = _selectedScope
         .flatMapLatest { layoutPreferenceDataStore.selectedLayoutForScope(it) }
