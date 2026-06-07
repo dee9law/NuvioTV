@@ -72,31 +72,40 @@ adb connect <tv-ip>:5555                  # IP drifts — check `adb devices` fi
 
 ---
 
-## 📌 Current State (as of 2026-06-07)
+## 📌 Current State (as of 2026-06-08)
 
-### Recently shipped (all on `origin/dev`, compiled green, on-device)
-- **Trakt catalog pipeline** — 6 functional auth-gated TTL-cached rows
-  (Recommended/Watchlist/New for Shows+Movies). For You seed includes
-  Recommended Shows/Movies. Verified on TV with real Trakt data.
-- **For You** standalone screen (Classic + hero-off, ROWS_ONLY; auth-gated
-  landing tab + seed).
-- **Continue Watching subsystem** — configurable rows in every layout;
-  Series/Movies/Both/Up Next filters; CW-specific Orient (Poster/Card/Wide).
-- **Immersive** promoted to a standalone 5th layout.
+### Recently shipped (on `origin/dev`, compiled green; ⚠️ engine sync NOT yet on-device)
+- **Upstream sync Phase 1 (engine likely-clean)** — 13 upstream commits
+  incorporated: player AFR/24fps-judder fixes, AFR-for-m3u8, subtitle filename
+  urlencode, AniSkip `types[]` + skip types, episode-rating dup-key fix, updater
+  border, SPL language map, user-agent, **Let's Encrypt legacy-Android TLS**
+  (bundled ISRG certs + `network_security_config.xml`), **NuvioDialog CEC
+  select-key state machine** (manual port). Compiled green; **smoke test pending**.
+- **Docs restructured** — CLAUDE.md trimmed; new `ARCHITECTURE.md`;
+  `PHASE1_PICKLIST.md` upstream audit (`0.6.18..0.7.4`, 237 commits).
+- **Trakt catalog pipeline** / **For You** screen / **CW subsystem** /
+  **Immersive** 5th layout — prior sessions, on-device-verified.
+
+### Upstream sync status (see `PHASE1_PICKLIST.md`)
+- Latest upstream = `0.7.4-beta`. Phase 1 i18n = **not viable** via cherry-pick
+  (all locales diverged → conflicts/malformed XML; needs wholesale locale
+  refresh — the lint-baselined Phase 8 debt).
+- **Next: the 76 conflict-prone engine commits** — dedicated review-then-port
+  session (45 player / 14 stream-debrid / 11 other / 6 dolby-vision).
+- **Fork lacks** upstream's `DolbyVision`/HDR-strip, `StreamBadge`, `CloudLibrary`
+  subsystems (0 files each) — commits depending on them are unpickable.
 
 ### Open follow-ups (priority order)
-1. **Performance + Apple-TV animations** session.
-2. **Modern State-2 hero proportions** — metadata renders behind TopBar + too
-   much free space; must match Spotlight State B exactly.
-3. **CW data quality** — phantom Up Next on ended/fully-watched shows (needs
-   ended-series + all-aired-watched guard).
-4. **Manual on-screen verify** of `Watchlist Movies` + `New Movies` (code
-   parity-confirmed, not yet seen on TV).
-5. **23 skipped upstream commits** (Feel-system conflicts) — hand-port queue in
-   the 2026-05-19 log (`SESSION_HISTORY.md`).
-6. ContinueWatching render in Classic; SideRail order consumption; instant-expand
-   flicker; TMDB picker loop-wrap; Phase 8 localization; loop-scroll on
-   `SettingsHubScreen` left rail + confirmation dialogs.
+1. **On-device smoke test** of the 13 engine picks (Let's Encrypt TLS, AFR,
+   NuvioDialog CEC, subtitle urlencode, AniSkip).
+2. **The 76 conflict-prone upstream engine commits** — dedicated session.
+3. **Performance + Apple-TV animations** session.
+4. **Modern State-2 hero proportions** — metadata behind TopBar; match Spotlight
+   State B exactly.
+5. **CW data quality** — phantom Up Next on ended/fully-watched shows.
+6. i18n wholesale locale refresh (optional); settings(30)/visual(29)/engine-
+   high-risk(6) sync buckets; 23 older skipped commits; `Watchlist/New Movies`
+   on-screen verify; Classic CW render; SideRail order; misc loop-scroll.
 
 ---
 

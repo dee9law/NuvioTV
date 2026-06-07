@@ -2111,3 +2111,93 @@ On-Off / Delete, Expand hidden** (gated via `isTraktCatalogRow`).
 Compiled green after each step; `installFullDebug` (exit 0) on the Jawwy TV
 (`192.168.8.187`). Committed + pushed to `origin/dev` this session. CW /
 scrobble pipeline untouched; no crashes on-device.
+
+---
+
+## 📅 Session log — 2026-06-08 (Doc restructure + upstream sync audit + Phase 1 engine likely-clean)
+
+### Headline
+
+Three-part session, all pushed to `origin/dev` (code-only; **not installed to TV**):
+(1) **Doc restructure** — CLAUDE.md 48.2k→~6k, new `ARCHITECTURE.md`,
+`SESSION_HISTORY.md` as the full archive. (2) **Upstream sync audit** —
+`0.6.18-beta..0.7.4-beta` (237 non-merge commits) classified into
+`PHASE1_PICKLIST.md`. (3) **Phase 1 execution** — i18n proved **not viable**
+(locale divergence); engine "likely-clean" bucket → **13 upstream commits
+incorporated** (11 picks + 1 manual port covering 2) / 11 skipped, compiled
+green throughout. The **76 conflict-prone engine commits deferred** to a
+dedicated session.
+
+### Part 1 — Doc restructure (commit `e756784a`)
+
+- CLAUDE.md trimmed to overview / working rules / current state / build-deploy /
+  EOD+session protocol. New `ARCHITECTURE.md` (~17k): Feel system, 5 layouts,
+  hero states, CW/Trakt/For-You pipelines, key files, enums, device notes.
+- Confirmed `~/.claude/CLAUDE.md` has **no** project/EOD references (generic
+  global rules only) — nothing to update there. Memory has none either.
+
+### Part 2 — Upstream sync audit (`PHASE1_PICKLIST.md`, commits `0d9026c7`, `a1557071`)
+
+- Latest upstream tag **`0.7.4-beta`**. Merge-base unchanged (`68b4a34e` — we
+  cherry-pick, never merge). Window `0.6.18..0.7.4` = **237 non-merge commits**:
+  i18n 53, clean-engine 100, settings 30, visual 29, engine-high-risk 6
+  (+19 sync/progress flagged inside engine).
+- **Classifier bug (important):** initial classifier used `grep -q`/`grep -qv`,
+  which returns the **wrong exit status in this shell** → mislabeled 31 mixed
+  code+strings commits as pure i18n (incl. `MainActivity`, CW pipeline, DV7
+  native libs). v2 re-derived all buckets with explicit no-`-q` capture +
+  case-insensitive locale pattern (accepts upstream `string.xml`/`Strings.xml`
+  typo files). **Lesson: never use `grep -q` in classification loops here.**
+
+### Part 3 — Phase 1 execution
+
+**i18n — NOT viable, 0 landed.** 53 verified-pure i18n commits, but: (a) 4
+locales (`in`/`ta`/`zh-rCN`/`zh-rTW`) never existed on our fork → 13
+modify/delete; (b) all 14 carried locales diverged from merge-base
+(lint-baseline + already-applied May picks) → content conflicts; (c) a
+git-clean German pick produced **malformed XML** (`values-de:2307` unterminated
+`<string>`) that broke `mergeFullDebugResources`. Reset the 3 attempts.
+**Conclusion:** locale sync needs a wholesale-file refresh, not per-commit
+cherry-pick — this is the already-lint-baselined Phase 8 debt.
+
+**Engine likely-clean (24 of 100) — processed.** Pre-flight predicted 24
+likely-clean / 76 conflict-prone (player/stream files heavily evolved by prior
+syncs).
+- **9 clean cherry-picks:** `c960fac6` 24fps judder/AFR, `adffaf00`
+  episode-rating dup keys, `11820d18` subtitle urlencode, `e289baea` AFR-m3u8,
+  `b5d7b7cf` AniSkip `types[]`, `d2fd90ca` updater border, `60b38ee2` SPL
+  language map, `7fb14eed` skip types, `abe8c1ca` user-agent.
+- **2 Let's Encrypt** (`44926ab7` + `a9f9e398`): bundled ISRG root certs +
+  `network_security_config.xml` for legacy-Android TLS handshakes (+ filename fix).
+- **1 manual port** (`7fbf842d`, NuvioDialog): net of upstream `075517c11` +
+  `277e876f0` — event-driven select-key suppression state machine; hand-applied
+  (they conflicted on context); omitted the now-unused `SystemClock` import.
+- **11 skipped:** DV5/HDR cluster (4), StreamBadge regex (1), CloudLibrary
+  observer (1, won't compile) — all depend on infra **absent from our fork**;
+  Simplified Chinese + Hungarian-0file (i18n); CONTRIBUTING halt-PR + `portfolio`
+  cleanup (irrelevant); StreamComponents maxLines (low value, user call).
+
+### Key finding — fork lacks 3 upstream subsystems
+
+`DolbyVision`/HDR-strip, `StreamBadge`, and `CloudLibrary` infra are entirely
+absent (0 files each) on our fork → any upstream commit depending on them is
+unpickable. Drives the 76-review skip list (esp. the 6 dolby-vision commits).
+
+### Build / deploy
+
+`compileFullDebugKotlin` green after each engine sub-batch + the manual port.
+**Not installed to TV** (code-only sync; on-device smoke test pending). 15
+commits pushed to `origin/dev` (13 code + 2 artifact-doc).
+
+### Pending follow-ups
+
+1. **The 76 conflict-prone engine commits** — dedicated grouped-review session
+   (45 player / 14 stream-debrid / 11 other / 6 dolby-vision[likely-skip]):
+   manual-port / skip / already-have per commit; consult before flagged.
+2. **On-device smoke test** of the 13 engine picks (AFR/judder, Let's Encrypt
+   TLS on the TV, NuvioDialog CEC behavior, subtitle urlencode, AniSkip).
+3. **i18n wholesale locale refresh** (optional) — take upstream `0.7.4` locale
+   files + re-apply fork additions; decide whether to adopt the 4 missing locales.
+4. Later phases: settings (30), visual (29), engine-high-risk (6) buckets.
+5. Prior open follow-ups (Modern State-2 proportions, CW data quality, 23
+   older skipped commits, etc.) still open.

@@ -343,3 +343,26 @@ Six auth-gated, TTL-cached row kinds → real Trakt data → `CatalogRow` of
   and `Modifier.shadow` respectively.
 - Current test TV IP: `192.168.8.187` (drifts — check `adb devices`).
   Package: `com.nuviodebug.com`. APK: `app-full-armeabi-v7a-debug.apk`.
+- **Legacy-Android TLS** (added 2026-06-08, upstream port): bundled ISRG root
+  certs (`res/raw/isrg_root_x2.pem`, `isrgrootx1.pem`) + `res/xml/network_security_config.xml`
+  (referenced from `AndroidManifest`) so old Android TV cert stores can complete
+  Let's Encrypt TLS handshakes.
+
+---
+
+## 🔀 Fork divergence from upstream (relevant for syncs)
+
+- We **cherry-pick, never merge** — merge-base with upstream stays at the May
+  fork point (`68b4a34e`). See `PHASE1_PICKLIST.md` for the live sync audit.
+- **Subsystems upstream has that our fork does NOT carry** (0 files each — any
+  upstream commit depending on them is unpickable without porting the whole
+  subsystem): `DolbyVision`/HDR-strip (`core/player/DolbyVision*`, `dvmkv/`,
+  DV7 native libs), `StreamBadge` (`core/streams/StreamBadge*`, `StreamBadgeChips`),
+  `CloudLibrary` (`core/cloud/CloudLibrary*`).
+- **Locale files diverged across the board** (lint-baseline English defaults +
+  already-applied upstream picks) → per-commit i18n cherry-pick is not viable;
+  use a wholesale locale-file refresh instead. Fork carries 27 locales; upstream
+  has 31 (missing: `in`, `ta`, `zh-rCN`, `zh-rTW`).
+- ⚠️ **Tooling note:** `grep -q`/`grep -qv` return wrong exit status in this
+  shell — never use them in classification/verification loops; use explicit
+  capture + `[ -n ]`/`[ -z ]`.
