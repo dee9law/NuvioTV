@@ -37,7 +37,7 @@ fun NuvioDialog(
     suppressFirstKeyUp: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    var suppressNextKeyUp by remember { mutableStateOf(suppressFirstKeyUp) }
+    var isReady by remember { mutableStateOf(!suppressFirstKeyUp) }
 
     Dialog(onDismissRequest = onDismiss) {
         Box(
@@ -49,9 +49,11 @@ fun NuvioDialog(
                 .padding(24.dp)
                 .onPreviewKeyEvent { event ->
                     val native = event.nativeKeyEvent
-                    if (suppressNextKeyUp && native.action == AndroidKeyEvent.ACTION_UP) {
-                        if (isSelectKey(native.keyCode) || native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
-                            suppressNextKeyUp = false
+                    if (isSelectKey(native.keyCode) || native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
+                        if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount == 0) {
+                            isReady = true
+                        }
+                        if (!isReady) {
                             return@onPreviewKeyEvent true
                         }
                     }
