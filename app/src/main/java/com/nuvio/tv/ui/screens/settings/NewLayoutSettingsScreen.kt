@@ -91,6 +91,7 @@ import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.LayoutRowConfig
 import com.nuvio.tv.domain.model.LayoutRowKind
+import com.nuvio.tv.domain.model.isTraktCatalogRow
 import com.nuvio.tv.domain.model.LayoutScreenScope
 import com.nuvio.tv.ui.theme.NuvioColors
 
@@ -413,9 +414,10 @@ private fun RowsManagerContent(
                     onTraktSignInRequired = {
                         Toast.makeText(context, "Sign in to Trakt first (Settings → Trakt)", Toast.LENGTH_SHORT).show()
                     },
-                    onTraktComingSoon = {
-                        Toast.makeText(context, "Trakt row — coming soon", Toast.LENGTH_SHORT).show()
-                    },
+                    onAddTraktCatalog = { viewModel.addTraktCatalogRow(it) },
+                    traktCatalogExisting = uiState.rows
+                        .mapNotNull { it.kind.takeIf { k -> k.isTraktCatalogRow } }
+                        .toSet(),
                     onAddCollection = onAddCollection,
                     onAddCw = { viewModel.addContinueWatchingRow(it) },
                     cwExisting = uiState.rows.mapNotNull { it.kind.continueWatchingFilter }.toSet(),
@@ -598,7 +600,8 @@ private fun SourcePillsRow(
     upNextAdded: Boolean,
     onAddUpNext: () -> Unit,
     onTraktSignInRequired: () -> Unit,
-    onTraktComingSoon: () -> Unit,
+    onAddTraktCatalog: (LayoutRowKind) -> Unit,
+    traktCatalogExisting: Set<LayoutRowKind>,
     onAddCollection: () -> Unit,
     onAddCw: (ContinueWatchingFilter) -> Unit,
     cwExisting: Set<ContinueWatchingFilter>,
@@ -622,7 +625,8 @@ private fun SourcePillsRow(
             upNextAdded = upNextAdded,
             onAddUpNext = onAddUpNext,
             onSignInRequired = onTraktSignInRequired,
-            onComingSoon = onTraktComingSoon,
+            onAddTraktCatalog = onAddTraktCatalog,
+            traktCatalogExisting = traktCatalogExisting,
         )
         // "+ Continue Watching" opens a Series / Movies submenu.
         ContinueWatchingAddPill(existing = cwExisting, onAdd = onAddCw)
@@ -632,8 +636,8 @@ private fun SourcePillsRow(
 
 /**
  * "+ Trakt" pill. Gated behind Trakt sign-in (toast otherwise). Opens a submenu
- * of Trakt-backed rows. Currently only "Up Next" is functional; the catalog
- * rows (watchlist / calendars / recommendations) are staged as "Coming soon".
+ * of Trakt-backed rows: Up Next (CW-derived) plus the six Trakt catalog rows
+ * (Watchlist / New / Recommended). Each option dims once added (max one each).
  */
 @Composable
 private fun TraktAddPill(
@@ -641,7 +645,8 @@ private fun TraktAddPill(
     upNextAdded: Boolean,
     onAddUpNext: () -> Unit,
     onSignInRequired: () -> Unit,
-    onComingSoon: () -> Unit,
+    onAddTraktCatalog: (LayoutRowKind) -> Unit,
+    traktCatalogExisting: Set<LayoutRowKind>,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val density = LocalDensity.current
@@ -679,19 +684,21 @@ private fun TraktAddPill(
                             expanded = false
                         },
                     )
-                    // Staged: these need the Trakt catalog pipeline (a focused
-                    // follow-up). Shown so the menu is complete + discoverable.
+                    // The six Trakt catalog rows — all functional now.
                     listOf(
-                        "Watchlist Shows", "Watchlist Movies", "New Episodes",
-                        "New Movies", "Recommended Shows", "Recommended Movies",
-                    ).forEach { label ->
+                        "Recommended Shows" to LayoutRowKind.TRAKT_RECOMMENDED_SHOWS,
+                        "Recommended Movies" to LayoutRowKind.TRAKT_RECOMMENDED_MOVIES,
+                        "Watchlist Shows" to LayoutRowKind.TRAKT_WATCHLIST_SHOWS,
+                        "Watchlist Movies" to LayoutRowKind.TRAKT_WATCHLIST_MOVIES,
+                        "New Episodes" to LayoutRowKind.TRAKT_NEW_EPISODES,
+                        "New Movies" to LayoutRowKind.TRAKT_NEW_MOVIES,
+                    ).forEach { (label, kind) ->
                         SubmenuItem(
                             label = label,
-                            added = false,
-                            comingSoon = true,
+                            added = kind in traktCatalogExisting,
                             focusRequester = null,
                             onClick = {
-                                onComingSoon()
+                                if (kind !in traktCatalogExisting) onAddTraktCatalog(kind)
                                 expanded = false
                             },
                         )
@@ -1045,6 +1052,7 @@ private fun ManagerRowItem(
                 }
             }
             val isContinueWatching = row.kind.continueWatchingFilter != null
+            val isTraktCatalog = row.kind.isTraktCatalogRow
             Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
                 if (isContinueWatching) {
                     CwStyleShapeButton(
@@ -1071,9 +1079,9 @@ private fun ManagerRowItem(
                 }
             }
             Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
-                // Continue Watching has no expand-to-backdrop mechanic — hide the
-                // chip (the column box stays for alignment).
-                if (!isContinueWatching) {
+                // Continue Watching + Trakt catalog rows have no expand-to-backdrop
+                // mechanic — hide the chip (the column box stays for alignment).
+                if (!isContinueWatching && !isTraktCatalog) {
                     ExpandShapeButton(state = row.expandEnabled, onClick = onCycleExpand)
                 }
             }

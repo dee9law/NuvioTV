@@ -57,6 +57,7 @@ class MoviesViewModel @Inject constructor(
     watchedSeriesStateHolder: WatchedSeriesStateHolder,
     cwEnrichmentCache: ContinueWatchingEnrichmentCache,
     profileManager: com.nuvio.tv.core.profile.ProfileManager,
+    traktHomeCatalogResolver: com.nuvio.tv.core.trakt.TraktHomeCatalogResolver,
 ) : BaseHomeViewModel(
     appContext = appContext,
     addonRepository = addonRepository,
@@ -79,6 +80,7 @@ class MoviesViewModel @Inject constructor(
     watchedSeriesStateHolder = watchedSeriesStateHolder,
     cwEnrichmentCache = cwEnrichmentCache,
     profileManager = profileManager,
+    traktHomeCatalogResolver = traktHomeCatalogResolver,
     homeScope = LayoutScreenScope.MOVIES,
     emptyStateStringRes = R.string.movies_no_rows_configured,
 )

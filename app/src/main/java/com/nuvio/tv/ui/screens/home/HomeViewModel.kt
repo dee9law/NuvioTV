@@ -77,6 +77,7 @@ open class BaseHomeViewModel(
     internal val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     internal val cwEnrichmentCache: ContinueWatchingEnrichmentCache,
     private val profileManager: com.nuvio.tv.core.profile.ProfileManager,
+    internal val traktHomeCatalogResolver: com.nuvio.tv.core.trakt.TraktHomeCatalogResolver,
     /**
      * The screen scope this ViewModel renders. Movies / TV subclasses pass
      * their own value; the HOME-scope subclass defaults to HOME. MUST be a
@@ -180,6 +181,12 @@ open class BaseHomeViewModel(
     internal val catalogsMap = linkedMapOf<String, CatalogRow>()
     internal val catalogItemKeyIndex = mutableMapOf<String, MutableSet<String>>()
     internal val catalogOrder = mutableListOf<String>()
+    // Trakt catalog rows (recommendations / watchlist / calendars) keyed by
+    // their canonical row id. Populated by observeTraktCatalogRowsPipeline,
+    // injected by key in updateCatalogRowsPipeline. Separate from catalogsMap
+    // (addon catalogs) and never part of the CW/Up Next pipeline.
+    internal val traktCatalogRowsByKey = java.util.concurrent.ConcurrentHashMap<String, CatalogRow>()
+    @Volatile internal var traktCatalogRowsJob: kotlinx.coroutines.Job? = null
     internal var addonsCache: List<Addon> = emptyList()
     internal var collectionsCache: List<Collection> = emptyList()
     internal var homeCatalogOrderKeys: List<String> = emptyList()
@@ -324,6 +331,7 @@ open class BaseHomeViewModel(
             loadContinueWatching()
             observeCollections()
             observeConfiguredHomeRowsPipeline()
+            observeTraktCatalogRowsPipeline()
             observeInstalledAddons()
             seedDefaultContinueWatchingRowIfNeeded()
 
@@ -919,6 +927,7 @@ class HomeViewModel @Inject constructor(
     watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     cwEnrichmentCache: ContinueWatchingEnrichmentCache,
     profileManager: com.nuvio.tv.core.profile.ProfileManager,
+    traktHomeCatalogResolver: com.nuvio.tv.core.trakt.TraktHomeCatalogResolver,
 ) : BaseHomeViewModel(
     appContext = appContext,
     addonRepository = addonRepository,
@@ -941,4 +950,5 @@ class HomeViewModel @Inject constructor(
     watchedSeriesStateHolder = watchedSeriesStateHolder,
     cwEnrichmentCache = cwEnrichmentCache,
     profileManager = profileManager,
+    traktHomeCatalogResolver = traktHomeCatalogResolver,
 )

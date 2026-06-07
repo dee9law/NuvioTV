@@ -25,10 +25,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
+import com.nuvio.tv.domain.model.isTraktCatalogRow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import com.nuvio.tv.domain.model.MetaPreview
 import kotlinx.coroutines.launch
@@ -301,6 +303,44 @@ internal fun BaseHomeViewModel.seedDefaultContinueWatchingRowIfNeeded() {
     }
 }
 
+/**
+ * Fetches the Trakt catalog rows (recommendations / watchlist / calendars)
+ * configured for [BaseHomeViewModel.homeScope] and injects them into
+ * [traktCatalogRowsByKey], then refreshes the rendered rows. Auth-gated +
+ * TTL-cached inside [com.nuvio.tv.core.trakt.TraktHomeCatalogResolver].
+ *
+ * Deliberately a separate observer from the addon/CW pipeline — it never reads
+ * or writes playback/progress state.
+ */
+@OptIn(FlowPreview::class)
+internal fun BaseHomeViewModel.observeTraktCatalogRowsPipeline() {
+    viewModelScope.launch {
+        layoutPreferenceDataStore.rowsForScope(homeScope)
+            .map { rows ->
+                rows.filter { it.enabled && it.kind.isTraktCatalogRow }.map { it.kind }.toSet()
+            }
+            .distinctUntilChanged()
+            .collectLatest { kinds ->
+                // Drop cached rows no longer configured.
+                traktCatalogRowsByKey.keys.retainAll { key ->
+                    kinds.any { LayoutRowKey.forTraktCatalogKind(it) == key }
+                }
+                if (kinds.isEmpty()) {
+                    scheduleUpdateCatalogRows()
+                    return@collectLatest
+                }
+                kinds.forEach { kind ->
+                    val key = LayoutRowKey.forTraktCatalogKind(kind) ?: return@forEach
+                    val row = runCatching { traktHomeCatalogResolver.resolve(kind) }.getOrNull()
+                    if (row != null) {
+                        traktCatalogRowsByKey[key] = row
+                    }
+                }
+                scheduleUpdateCatalogRows()
+            }
+    }
+}
+
 internal fun BaseHomeViewModel.applyConfiguredHomeRows(
     addons: List<Addon>,
     rows: List<LayoutRowConfig>,
@@ -346,6 +386,18 @@ internal fun BaseHomeViewModel.applyConfiguredHomeRows(
             LayoutRowKind.TRAKT_UP_NEXT -> {
                 val filter = row.kind.continueWatchingFilter ?: return@forEach
                 val key = LayoutRowKey.forContinueWatchingFilter(filter)
+                if (allowed.add(key)) orderedKeys.add(key)
+            }
+            LayoutRowKind.TRAKT_RECOMMENDED_SHOWS,
+            LayoutRowKind.TRAKT_RECOMMENDED_MOVIES,
+            LayoutRowKind.TRAKT_WATCHLIST_SHOWS,
+            LayoutRowKind.TRAKT_WATCHLIST_MOVIES,
+            LayoutRowKind.TRAKT_NEW_EPISODES,
+            LayoutRowKind.TRAKT_NEW_MOVIES -> {
+                // Reserve the row's slot in the order; the CatalogRow itself is
+                // fetched asynchronously by observeTraktCatalogRowsPipeline and
+                // injected by key in updateCatalogRowsPipeline.
+                val key = LayoutRowKey.forTraktCatalogKind(row.kind) ?: return@forEach
                 if (allowed.add(key)) orderedKeys.add(key)
             }
             LayoutRowKind.TRAKT,
@@ -960,6 +1012,13 @@ internal suspend fun BaseHomeViewModel.updateCatalogRowsPipeline() {
             }
             if (cwFilter != null) {
                 add(HomeRow.ContinueWatching(cwFilter))
+                continue
+            }
+            // Trakt catalog rows (recommendations / watchlist / calendars) are
+            // fetched out-of-band into traktCatalogRowsByKey; inject by key.
+            val traktRow = traktCatalogRowsByKey[key]
+            if (traktRow != null) {
+                if (traktRow.items.isNotEmpty()) add(HomeRow.Catalog(traktRow))
                 continue
             }
             val collectionEntry = collectionsSnapshot[key]

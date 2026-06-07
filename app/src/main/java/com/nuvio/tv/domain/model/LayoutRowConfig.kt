@@ -47,7 +47,27 @@ enum class LayoutRowKind {
     // Trakt "Up Next" (next unwatched episode per show) — reuses the Continue
     // Watching render path (NextUp items) rather than the Trakt catalog fetch.
     TRAKT_UP_NEXT,
+    // Trakt catalog rows (auth-gated personalized fetches → CatalogRow of
+    // MetaPreviews). Resolved by TraktHomeCatalogResolver, injected into the
+    // home pipeline like a non-addon catalog row. Distinct from CW kinds.
+    TRAKT_RECOMMENDED_SHOWS, TRAKT_RECOMMENDED_MOVIES,
+    TRAKT_WATCHLIST_SHOWS, TRAKT_WATCHLIST_MOVIES,
+    TRAKT_NEW_EPISODES, TRAKT_NEW_MOVIES,
 }
+
+/** The six Trakt catalog row kinds (recommendations / watchlist / calendars). */
+val TRAKT_CATALOG_KINDS: Set<LayoutRowKind> = setOf(
+    LayoutRowKind.TRAKT_RECOMMENDED_SHOWS,
+    LayoutRowKind.TRAKT_RECOMMENDED_MOVIES,
+    LayoutRowKind.TRAKT_WATCHLIST_SHOWS,
+    LayoutRowKind.TRAKT_WATCHLIST_MOVIES,
+    LayoutRowKind.TRAKT_NEW_EPISODES,
+    LayoutRowKind.TRAKT_NEW_MOVIES,
+)
+
+/** True for the six Trakt-catalog row kinds. */
+val LayoutRowKind.isTraktCatalogRow: Boolean
+    get() = this in TRAKT_CATALOG_KINDS
 
 /**
  * The four Continue-Watching-derived row variants. All render through the
@@ -162,6 +182,25 @@ object LayoutRowKey {
 
     /** "Both" (mixed series + movies) reuses the legacy single-CW id. */
     fun forContinueWatchingBoth(): String = forContinueWatching()
+
+    // Trakt catalog row ids — stable per kind (one of each per scope).
+    fun forTraktRecommendedShows(): String = "trakt_recommended_shows"
+    fun forTraktRecommendedMovies(): String = "trakt_recommended_movies"
+    fun forTraktWatchlistShows(): String = "trakt_watchlist_shows"
+    fun forTraktWatchlistMovies(): String = "trakt_watchlist_movies"
+    fun forTraktNewEpisodes(): String = "trakt_new_episodes"
+    fun forTraktNewMovies(): String = "trakt_new_movies"
+
+    /** Canonical row id for a Trakt catalog kind (or null if not one). */
+    fun forTraktCatalogKind(kind: LayoutRowKind): String? = when (kind) {
+        LayoutRowKind.TRAKT_RECOMMENDED_SHOWS -> forTraktRecommendedShows()
+        LayoutRowKind.TRAKT_RECOMMENDED_MOVIES -> forTraktRecommendedMovies()
+        LayoutRowKind.TRAKT_WATCHLIST_SHOWS -> forTraktWatchlistShows()
+        LayoutRowKind.TRAKT_WATCHLIST_MOVIES -> forTraktWatchlistMovies()
+        LayoutRowKind.TRAKT_NEW_EPISODES -> forTraktNewEpisodes()
+        LayoutRowKind.TRAKT_NEW_MOVIES -> forTraktNewMovies()
+        else -> null
+    }
 
     /** Canonical id (== rowConfigLookup key) for a given CW filter variant. */
     fun forContinueWatchingFilter(filter: ContinueWatchingFilter): String = when (filter) {

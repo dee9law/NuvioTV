@@ -973,6 +973,21 @@ class LayoutPreferenceDataStore @Inject constructor(
         store().edit { prefs -> prefs[forYouSeededKey] = seeded }
     }
 
+    private val forYouRecommendedSeededKey = booleanPreferencesKey("for_you_recommended_seeded")
+
+    /**
+     * One-shot flag for adding the two Trakt "Recommended" rows to the For You
+     * scope for users who already received the original 2-row seed. Sticky so a
+     * later manual delete isn't undone.
+     */
+    val forYouRecommendedSeeded: Flow<Boolean> = profileFlow { prefs ->
+        prefs[forYouRecommendedSeededKey] ?: false
+    }
+
+    suspend fun setForYouRecommendedSeeded(seeded: Boolean) {
+        store().edit { prefs -> prefs[forYouRecommendedSeededKey] = seeded }
+    }
+
     suspend fun setSelectedLayoutForScope(scope: LayoutScreenScope, layout: HomeLayout) {
         if (scope == LayoutScreenScope.HOME) {
             // Reuse the global setter — it also flips hasChosenKey and seeds

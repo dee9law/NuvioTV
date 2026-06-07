@@ -711,3 +711,119 @@ renders pure rows (no hero), CW **Both** shows mixed series + movies, no crashes
 `BUILD SUCCESSFUL` (`installFullDebug`, exit 0). Installed
 `app-full-armeabi-v7a-debug.apk` (`com.nuviodebug.com`) on the Jawwy TV
 (`192.168.8.187`). Committed on `dev` (not pushed). Smoke-tested via ADB.
+
+---
+
+## 📅 Session log — 2026-06-07 (Trakt catalog pipeline — 6 functional rows, For You seed + recommendations)
+
+### Headline
+
+Built the **Trakt catalog pipeline** for the six rows previously staged as
+"Coming Soon" in the **+ Trakt** submenu — all now fully functional, fetching
+real Trakt data → `CatalogRow`s of `MetaPreview`s. Updated the **For You**
+default seed to include Recommended Shows/Movies. Compiled green after every
+step; installed + smoke-tested on the Jawwy TV (`com.nuviodebug.com` @
+`192.168.8.187`) with **real Trakt data on-device, no crashes**. The Continue
+Watching / Up Next / scrobble pipeline was **left completely untouched**
+(verified: zero diff in `HomeViewModelContinueWatching.kt`,
+`TraktProgressService.kt`, `TraktScrobbleService.kt`).
+
+### The six new row kinds (all auth-gated, TTL-cached)
+
+`TRAKT_RECOMMENDED_SHOWS` / `TRAKT_RECOMMENDED_MOVIES` →
+`/recommendations/{type}?extended=full,images`; `TRAKT_WATCHLIST_SHOWS` /
+`TRAKT_WATCHLIST_MOVIES` → `/sync/watchlist/{type}?extended=full,images`;
+`TRAKT_NEW_EPISODES` / `TRAKT_NEW_MOVIES` → `/calendars/my/{type}/{start}/{days}`
+(±7d shows, ±14d movies). TTL: **30 min calendars, 60 min watchlist +
+recommendations**.
+
+### Architecture
+
+- **New `core/trakt/TraktHomeCatalogResolver.kt`** (modeled on
+  `TraktPublicListSourceResolver`): one `resolve(kind): CatalogRow?` with a
+  **profile-keyed** TTL cache (`"<profileId>:<kind>"` — no cross-profile leak),
+  auth-gated, returns stale-but-present row on a transient blip, maps
+  Trakt show/movie DTOs → `MetaPreview` via the shared `TraktImageUtils`
+  helpers + `normalizeContentId`. No extra image fetching (uses Trakt's
+  `extended=full,images` payload).
+- **Recommendations need no new DTO** (endpoint returns the media objects
+  directly → reuse `List<TraktShowDto>` / `List<TraktMovieDto>`). **Watchlist**
+  reuses `TraktListItemDto` (added a backward-compatible `extended` query param
+  to `getWatchlist`). **Calendars** got two new DTOs
+  (`TraktCalendarShowItemDto` / `TraktCalendarMovieItemDto`).
+- **Pipeline injection (separate from CW/addon paths):** new
+  `observeTraktCatalogRowsPipeline()` fetches configured Trakt kinds →
+  `traktCatalogRowsByKey` (a `ConcurrentHashMap` on `BaseHomeViewModel`) →
+  `scheduleUpdateCatalogRows()`. The `applyConfiguredHomeRows` `TRAKT`-kinds
+  branch reserves each row's order slot; `updateCatalogRowsPipeline` injects
+  `HomeRow.Catalog(traktRow)` by key (new branch, after CW / before
+  collections — CW branch untouched). Resolver injected into
+  `BaseHomeViewModel` + all 4 subclasses (Home/Movies/TV/ForYou).
+
+### New / changed files
+
+- **New:** `core/trakt/TraktHomeCatalogResolver.kt`.
+- **Changed:** `TraktApi.kt` (4 endpoints + `getWatchlist` `extended`),
+  `TraktSyncDtos.kt` (2 calendar DTOs), `LayoutRowConfig.kt` (6 kinds +
+  `LayoutRowKey` helpers + `isTraktCatalogRow` / `TRAKT_CATALOG_KINDS`),
+  `LayoutPreferenceDataStore.kt` (`forYouRecommendedSeeded` flag),
+  `HomeViewModel.kt` + `HomeViewModelCatalogPipeline.kt` (field + observe
+  pipeline + injection), `MoviesViewModel.kt` / `TvShowsViewModel.kt` /
+  `ForYouViewModel.kt` (resolver param; ForYou also seeds recommendations),
+  `NewLayoutSettingsViewModel.kt` (`addTraktCatalogRow`),
+  `NewLayoutSettingsScreen.kt` (functional + Trakt submenu; Expand hidden for
+  the 6 kinds), `AddRowPickerDialog.kt` (section labels).
+
+### For You default seed (updated)
+
+Fresh seed: **CW Both → Up Next → Recommended Shows → Recommended Movies**.
+New `forYouRecommendedSeeded` flag adds the two recommendation rows **once** to
+users who already received the original 2-row seed (skips any already present;
+respects later deletion). Still auth-gated.
+
+### Rows Manager (+ Trakt submenu)
+
+All 6 options + Up Next are functional (no "Coming Soon"); each dims once added
+(max one of each per scope). The six Trakt-catalog rows show **Orient / Size /
+On-Off / Delete, Expand hidden** (gated via `isTraktCatalogRow`).
+
+### On-device verification (Jawwy TV `192.168.8.187`, `com.nuviodebug.com`)
+
+- ✅ For You lands (`Screen: for_you`), recommendation rows seeded + rendered:
+  **Recommended Shows** (Rick and Morty, BoJack, Invincible, Archer, Midnight
+  Gospel), **Recommended Movies** (Big Hero 6, Dragon, Wreck-It Ralph, Kung Fu
+  Panda, Lego Movie).
+- ✅ Added via submenu + rendered real data: **Watchlist Shows** (Invincible,
+  Landman, 911, Band of Brothers…), **New Episodes** (FROM, Criminal Minds,
+  Your Friends & Neighbors…).
+- ✅ Clicking a Trakt row item → Detail page loads (Invincible, prime video).
+- ✅ No `FATAL`/`AndroidRuntime` across the session.
+- ⚠️ **Watchlist Movies** + **New Movies** not added on-screen — parity-proven
+  (identical resolver branch, only the `type`/DTO differ from the verified
+  shows variants).
+
+### Earlier research this session (no code)
+
+- **CW data-quality investigation:** stale CW = (a) abandoned `<80%` Trakt
+  playback rows lingering for the 60-day window + edge cases where the ≥80%
+  completion scrobble never lands, and (b) ended/fully-watched-series phantom
+  Up Next (metadata-derived, no Trakt/TMDB `status` guard). Scrobbling itself
+  works on the happy path.
+- **Direct-`/sync/playback` feasibility:** it's a strict subset of "Continue
+  Watching" (no Up Next, no artwork, no resume-ms) — not a drop-in replacement.
+
+### Pending follow-ups
+
+1. **Performance + Apple-TV animations** session.
+2. **CW data quality** — phantom Up Next on ended shows (low priority; needs
+   ended-series + all-aired-watched guard before computing Up Next).
+3. **Manual on-screen verification** of `Watchlist Movies` + `New Movies`
+   (parity-confirmed by code, not yet seen on TV).
+4. Prior open follow-ups (Modern State-2 proportions, 23 skipped upstream
+   commits, ContinueWatching render in Classic, SideRail order) still open.
+
+### Build / deploy
+
+Compiled green after each step; `installFullDebug` (exit 0) on the Jawwy TV
+(`192.168.8.187`). Committed + pushed to `origin/dev` this session. CW /
+scrobble pipeline untouched; no crashes on-device.

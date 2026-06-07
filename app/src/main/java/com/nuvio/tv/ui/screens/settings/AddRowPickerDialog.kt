@@ -307,6 +307,12 @@ private fun sectionLabel(kind: LayoutRowKind): String = when (kind) {
     LayoutRowKind.CONTINUE_WATCHING_SERIES -> "Continue Watching"
     LayoutRowKind.CONTINUE_WATCHING_MOVIES -> "Continue Watching Movies"
     LayoutRowKind.TRAKT_UP_NEXT      -> "Up Next"
+    LayoutRowKind.TRAKT_RECOMMENDED_SHOWS -> "Recommended Shows"
+    LayoutRowKind.TRAKT_RECOMMENDED_MOVIES -> "Recommended Movies"
+    LayoutRowKind.TRAKT_WATCHLIST_SHOWS -> "Watchlist Shows"
+    LayoutRowKind.TRAKT_WATCHLIST_MOVIES -> "Watchlist Movies"
+    LayoutRowKind.TRAKT_NEW_EPISODES -> "New Episodes"
+    LayoutRowKind.TRAKT_NEW_MOVIES   -> "New Movies"
 }
 
 private fun Modifier.heightInDialogContent(): Modifier = this.then(Modifier.height(520.dp))

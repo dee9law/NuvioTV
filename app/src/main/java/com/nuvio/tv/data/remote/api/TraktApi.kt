@@ -7,6 +7,8 @@ import com.nuvio.tv.data.remote.dto.trakt.TraktLastActivitiesResponseDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktHistoryRemoveRequestDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktHistoryRemoveResponseDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktHistoryAddRequestDto
+import com.nuvio.tv.data.remote.dto.trakt.TraktCalendarMovieItemDto
+import com.nuvio.tv.data.remote.dto.trakt.TraktCalendarShowItemDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktHistoryAddResponseDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktHistoryItemDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktCommentDto
@@ -116,6 +118,43 @@ interface TraktApi {
         @Header("Authorization") authorization: String,
         @Query("extended") extended: String? = null
     ): Response<List<TraktWatchedShowItemDto>>
+
+    // ── For You / Trakt catalog rows ──────────────────────────────────────────
+    // Personalized recommendations + calendars. Return the media objects (or
+    // calendar wrappers) directly; mapped to MetaPreview by
+    // TraktHomeCatalogResolver. All require user auth.
+
+    @GET("recommendations/shows")
+    suspend fun getRecommendedShows(
+        @Header("Authorization") authorization: String,
+        @Query("extended") extended: String? = null,
+        @Query("limit") limit: Int = 50,
+        @Query("ignore_collected") ignoreCollected: Boolean = true
+    ): Response<List<TraktShowDto>>
+
+    @GET("recommendations/movies")
+    suspend fun getRecommendedMovies(
+        @Header("Authorization") authorization: String,
+        @Query("extended") extended: String? = null,
+        @Query("limit") limit: Int = 50,
+        @Query("ignore_collected") ignoreCollected: Boolean = true
+    ): Response<List<TraktMovieDto>>
+
+    @GET("calendars/my/shows/{start_date}/{days}")
+    suspend fun getMyShowsCalendar(
+        @Header("Authorization") authorization: String,
+        @Path("start_date") startDate: String,
+        @Path("days") days: Int,
+        @Query("extended") extended: String? = null
+    ): Response<List<TraktCalendarShowItemDto>>
+
+    @GET("calendars/my/movies/{start_date}/{days}")
+    suspend fun getMyMoviesCalendar(
+        @Header("Authorization") authorization: String,
+        @Path("start_date") startDate: String,
+        @Path("days") days: Int,
+        @Query("extended") extended: String? = null
+    ): Response<List<TraktCalendarMovieItemDto>>
 
     @GET("users/hidden/{section}")
     suspend fun getHiddenItems(
@@ -343,6 +382,7 @@ interface TraktApi {
     suspend fun getWatchlist(
         @Header("Authorization") authorization: String,
         @Path("type") type: String,
+        @Query("extended") extended: String? = null,
         @Query("page") page: Int = 1,
         @Query("limit") limit: Int = 1000
     ): Response<List<TraktListItemDto>>

@@ -27,6 +27,23 @@ data class TraktPlaybackItemDto(
     @Json(name = "episode") val episode: TraktEpisodeDto? = null
 )
 
+// ── Calendar responses (/calendars/my/shows, /calendars/my/movies) ───────────
+// One entry per scheduled airing/release. The show/movie object is reused;
+// mapped to a MetaPreview (deduped by show/movie id) by TraktHomeCatalogResolver.
+
+@JsonClass(generateAdapter = true)
+data class TraktCalendarShowItemDto(
+    @Json(name = "first_aired") val firstAired: String? = null,
+    @Json(name = "episode") val episode: TraktEpisodeDto? = null,
+    @Json(name = "show") val show: TraktShowDto? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TraktCalendarMovieItemDto(
+    @Json(name = "released") val released: String? = null,
+    @Json(name = "movie") val movie: TraktMovieDto? = null
+)
+
 @JsonClass(generateAdapter = true)
 data class TraktWatchedMovieItemDto(
     @Json(name = "plays") val plays: Int? = null,

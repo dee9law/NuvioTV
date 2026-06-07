@@ -425,6 +425,24 @@ class NewLayoutSettingsViewModel @Inject constructor(
         )
     }
 
+    /**
+     * Add a Trakt catalog row (recommendations / watchlist / calendars). Stable
+     * id per kind → deduped, so max one of each per scope. Default Poster style.
+     */
+    fun addTraktCatalogRow(kind: LayoutRowKind) {
+        val id = LayoutRowKey.forTraktCatalogKind(kind) ?: return
+        val name = when (kind) {
+            LayoutRowKind.TRAKT_RECOMMENDED_SHOWS -> "Recommended Shows"
+            LayoutRowKind.TRAKT_RECOMMENDED_MOVIES -> "Recommended Movies"
+            LayoutRowKind.TRAKT_WATCHLIST_SHOWS -> "Watchlist Shows"
+            LayoutRowKind.TRAKT_WATCHLIST_MOVIES -> "Watchlist Movies"
+            LayoutRowKind.TRAKT_NEW_EPISODES -> "New Episodes"
+            LayoutRowKind.TRAKT_NEW_MOVIES -> "New Movies"
+            else -> return
+        }
+        addRow(LayoutRowConfig(id = id, kind = kind, name = name))
+    }
+
     /** Continue Watching orientation (Poster / Card / Wide) — CW-specific. */
     fun setContinueWatchingStyle(rowId: String, style: ContinueWatchingCardStyle) = mutateRows { rows ->
         rows.map { row ->

@@ -70,6 +70,7 @@ class ForYouViewModel @Inject constructor(
     watchedSeriesStateHolder: WatchedSeriesStateHolder,
     cwEnrichmentCache: ContinueWatchingEnrichmentCache,
     profileManager: ProfileManager,
+    traktHomeCatalogResolver: com.nuvio.tv.core.trakt.TraktHomeCatalogResolver,
     private val traktAuthDataStore: TraktAuthDataStore,
 ) : BaseHomeViewModel(
     appContext = appContext,
@@ -93,6 +94,7 @@ class ForYouViewModel @Inject constructor(
     watchedSeriesStateHolder = watchedSeriesStateHolder,
     cwEnrichmentCache = cwEnrichmentCache,
     profileManager = profileManager,
+    traktHomeCatalogResolver = traktHomeCatalogResolver,
     homeScope = LayoutScreenScope.FOR_YOU,
     emptyStateStringRes = R.string.for_you_no_rows_configured,
 ) {
@@ -104,41 +106,66 @@ class ForYouViewModel @Inject constructor(
      * One-shot default seed for the For You scope:
      *   1. Continue Watching — Both (series + movies)
      *   2. Up Next (Trakt next-unwatched episode)
+     *   3. Recommended Shows (Trakt)
+     *   4. Recommended Movies (Trakt)
      *
      * Only seeds when Trakt is authenticated. If not authenticated we leave the
      * scope empty (and DON'T set the flag) so the user can build it manually —
      * or get the defaults later if they sign in to Trakt.
+     *
+     * A second flag ([LayoutPreferenceDataStore.forYouRecommendedSeeded]) lets
+     * users who already received the original 2-row seed get the two
+     * recommendation rows once, without re-adding rows they later delete.
      */
     private fun seedForYouRowsIfNeeded(profileManager: ProfileManager) {
         viewModelScope.launch {
             profileManager.activeProfileReady.first { it }
-            if (layoutPreferenceDataStore.forYouSeeded.first()) return@launch
             if (!traktAuthDataStore.isAuthenticated.first()) return@launch
-            val existing = layoutPreferenceDataStore
-                .rowsForScope(LayoutScreenScope.FOR_YOU).first()
-            if (existing.isEmpty()) {
-                val cwStyle = mapOf(CW_STYLE_METADATA_KEY to ContinueWatchingCardStyle.CARD.name)
-                val rows = listOf(
-                    LayoutRowConfig(
-                        id = LayoutRowKey.forContinueWatchingBoth(),
-                        kind = LayoutRowKind.CONTINUE_WATCHING,
-                        name = "Continue Watching",
-                        cardWidthDp = CW_DEFAULT_CARD_WIDTH_DP,
-                        viewContext = LayoutScreenScope.FOR_YOU,
-                        metadata = cwStyle,
-                    ),
-                    LayoutRowConfig(
-                        id = LayoutRowKey.forTraktUpNext(),
-                        kind = LayoutRowKind.TRAKT_UP_NEXT,
-                        name = "Up Next",
-                        cardWidthDp = CW_DEFAULT_CARD_WIDTH_DP,
-                        viewContext = LayoutScreenScope.FOR_YOU,
-                        metadata = cwStyle,
-                    ),
-                )
-                layoutPreferenceDataStore.setRowsForScope(LayoutScreenScope.FOR_YOU, rows)
+
+            val cwStyle = mapOf(CW_STYLE_METADATA_KEY to ContinueWatchingCardStyle.CARD.name)
+            fun row(id: String, kind: LayoutRowKind, name: String) = LayoutRowConfig(
+                id = id,
+                kind = kind,
+                name = name,
+                cardWidthDp = CW_DEFAULT_CARD_WIDTH_DP,
+                viewContext = LayoutScreenScope.FOR_YOU,
+                metadata = if (kind == LayoutRowKind.CONTINUE_WATCHING ||
+                    kind == LayoutRowKind.TRAKT_UP_NEXT
+                ) cwStyle else emptyMap(),
+            )
+            val recommendedRows = listOf(
+                row(LayoutRowKey.forTraktRecommendedShows(), LayoutRowKind.TRAKT_RECOMMENDED_SHOWS, "Recommended Shows"),
+                row(LayoutRowKey.forTraktRecommendedMovies(), LayoutRowKind.TRAKT_RECOMMENDED_MOVIES, "Recommended Movies"),
+            )
+
+            if (!layoutPreferenceDataStore.forYouSeeded.first()) {
+                // Fresh seed — full default set.
+                val existing = layoutPreferenceDataStore
+                    .rowsForScope(LayoutScreenScope.FOR_YOU).first()
+                if (existing.isEmpty()) {
+                    val rows = listOf(
+                        row(LayoutRowKey.forContinueWatchingBoth(), LayoutRowKind.CONTINUE_WATCHING, "Continue Watching"),
+                        row(LayoutRowKey.forTraktUpNext(), LayoutRowKind.TRAKT_UP_NEXT, "Up Next"),
+                    ) + recommendedRows
+                    layoutPreferenceDataStore.setRowsForScope(LayoutScreenScope.FOR_YOU, rows)
+                }
+                layoutPreferenceDataStore.setForYouSeeded(true)
+                layoutPreferenceDataStore.setForYouRecommendedSeeded(true)
+                return@launch
             }
-            layoutPreferenceDataStore.setForYouSeeded(true)
+
+            // Upgraders who already got the 2-row seed: add the recommendation
+            // rows once (skip any already present), then mark done.
+            if (!layoutPreferenceDataStore.forYouRecommendedSeeded.first()) {
+                val existing = layoutPreferenceDataStore
+                    .rowsForScope(LayoutScreenScope.FOR_YOU).first()
+                val existingIds = existing.map { it.id }.toSet()
+                val toAdd = recommendedRows.filter { it.id !in existingIds }
+                if (existing.isNotEmpty() && toAdd.isNotEmpty()) {
+                    layoutPreferenceDataStore.setRowsForScope(LayoutScreenScope.FOR_YOU, existing + toAdd)
+                }
+                layoutPreferenceDataStore.setForYouRecommendedSeeded(true)
+            }
         }
     }
 }
