@@ -59,6 +59,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.nuvio.tv.ui.components.StreamBadgeChips
+import com.nuvio.tv.ui.screens.settings.BadgeSettingsViewModel
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -902,6 +904,9 @@ private fun StreamsList(
     val firstCardFocusRequester = remember { FocusRequester() }
     val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val restoreFocusRequester = remember { FocusRequester() }
+    // Fusion size-badge visibility (Style badges always render when present).
+    val showFileSizeBadges = hiltViewModel<BadgeSettingsViewModel>()
+        .settings.collectAsStateWithLifecycle().value.showFileSizeBadges
     val firstStreamKey = streams.firstOrNull()?.let { first ->
         "${first.addonName}_${first.url ?: first.infoHash ?: first.ytId ?: "unknown"}"
     }
@@ -974,6 +979,7 @@ private fun StreamsList(
             StreamCard(
                 stream = stream,
                 onClick = { onStreamSelected(stream) },
+                showFileSizeBadges = showFileSizeBadges,
                 focusRequester = when {
                     shouldRestoreFocusedStream && index == focusedStreamIndex.coerceIn(0, (streams.lastIndex).coerceAtLeast(0)) -> restoreFocusRequester
                     index == 0 -> firstCardFocusRequester
@@ -996,6 +1002,7 @@ private fun StreamsList(
 private fun StreamCard(
     stream: Stream,
     onClick: () -> Unit,
+    showFileSizeBadges: Boolean = false,
     focusRequester: FocusRequester? = null,
     onUpKey: (() -> Unit)? = null
 ) {
@@ -1068,6 +1075,13 @@ private fun StreamCard(
                         StreamTypeChip(text = stringResource(R.string.stream_type_external), color = NuvioColors.Primary)
                     }
                 }
+
+                // Fusion Style/Size badges (renders nothing unless badges present / size enabled).
+                StreamBadgeChips(
+                    badges = stream.badges,
+                    fileSizeBytes = stream.behaviorHints?.videoSize,
+                    showFileSizeBadge = showFileSizeBadges
+                )
             }
 
             Column(

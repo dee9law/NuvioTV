@@ -72,18 +72,23 @@ adb connect <tv-ip>:5555                  # IP drifts — check `adb devices` fi
 
 ---
 
-## 📌 Current State (as of 2026-06-08)
+## 📌 Current State (as of 2026-06-09)
 
-### Recently shipped (compiled green; ⚠️ NOT yet on-device)
-- **Custom buffer engine (Task 1, local — NOT pushed)** — ported from upstream
-  `a24c38b4` (DV7-separated): `BitrateAwareLoadControl` (memory-budget byte
-  target, device-heap-tiered, runtime overrides) replaces the flat
-  `DefaultLoadControl` in `PlayerRuntimeControllerInitialization` and activates
-  our previously-dormant `bufferSettings`; `ParallelRangeDataSource` (parallel
-  HTTP range download, **opt-in/default-OFF**, progressive-only) wired via
-  `PlayerMediaSourceFactory`; `MemoryBudget` helper; new **Settings → Playback →
-  Buffer & Network** screen (slimmed; omits VOD-cache/DV7 sections we lack).
-  Badges (Task 2) deferred to a dedicated session.
+### Recently shipped
+- **Custom buffer engine — ON-DEVICE VERIFIED (2026-06-09).** Smoke test on Jawwy
+  TV passed clean: playback, ~50s forward buffer, seeks re-buffer/recover, Buffer
+  & Network screen, and `ParallelRangeDataSource` engaging on a Torbox progressive
+  stream (logcat-confirmed). `BitrateAwareLoadControl` (device-heap-tiered byte
+  budget) + `MemoryBudget` + the opt-in parallel data source. Two tweaks shipped:
+  **parallel connections default 2 → 3** and a **Max buffer duration** row
+  (30s–180s, default 50s) on the Buffer & Network screen.
+- **Fusion Style/Size badges (ported 2026-06-09, on-device sanity-checked).** Full
+  subsystem from upstream `0.7.4-beta` — see `ARCHITECTURE.md` Stream Badges. Badges
+  attach at `StreamRepositoryImpl` and render in both the stream picker
+  (`StreamScreen.StreamCard`) and player side panels (`StreamComponents.StreamItem`).
+  Config web "gateway" server is an **app-lifetime `@Singleton`** (`StreamBadgeServerManager`,
+  started in `NuvioApplication`) — stays bound on port 8091 as long as the app runs.
+  Settings → Extensions → **Stream Badges**.
 - **Upstream sync Phase 1 (engine likely-clean)** — 13 upstream commits
   incorporated: player AFR/24fps-judder fixes, AFR-for-m3u8, subtitle filename
   urlencode, AniSkip `types[]` + skip types, episode-rating dup-key fix, updater
@@ -102,21 +107,21 @@ adb connect <tv-ip>:5555                  # IP drifts — check `adb devices` fi
   requires **manual review-then-port**. The buffer engine was the first such port.
 - i18n = not viable via cherry-pick (all locales diverged; needs wholesale locale
   refresh — lint-baselined Phase 8 debt).
-- **Fork lacks** upstream's `DolbyVision`/HDR-strip, `StreamBadge`, `CloudLibrary`
-  subsystems (0 files each) — commits depending on them are unpickable.
+- **Fork lacks** upstream's `DolbyVision`/HDR-strip + `CloudLibrary` subsystems
+  (0 files each) — commits depending on them are unpickable. (`StreamBadge` ported
+  2026-06-09.)
 
 ### Open follow-ups (priority order)
-1. **Smoke-test the buffer engine on TV** — playback start, seeks, rebuffer
-   behavior (BitrateAwareLoadControl changes buffering on every playback); then
-   toggle parallel download ON for a progressive/debrid stream to verify throughput.
-2. **Fusion Style/Size badges port** (Task 2 — dedicated session): 7 files +
-   `StreamComponents` render wiring + bundled web config server (port-binding).
-3. **Performance + Apple-TV animations** session.
-4. **The ~76 conflict-prone player/stream commits** — manual review-then-port
+1. **Optional badge polish** — import a real badge JSON URL and visually confirm
+   Style chips render on stream rows (only crash/wiring verified so far, no rules
+   imported); optionally wire badge **placement** (TOP) + player-side badge paths
+   (`PlayerViewModel`) if wanted.
+2. **Performance + Apple-TV animations** session.
+3. **The ~76 conflict-prone player/stream commits** — manual review-then-port
    (45 player / 14 stream-debrid / 11 other / 6 dolby-vision).
-5. On-device verify of the 13 engine picks (Let's Encrypt TLS, AFR, NuvioDialog
+4. On-device verify of the 13 engine picks (Let's Encrypt TLS, AFR, NuvioDialog
    CEC, subtitle urlencode, AniSkip).
-6. Modern State-2 hero proportions; CW data quality (phantom Up Next); i18n
+5. Modern State-2 hero proportions; CW data quality (phantom Up Next); i18n
    wholesale locale refresh; settings(30)/visual(29) sync buckets; misc.
 
 ---

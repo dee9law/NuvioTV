@@ -2302,3 +2302,94 @@ Pushed to `origin/dev` (`7adecd73..ab4a440f`): the 3 buffer-engine commits
 (`6ed9ceb2`, `451e7a4f`, `ab4a440f`). The 13 engine likely-clean commits were
 already on `origin/dev`. **Not installed to TV — buffer-engine smoke test
 deferred to next session.**
+
+---
+
+## 📅 Session log — 2026-06-09 (Buffer-engine smoke test + Fusion badges port + 2 tweaks)
+
+### Headline
+
+Three threads: (1) **smoke-tested the buffer engine on the Jawwy TV** — passed
+clean; (2) **ported the Fusion Style/Size stream-badges subsystem** from upstream
+`0.7.4-beta` (9 new files + 8 wired files) including an app-lifetime config
+"gateway" server; (3) two small buffer tweaks. All compiled green (full
+`assembleFullDebug` + Hilt + lint-vital) and exercised on-device.
+
+### Task 1 — buffer engine smoke test (on-device, PASSED)
+
+Installed `installFullDebug` to Jawwy TV (`192.168.8.187`), drove via ADB +
+`dumpsys media_session` + logcat. Results: cold start no crash; debrid stream
+played (1080p Amlogic HW decode, DD+ passthrough); **BitrateAwareLoadControl
+buffered ~50s ahead** (matches `bufferSettings`); seeks (FF +20s / REW −10s)
+re-buffer and recover cleanly; pause/resume fine; **Settings → Playback → Buffer
+& Network** renders (Target buffer = Auto, parallel toggle gates Connections/Chunk
+rows); **parallel ON → `ParallelRangeDS: Parallel mode: N connections, 16MB
+chunks, file=756MB, …tb-cdn.st`** confirmed on a Torbox progressive stream. Zero
+player errors/crashes. (screencap returns white over the HW video surface —
+verified via media-session state instead.)
+
+### Task 2 — Fusion Style/Size badges port (`core/streams/`, `core/server/`, …)
+
+Ported from upstream `0.7.4-beta` (subsystem absent in fork). **New files (9):**
+`core/streams/StreamBadgeSettings.kt`, `StreamBadgeRules.kt`,
+`StreamBadgePresentation.kt`; `data/local/StreamBadgeSettingsDataStore.kt`;
+`ui/components/StreamBadgeChips.kt`; `core/server/StreamBadgeConfigServer.kt`,
+`StreamBadgeWebPage.kt`, **`StreamBadgeServerManager.kt`** (fork-authored,
+app-scoped); `ui/screens/settings/BadgeSettingsViewModel.kt` +
+`BadgeSettingsContent.kt` (fork-authored slim screen).
+
+**Wiring:** `Stream` gained `badges: List<StreamBadge>` + `StreamBadge`;
+`StreamRepositoryImpl` injects `StreamBadgePresentation` and applies badges at the
+emit point (single source feeding both stream screen + player); `StreamBadgeChips`
+rendered in **both** `StreamComponents.StreamItem` (player side panels) **and**
+`StreamScreen.StreamCard` (main picker); the two side panels + `StreamsList` read
+the live `showFileSizeBadges` via `hiltViewModel<BadgeSettingsViewModel>()`; hub
+sub-item **Settings → Extensions → Stream Badges**.
+
+**Adaptations / deviations (deliberate):** dropped the `debridCacheStatus.cachedName`
+matcher candidate (fork lacks that field); `StreamBadgeChips` size chip uses a
+literal `"SIZE $label"` and `StreamBadgeWebPage` uses inline English literals for
+its 27 badge strings (no 27-locale lint-baseline churn — consistent with the
+buffer-engine port); did **not** port the 2 upstream test files, the
+`PlayerViewModel`/`PlayerRuntimeController` badge paths, or `ProfileSettingsSyncService`
+sync (load-bearing diverged files, out of scope). Badge **placement** (TOP/BOTTOM)
+persists + is settable from the web config page but the in-app rows render at
+bottom only (TOP would restructure card layout).
+
+### Fix — badge config server made app-lifetime ("gateway")
+
+**Bug:** the `StreamBadgeConfigServer` was screen-scoped (stopped in
+`stopConfigQrMode()` on QR close + `onCleared()` on leaving the screen — same as
+upstream + the Debrid server), so it died after the QR was dismissed. **Fix:**
+new `@Singleton StreamBadgeServerManager` binds the server once, off the main
+thread, for the app's lifetime; started in `NuvioApplication.onCreate()` alongside
+`androidTvChannelSyncService`. `BadgeSettingsViewModel` now only reads `serverUrl()`
+(idempotent `start()` retry) and never stops it. **Verified on-device:** port 8091
+in LISTEN state right after launch (no settings opened), after navigating
+home→detail→picker, and after backgrounding via HOME.
+
+### Two tweaks (this session, end)
+
+1. **Parallel connections default 2 → 3** (`DEFAULT_PARALLEL_CONNECTION_COUNT`) —
+   debrid CDNs cap per-connection throughput; 3 is the practical sweet spot
+   (cap still 4). Flows through `ParallelRangeDataSource` default.
+2. **"Max buffer duration" row** added to Buffer & Network (30s–180s, default
+   50s). New `PlayerSettingsDataStore.setBufferDurationMs()` writes **both** min
+   and max (keeps them equal → continuous top-up, best for banking ahead on
+   variable debrid throughput; byte budget still caps high-bitrate content). UI
+   is a tap-to-cycle row `[30,50,90,120,150,180]s` matching the screen's idiom.
+
+### Research recorded (buffer settings, for future reference)
+
+For single-file progressive/debrid streams, buffering is **network-throughput-
+bound, not LoadControl-bound**. The only setting with real impact is **Parallel
+Connections** (multiplies past per-connection CDN caps); Max Buffer Duration is a
+modest secondary cushion. Memory budget / target buffer / initial / after-rebuffer
+/ back-buffer / VOD-disk-cache add complexity with little/no real-world gain on
+this device — deliberately **not** exposed. The device-heap-tiered byte budget
+(already shipped) is the meaningful win and needs no user knob.
+
+### Build / deploy
+
+`compileFullDebugKotlin` + full `assembleFullDebug` (Hilt + lint-vital + APK)
+green throughout. Installed + exercised on TV. No FATAL/ANR/DI errors.

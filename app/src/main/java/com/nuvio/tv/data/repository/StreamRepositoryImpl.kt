@@ -8,6 +8,7 @@ import com.nuvio.tv.core.debrid.DirectDebridStreamSource
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.network.safeApiCall
 import com.nuvio.tv.core.plugin.PluginManager
+import com.nuvio.tv.core.streams.StreamBadgePresentation
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.mapper.toDomain
 import com.nuvio.tv.data.remote.api.AddonApi
@@ -41,7 +42,8 @@ class StreamRepositoryImpl @Inject constructor(
     private val addonRepository: AddonRepository,
     private val pluginManager: PluginManager,
     private val tmdbService: TmdbService,
-    private val directDebridStreamSource: DirectDebridStreamSource
+    private val directDebridStreamSource: DirectDebridStreamSource,
+    private val streamBadgePresentation: StreamBadgePresentation
 ) : StreamRepository {
     private enum class StreamFailureKind {
         MISSING,
@@ -222,7 +224,8 @@ class StreamRepositoryImpl @Inject constructor(
                 // Emit results as they arrive
                 for (result in resultChannel) {
                     accumulatedResults.add(result)
-                    emit(NetworkResult.Success(accumulatedResults.toList()))
+                    // Attach Fusion Style/Size badges (no-op when no badge rules imported).
+                    emit(NetworkResult.Success(streamBadgePresentation.apply(accumulatedResults.toList())))
                     Log.d(TAG, "Emitted ${accumulatedResults.size} addon(s), latest: ${result.addonName} with ${result.streams.size} streams")
                 }
             }

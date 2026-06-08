@@ -336,6 +336,42 @@ Six auth-gated, TTL-cached row kinds → real Trakt data → `CatalogRow` of
 
 ---
 
+## 🏷️ Stream Badges subsystem (Fusion Style/Size — ported 2026-06-09)
+
+Ported from upstream `0.7.4-beta`. Decorates stream rows with image "Style"
+badges (from imported JSON rule URLs) + an optional file-"Size" chip.
+
+- **Data:** `Stream.badges: List<StreamBadge>` (`domain/model/Stream.kt`).
+  `core/streams/StreamBadgeRules.kt` (serializable rules + `StreamBadgeMatcher`
+  regex matcher over stream filename/title/parsed fields — note the upstream
+  `debridCacheStatus.cachedName` candidate was dropped, fork lacks it),
+  `StreamBadgeSettings.kt` (`showFileSizeBadges`, `badgePlacement`),
+  `StreamBadgePresentation.kt` (`@Singleton`; `apply(groups)` attaches matched
+  badges), `data/local/StreamBadgeSettingsDataStore.kt` (per-profile).
+- **Pipeline:** `StreamRepositoryImpl` injects `StreamBadgePresentation` and
+  applies it at the emit point of `getStreamsFromAllAddons` — the single source
+  feeding both the stream picker and the player, so badges flow everywhere.
+- **Render:** `ui/components/StreamBadgeChips.kt` (size chip uses literal
+  `"SIZE $label"`; image chips from `imageURL`). Wired into **both**
+  `StreamComponents.StreamItem` (player side panels) and `StreamScreen.StreamCard`
+  (main picker). `showFileSizeBadges` is read live in `StreamsList` /
+  `EpisodesSidePanel.EpisodeStreamsView` / `StreamSourcesSidePanel` via
+  `hiltViewModel<BadgeSettingsViewModel>()`. Placement renders bottom-only
+  in-app (TOP would restructure the card; web config page still exposes it).
+- **Config "gateway" server:** `core/server/StreamBadgeConfigServer.kt` (NanoHTTPD)
+  + `StreamBadgeWebPage.kt` (web UI; 27 badge strings inlined as literals to avoid
+  locale churn). Owned by **`core/server/StreamBadgeServerManager.kt` (`@Singleton`)**
+  — binds once at app launch (`NuvioApplication.onCreate`, off main thread) and
+  **stays alive for the whole app process** (not screen-scoped). Default port
+  8091 (`startOnAvailablePort` tries 8091–8100). `BadgeSettingsViewModel` only
+  reads `serverUrl()` + shows the QR; closing the QR / leaving the screen does
+  NOT stop it.
+- **Settings:** **Settings → Extensions → "Stream Badges"** (hub id
+  `extensions.badges`; `BadgeSettingsContent` + `BadgeSettingsViewModel`).
+- **NOT ported:** upstream's player-side badge rendering
+  (`PlayerViewModel`/`PlayerRuntimeController`), `ProfileSettingsSyncService`
+  badge sync, the 2 badge test files.
+
 ## 🖥️ Device notes
 
 - **Skyworth/Jawwy TV**: 960×540dp (1080p @2x). GPU silently no-ops
@@ -354,9 +390,14 @@ Six auth-gated, TTL-cached row kinds → real Trakt data → `CatalogRow` of
   default off), never for HLS/DASH/forced-default. `ui/screens/settings/MemoryBudget.kt`
   = heap-tiered budget helpers. Settings: **Settings → Playback → "Buffer & Network"**
   (`BufferNetworkSettingsContent` + isolated `BufferNetworkSettingsViewModel`;
-  hub id `playback.buffer`). NOT yet ported: upstream's VOD disk-cache
-  (`VodCacheSizeMode`) + DV7-coupled `NetworkSettingsScreen`. `BadgeChips`/Fusion
-  badges (Task 2) deferred.
+  hub id `playback.buffer`): Target buffer size (Auto), **Max buffer duration**
+  (30s–180s, default 50s — `setBufferDurationMs` writes min==max for continuous
+  top-up; added 2026-06-09), parallel toggle/connections/chunk. **Parallel
+  connections default = 3** (was 2; 2026-06-09). NOT ported: upstream's VOD
+  disk-cache (`VodCacheSizeMode`) + DV7-coupled `NetworkSettingsScreen`. Other
+  LoadControl knobs (initial/after-rebuffer/back-buffer/memory budget) deliberately
+  not exposed — no real-world gain for progressive/debrid (2026-06-09 research).
+  Fusion badges now ported (see Stream Badges subsystem above).
 - **Legacy-Android TLS** (added 2026-06-08, upstream port): bundled ISRG root
   certs (`res/raw/isrg_root_x2.pem`, `isrgrootx1.pem`) + `res/xml/network_security_config.xml`
   (referenced from `AndroidManifest`) so old Android TV cert stores can complete
@@ -371,8 +412,9 @@ Six auth-gated, TTL-cached row kinds → real Trakt data → `CatalogRow` of
 - **Subsystems upstream has that our fork does NOT carry** (0 files each — any
   upstream commit depending on them is unpickable without porting the whole
   subsystem): `DolbyVision`/HDR-strip (`core/player/DolbyVision*`, `dvmkv/`,
-  DV7 native libs), `StreamBadge` (`core/streams/StreamBadge*`, `StreamBadgeChips`),
-  `CloudLibrary` (`core/cloud/CloudLibrary*`).
+  DV7 native libs), `CloudLibrary` (`core/cloud/CloudLibrary*`).
+  **`StreamBadge` was ported 2026-06-09** (see Stream Badges subsystem below) —
+  no longer absent.
 - **Locale files diverged across the board** (lint-baseline English defaults +
   already-applied upstream picks) → per-commit i18n cherry-pick is not viable;
   use a wholesale locale-file refresh instead. Fork carries 27 locales; upstream

@@ -22,7 +22,8 @@ data class Stream(
     val sources: List<String>? = null,
     val quality: String? = null,
     val qualityValue: Int = -1,
-    val clientResolve: StreamClientResolve? = null
+    val clientResolve: StreamClientResolve? = null,
+    val badges: List<StreamBadge> = emptyList()
 ) {
     /**
      * Returns the primary stream source URL
@@ -85,6 +86,20 @@ data class Stream(
         }
     }
 }
+
+/**
+ * A visual badge attached to a stream (Fusion Style/Size badges).
+ * Populated from imported badge rules via [com.nuvio.tv.core.streams.StreamBadgePresentation].
+ */
+@Immutable
+data class StreamBadge(
+    val name: String,
+    val imageURL: String = "",
+    val tagColor: String = "",
+    val tagStyle: String = "",
+    val textColor: String = "",
+    val borderColor: String = ""
+)
 
 @Immutable
 data class StreamBehaviorHints(

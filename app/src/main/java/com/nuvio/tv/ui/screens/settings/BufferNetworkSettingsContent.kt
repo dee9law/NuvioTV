@@ -32,6 +32,8 @@ fun BufferNetworkSettingsContent(
     val connectionSteps = (PlayerSettings.MIN_PARALLEL_CONNECTION_COUNT..PlayerSettings.MAX_PARALLEL_CONNECTION_COUNT).toList()
     val chunkSteps = listOf(8, 16, 32, 64, 128)
     val targetSteps = listOf(0, 100, 150, 300, 600)
+    // Max buffer duration target, in seconds (30s–180s, default 50s).
+    val bufferDurationSteps = listOf(30, 50, 90, 120, 150, 180)
 
     fun <T> next(steps: List<T>, current: T): T {
         val i = steps.indexOf(current)
@@ -61,6 +63,14 @@ fun BufferNetworkSettingsContent(
                         value = if (s.bufferSettings.targetBufferSizeMb <= 0) "Auto"
                                 else "${s.bufferSettings.targetBufferSizeMb} MB",
                         onClick = { viewModel.setBufferTargetSizeMb(next(targetSteps, s.bufferSettings.targetBufferSizeMb)) }
+                    )
+                    SettingsActionRow(
+                        title = "Max buffer duration",
+                        subtitle = "How far ahead to buffer. Higher cushions throughput dips (memory cap still applies).",
+                        value = "${s.bufferSettings.maxBufferMs / 1000}s",
+                        onClick = {
+                            viewModel.setBufferDurationMs(next(bufferDurationSteps, s.bufferSettings.maxBufferMs / 1000) * 1000)
+                        }
                     )
                 }
             }

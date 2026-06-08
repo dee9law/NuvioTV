@@ -5,6 +5,9 @@
 
 package com.nuvio.tv.ui.screens.player
 
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.tv.ui.screens.settings.BadgeSettingsViewModel
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -76,6 +79,10 @@ internal fun StreamSourcesSidePanel(
     val chipFocusRequesters = remember(orderedAddonNames.size) {
         List(orderedAddonNames.size + 1) { FocusRequester() }
     }
+
+    // Fusion size-badge visibility (Style badges always render when present).
+    val showFileSizeBadges = hiltViewModel<BadgeSettingsViewModel>()
+        .settings.collectAsStateWithLifecycle().value.showFileSizeBadges
 
     Box(
         modifier = modifier
@@ -243,6 +250,7 @@ internal fun StreamSourcesSidePanel(
                                 focusRequester = streamsFocusRequester,
                                 requestInitialFocus = stream == initialFocusStream,
                                 isCurrentStream = index == currentStreamIndex,
+                                showFileSizeBadges = showFileSizeBadges,
                                 onClick = { onStreamSelected(stream) },
                                 onUpKey = if (index == 0 && chipFocusRequesters.isNotEmpty()) {{
                                     val selected = uiState.sourceSelectedAddonFilter

@@ -230,7 +230,7 @@ data class PlayerSettings(
 
         // Bitrate-aware buffer engine + parallel-range data source defaults.
         const val LARGE_TARGET_BUFFER_MAX_MB = 2048
-        const val DEFAULT_PARALLEL_CONNECTION_COUNT = 2
+        const val DEFAULT_PARALLEL_CONNECTION_COUNT = 3
         const val DEFAULT_PARALLEL_CHUNK_SIZE_MB = 16
         const val MIN_PARALLEL_CONNECTION_COUNT = 2
         const val MAX_PARALLEL_CONNECTION_COUNT = 4
@@ -1136,6 +1136,20 @@ class PlayerSettingsDataStore @Inject constructor(
         store().edit { prefs ->
             val currentMin = prefs[minBufferMsKey] ?: 50_000
             prefs[maxBufferMsKey] = ms.coerceIn(currentMin, 120_000)
+        }
+    }
+
+    /**
+     * Sets the buffer duration target (range 30s–180s). Writes both min and max to the
+     * same value so the loader continuously tops up toward the target — best for banking
+     * ahead on variable-throughput debrid/progressive links. The byte budget
+     * (BitrateAwareLoadControl) still caps high-bitrate content below the time target.
+     */
+    suspend fun setBufferDurationMs(ms: Int) {
+        store().edit { prefs ->
+            val clamped = ms.coerceIn(30_000, 180_000)
+            prefs[minBufferMsKey] = clamped
+            prefs[maxBufferMsKey] = clamped
         }
     }
 

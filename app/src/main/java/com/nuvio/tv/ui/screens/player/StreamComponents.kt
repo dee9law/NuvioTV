@@ -53,6 +53,7 @@ import coil3.request.crossfade
 import androidx.compose.ui.platform.LocalContext
 import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.ui.components.SourceChipItem
+import com.nuvio.tv.ui.components.StreamBadgeChips
 import com.nuvio.tv.ui.components.SourceChipStatus
 import com.nuvio.tv.ui.components.SourceStatusFilterChip
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -66,6 +67,7 @@ internal fun StreamItem(
     focusRequester: FocusRequester,
     requestInitialFocus: Boolean,
     isCurrentStream: Boolean = false,
+    showFileSizeBadges: Boolean = false,
     onClick: () -> Unit,
     onUpKey: (() -> Unit)? = null
 ) {
@@ -160,6 +162,13 @@ internal fun StreamItem(
                         StreamTypeChip(text = stringResource(R.string.stream_type_external), color = NuvioColors.Primary)
                     }
                 }
+
+                // Fusion Style/Size badges (renders nothing unless badges present / size enabled).
+                StreamBadgeChips(
+                    badges = stream.badges,
+                    fileSizeBytes = stream.behaviorHints?.videoSize,
+                    showFileSizeBadge = showFileSizeBadges
+                )
             }
 
             Column(

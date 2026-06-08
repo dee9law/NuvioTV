@@ -37,4 +37,8 @@ class BufferNetworkSettingsViewModel @Inject constructor(
     fun setBufferTargetSizeMb(mb: Int) {
         viewModelScope.launch { playerSettingsDataStore.setBufferTargetSizeMb(mb) }
     }
+
+    fun setBufferDurationMs(ms: Int) {
+        viewModelScope.launch { playerSettingsDataStore.setBufferDurationMs(ms) }
+    }
 }

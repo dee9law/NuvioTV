@@ -5,6 +5,9 @@
 
 package com.nuvio.tv.ui.screens.player
 
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.tv.ui.screens.settings.BadgeSettingsViewModel
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -174,6 +177,10 @@ private fun EpisodeStreamsView(
     onAddonFilterSelected: (String?) -> Unit,
     onStreamSelected: (Stream) -> Unit
 ) {
+    // Fusion size-badge visibility (Style badges always render when present).
+    val showFileSizeBadges = hiltViewModel<BadgeSettingsViewModel>()
+        .settings.collectAsStateWithLifecycle().value.showFileSizeBadges
+
     // Streams for selected episode
     Row(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -263,6 +270,7 @@ private fun EpisodeStreamsView(
                         stream = stream,
                         focusRequester = streamsFocusRequester,
                         requestInitialFocus = stream == uiState.episodeFilteredStreams.firstOrNull(),
+                        showFileSizeBadges = showFileSizeBadges,
                         onClick = { onStreamSelected(stream) }
                     )
                 }

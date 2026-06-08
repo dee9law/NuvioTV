@@ -20,6 +20,7 @@ import coil3.bitmapFactoryMaxParallelism
 
 import okio.Path.Companion.toOkioPath
 import com.nuvio.tv.core.runtime.PluginRuntimeHooks
+import com.nuvio.tv.core.server.StreamBadgeServerManager
 import com.nuvio.tv.core.sync.StartupSyncService
 import com.nuvio.tv.core.sync.androidtv.AndroidTvChannelSyncService
 import dagger.hilt.android.HiltAndroidApp
@@ -35,6 +36,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
 
     @Inject lateinit var startupSyncService: StartupSyncService
     @Inject lateinit var androidTvChannelSyncService: AndroidTvChannelSyncService
+    @Inject lateinit var streamBadgeServerManager: StreamBadgeServerManager
 
     companion object {
         /**
@@ -65,6 +67,9 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         PluginRuntimeHooks.onApplicationCreate(this)
         androidTvChannelSyncService.start()
+        // Fusion badge config "gateway" — bind once for the app's lifetime so the
+        // config URL stays reachable from a phone/PC regardless of which screen is open.
+        streamBadgeServerManager.start()
         registerChannelForegroundTracking()
         // Load locale synchronously so it's available before Activity.attachBaseContext.
         // SharedPreferences reads are fast (cached in memory after first access).
