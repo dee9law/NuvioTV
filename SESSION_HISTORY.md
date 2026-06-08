@@ -2280,5 +2280,25 @@ can wrap it).
 ### Build / deploy
 
 `compileFullDebugKotlin` green after each step. **NOT installed to TV** (reported
-before installing, per instruction). Commits `6ed9ceb2` + `451e7a4f` on `dev`,
-**not pushed**.
+before installing, per instruction). Commits `6ed9ceb2` + `451e7a4f` on `dev`.
+
+### Cherry-pick sweep exhausted (recorded at EOD)
+
+A "take everything not touching our protected files" sweep over
+`0.6.18-beta..0.7.4-beta` (207 of 237 commits passed the protected-file filter)
+was attempted and **yielded 0 cleanly-pickable commits**: 14 already applied,
+54 i18n (all locales diverged), 20 touch absent DV/StreamBadge/CloudLibrary
+infra, and **90 touch diverged-but-unprotected player/stream files**
+(`StreamScreenViewModel`, `PlayerRuntimeController*`, `StreamScreen`,
+`PlayerScreen`) → content conflicts; the few "appliable" survivors were
+junk/absent-dep/modify-delete. **Conclusion: cherry-pick-based upstream sync is
+exhausted for this fork; remaining value (the ~90 player/stream commits) requires
+manual review-then-port.** The buffer engine (Task 1, Part 3) was the first such
+manual port.
+
+### EOD status
+
+Pushed to `origin/dev` (`7adecd73..ab4a440f`): the 3 buffer-engine commits
+(`6ed9ceb2`, `451e7a4f`, `ab4a440f`). The 13 engine likely-clean commits were
+already on `origin/dev`. **Not installed to TV — buffer-engine smoke test
+deferred to next session.**

@@ -96,25 +96,28 @@ adb connect <tv-ip>:5555                  # IP drifts — check `adb devices` fi
   **Immersive** 5th layout — prior sessions, on-device-verified.
 
 ### Upstream sync status (see `PHASE1_PICKLIST.md`)
-- Latest upstream = `0.7.4-beta`. Phase 1 i18n = **not viable** via cherry-pick
-  (all locales diverged → conflicts/malformed XML; needs wholesale locale
-  refresh — the lint-baselined Phase 8 debt).
-- **Next: the 76 conflict-prone engine commits** — dedicated review-then-port
-  session (45 player / 14 stream-debrid / 11 other / 6 dolby-vision).
+- Latest upstream = `0.7.4-beta`. **Cherry-pick-based sync is EXHAUSTED** — a full
+  protected-filter sweep yielded 0 cleanly-pickable commits (already-applied /
+  i18n diverged / absent-infra / diverged player-stream files). Remaining value
+  requires **manual review-then-port**. The buffer engine was the first such port.
+- i18n = not viable via cherry-pick (all locales diverged; needs wholesale locale
+  refresh — lint-baselined Phase 8 debt).
 - **Fork lacks** upstream's `DolbyVision`/HDR-strip, `StreamBadge`, `CloudLibrary`
   subsystems (0 files each) — commits depending on them are unpickable.
 
 ### Open follow-ups (priority order)
-1. **On-device smoke test** of the 13 engine picks (Let's Encrypt TLS, AFR,
-   NuvioDialog CEC, subtitle urlencode, AniSkip).
-2. **The 76 conflict-prone upstream engine commits** — dedicated session.
+1. **Smoke-test the buffer engine on TV** — playback start, seeks, rebuffer
+   behavior (BitrateAwareLoadControl changes buffering on every playback); then
+   toggle parallel download ON for a progressive/debrid stream to verify throughput.
+2. **Fusion Style/Size badges port** (Task 2 — dedicated session): 7 files +
+   `StreamComponents` render wiring + bundled web config server (port-binding).
 3. **Performance + Apple-TV animations** session.
-4. **Modern State-2 hero proportions** — metadata behind TopBar; match Spotlight
-   State B exactly.
-5. **CW data quality** — phantom Up Next on ended/fully-watched shows.
-6. i18n wholesale locale refresh (optional); settings(30)/visual(29)/engine-
-   high-risk(6) sync buckets; 23 older skipped commits; `Watchlist/New Movies`
-   on-screen verify; Classic CW render; SideRail order; misc loop-scroll.
+4. **The ~76 conflict-prone player/stream commits** — manual review-then-port
+   (45 player / 14 stream-debrid / 11 other / 6 dolby-vision).
+5. On-device verify of the 13 engine picks (Let's Encrypt TLS, AFR, NuvioDialog
+   CEC, subtitle urlencode, AniSkip).
+6. Modern State-2 hero proportions; CW data quality (phantom Up Next); i18n
+   wholesale locale refresh; settings(30)/visual(29) sync buckets; misc.
 
 ---
 
