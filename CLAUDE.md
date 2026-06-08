@@ -74,7 +74,16 @@ adb connect <tv-ip>:5555                  # IP drifts — check `adb devices` fi
 
 ## 📌 Current State (as of 2026-06-08)
 
-### Recently shipped (on `origin/dev`, compiled green; ⚠️ engine sync NOT yet on-device)
+### Recently shipped (compiled green; ⚠️ NOT yet on-device)
+- **Custom buffer engine (Task 1, local — NOT pushed)** — ported from upstream
+  `a24c38b4` (DV7-separated): `BitrateAwareLoadControl` (memory-budget byte
+  target, device-heap-tiered, runtime overrides) replaces the flat
+  `DefaultLoadControl` in `PlayerRuntimeControllerInitialization` and activates
+  our previously-dormant `bufferSettings`; `ParallelRangeDataSource` (parallel
+  HTTP range download, **opt-in/default-OFF**, progressive-only) wired via
+  `PlayerMediaSourceFactory`; `MemoryBudget` helper; new **Settings → Playback →
+  Buffer & Network** screen (slimmed; omits VOD-cache/DV7 sections we lack).
+  Badges (Task 2) deferred to a dedicated session.
 - **Upstream sync Phase 1 (engine likely-clean)** — 13 upstream commits
   incorporated: player AFR/24fps-judder fixes, AFR-for-m3u8, subtitle filename
   urlencode, AniSkip `types[]` + skip types, episode-rating dup-key fix, updater

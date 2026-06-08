@@ -2201,3 +2201,84 @@ commits pushed to `origin/dev` (13 code + 2 artifact-doc).
 4. Later phases: settings (30), visual (29), engine-high-risk (6) buckets.
 5. Prior open follow-ups (Modern State-2 proportions, CW data quality, 23
    older skipped commits, etc.) still open.
+
+---
+
+## 📅 Session log — 2026-06-08 (Part 3: custom buffer engine port — Task 1)
+
+### Headline
+
+Ported the **custom playback buffer engine** from upstream `a24c38b4`
+(separated from DV7), wired + green; **Fusion badges (Task 2) deferred** to a
+dedicated session by decision. Two research passes earlier established the
+player/stream/external gaps. **Local commits on `dev`, NOT pushed, NOT installed.**
+
+### Research (earlier this session)
+
+Mapped upstream `0.7.4-beta` player/stream/external gaps: custom buffer engine,
+Fusion Style/Size badges (7 files + web config server), Premiumize/local debrid,
+external-player rewrite — all absent. Confirmed buffer engine is DV7-separable
+(no Dolby imports) and our data source is OkHttp-based (ParallelRangeDataSource
+can wrap it).
+
+### Task 1 — custom buffer engine (commits `6ed9ceb2`, `451e7a4f`)
+
+- **`BitrateAwareLoadControl.kt`** (extracted verbatim) — `DefaultLoadControl`
+  subclass with memory-budget byte target + runtime back-buffer/budget overrides.
+  Wired into `PlayerRuntimeControllerInitialization`, replacing the flat
+  100MB/70s `DefaultLoadControl`; built from our previously-**dormant**
+  `bufferSettings` + `MemoryBudget.budgetMb` (device-heap-tiered). This activates
+  bufferSettings (the data model existed but LoadControl ignored it).
+- **`ParallelRangeDataSource.kt`** (528L, verbatim) + **`MemoryBudget.kt`** added.
+  Parallel HTTP range download wired into `PlayerMediaSourceFactory`'s progressive
+  branch — **opt-in (default OFF)**, never HLS/DASH/forced-default. Needed a
+  concrete `OkHttpDataSource.Factory` → widened
+  `PlayerPlaybackNetworking.createHttpDataSourceFactory` return type.
+- **Data layer:** `PlayerSettings`/`BufferSettings` gained 4 consts
+  (`DEFAULT_TARGET_BUFFER_SIZE_MB`, `LARGE_TARGET_BUFFER_MAX_MB`,
+  `DEFAULT_PARALLEL_CONNECTION_COUNT`, `DEFAULT_PARALLEL_CHUNK_SIZE_MB`) +
+  MIN/MAX coercion consts + 3 fields (`parallelNetworkEnabled`,
+  `parallelConnectionCount`, `parallelChunkSizeMb`) with keys/flow-read/setters.
+- **Settings UI:** new **Settings → Playback → "Buffer & Network"**
+  (`BufferNetworkSettingsContent` + isolated `BufferNetworkSettingsViewModel`,
+  hub id `playback.buffer`) — target buffer size + parallel toggle/connections/
+  chunk. Adapted/slimmed: omits upstream's VOD-cache (`VodCacheSizeMode`) +
+  DV7-coupled `NetworkSettingsScreen`. Additive hub sub-item (2 edits); no
+  existing screen/nav altered. Uses literal strings (no new lint-baseline churn).
+
+### Architectural decisions
+
+- **Adapted, not verbatim, for settings.** Upstream's `PlaybackBufferNetworkSettings`
+  + `NetworkSettingsScreen` are coupled to VOD-cache + DV7 (absent here); built a
+  slim equivalent instead of dragging in those subsystems (per user's "separable
+  from DV7" intent + the option chosen).
+- **Parallel config is instance state on the reused `PlayerMediaSourceFactory`**
+  (set once per build from PlayerSettings) so all media-source (re)creations stay
+  consistent without threading params through 3 call sites.
+- **BitrateAwareLoadControl always-on** (no master gate) — simpler than upstream's
+  gated engine; the byte target is the only behavior change vs the old flat
+  LoadControl, plus durations now come from bufferSettings (50s vs old 70s max).
+
+### New files
+
+- `core/player/BitrateAwareLoadControl.kt`, `ui/screens/player/ParallelRangeDataSource.kt`,
+  `ui/screens/settings/MemoryBudget.kt` (verbatim upstream).
+- `ui/screens/settings/BufferNetworkSettingsViewModel.kt`,
+  `ui/screens/settings/BufferNetworkSettingsContent.kt` (new, fork-authored).
+
+### Pending follow-ups
+
+1. **Task 2 — Fusion Style/Size badges** (dedicated session): 7 files +
+   `StreamComponents` render wiring (diverged) + bundled in-app web config server
+   (port-binding decision).
+2. **On-device smoke test** of the buffer engine: confirm playback works with
+   BitrateAwareLoadControl (buffering health, seeks), and toggle parallel download
+   ON for a progressive/debrid direct stream to verify throughput + no regressions.
+3. Optional: expose more buffer knobs (min/max buffer ms) if wanted; consider a
+   master on/off gate for the engine.
+
+### Build / deploy
+
+`compileFullDebugKotlin` green after each step. **NOT installed to TV** (reported
+before installing, per instruction). Commits `6ed9ceb2` + `451e7a4f` on `dev`,
+**not pushed**.

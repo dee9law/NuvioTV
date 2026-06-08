@@ -343,6 +343,20 @@ Six auth-gated, TTL-cached row kinds → real Trakt data → `CatalogRow` of
   and `Modifier.shadow` respectively.
 - Current test TV IP: `192.168.8.187` (drifts — check `adb devices`).
   Package: `com.nuviodebug.com`. APK: `app-full-armeabi-v7a-debug.apk`.
+- **Custom buffer engine** (added 2026-06-08, upstream `a24c38b4` port, DV7-separated):
+  `core/player/BitrateAwareLoadControl.kt` (DefaultLoadControl subclass with a
+  memory-budget byte target + runtime back-buffer/budget override setters) is built
+  in `PlayerRuntimeControllerInitialization` from `PlayerSettings.bufferSettings` +
+  `MemoryBudget.budgetMb` (replacing the old flat 100MB/70s DefaultLoadControl).
+  `ui/screens/player/ParallelRangeDataSource.kt` (parallel HTTP range downloader,
+  needs a concrete `OkHttpDataSource.Factory`) is wired into the progressive branch
+  of `PlayerMediaSourceFactory` — **opt-in** (`PlayerSettings.parallelNetworkEnabled`,
+  default off), never for HLS/DASH/forced-default. `ui/screens/settings/MemoryBudget.kt`
+  = heap-tiered budget helpers. Settings: **Settings → Playback → "Buffer & Network"**
+  (`BufferNetworkSettingsContent` + isolated `BufferNetworkSettingsViewModel`;
+  hub id `playback.buffer`). NOT yet ported: upstream's VOD disk-cache
+  (`VodCacheSizeMode`) + DV7-coupled `NetworkSettingsScreen`. `BadgeChips`/Fusion
+  badges (Task 2) deferred.
 - **Legacy-Android TLS** (added 2026-06-08, upstream port): bundled ISRG root
   certs (`res/raw/isrg_root_x2.pem`, `isrgrootx1.pem`) + `res/xml/network_security_config.xml`
   (referenced from `AndroidManifest`) so old Android TV cert stores can complete
