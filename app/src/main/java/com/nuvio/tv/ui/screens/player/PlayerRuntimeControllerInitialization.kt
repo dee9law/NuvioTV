@@ -246,7 +246,12 @@ internal fun PlayerRuntimeController.initializePlayer(
                 )
             }
 
-            
+            // Parallel-range download config (opt-in) for the progressive media-source path.
+            mediaSourceFactory.parallelNetworkEnabled = playerSettings.parallelNetworkEnabled
+            mediaSourceFactory.parallelConnectionCount = playerSettings.parallelConnectionCount
+            mediaSourceFactory.parallelChunkSizeMb = playerSettings.parallelChunkSizeMb
+
+
             trackSelector = DefaultTrackSelector(context).apply {
                 setParameters(
                     buildUponParameters()

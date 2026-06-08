@@ -29,6 +29,11 @@ import java.util.concurrent.TimeUnit
 internal class PlayerMediaSourceFactory {
     private var customExtractorsFactory: ExtractorsFactory? = null
     private var customSubtitleParserFactory: SubtitleParser.Factory? = null
+    // Parallel-range download config (opt-in; progressive streams only). Set once per
+    // player build from PlayerSettings; reused across media-source (re)creations.
+    var parallelNetworkEnabled: Boolean = false
+    var parallelConnectionCount: Int = com.nuvio.tv.data.local.PlayerSettings.DEFAULT_PARALLEL_CONNECTION_COUNT
+    var parallelChunkSizeMb: Int = com.nuvio.tv.data.local.PlayerSettings.DEFAULT_PARALLEL_CHUNK_SIZE_MB
     private val playbackHttpClient by lazy {
         val trustAllManager = object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
@@ -99,6 +104,20 @@ internal class PlayerMediaSourceFactory {
         }
         val forceDefaultFactory = customExtractorsFactory != null || customSubtitleParserFactory != null
 
+        // Progressive path: optionally back it with the parallel-range data source
+        // (opt-in; never for HLS/DASH/forced-default, which handle chunking themselves).
+        val progressiveFactory: DefaultMediaSourceFactory =
+            if (parallelNetworkEnabled && !isHls && !isDash && !forceDefaultFactory) {
+                val parallelDataSourceFactory = ParallelRangeDataSource.Factory(
+                    PlayerPlaybackNetworking.createHttpDataSourceFactory(sanitizedHeaders),
+                    parallelConnectionCount,
+                    parallelChunkSizeMb.toLong() * 1024L * 1024L
+                )
+                DefaultMediaSourceFactory(parallelDataSourceFactory, extractorsFactory)
+            } else {
+                defaultFactory
+            }
+
         // Sidecar subtitles are more reliable through DefaultMediaSourceFactory.
         if (subtitleConfigurations.isNotEmpty()) {
             return wrapAudioDelay(
@@ -113,7 +132,7 @@ internal class PlayerMediaSourceFactory {
                 .createMediaSource(mediaItem)
             isDash && !forceDefaultFactory -> DashMediaSource.Factory(httpDataSourceFactory)
                 .createMediaSource(mediaItem)
-            else -> defaultFactory.createMediaSource(mediaItem)
+            else -> progressiveFactory.createMediaSource(mediaItem)
         }
         return wrapAudioDelay(mediaSource = mediaSource, audioDelayUsProvider = audioDelayUsProvider)
     }

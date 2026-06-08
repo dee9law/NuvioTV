@@ -582,6 +582,7 @@ private fun SubItemContent(
         "accounts.profiles" -> ProfileSettingsContent(onManageProfiles = onNavigateToManageProfiles)
         // Playback
         "playback.main" -> PlaybackSettingsContent()
+        "playback.buffer" -> BufferNetworkSettingsContent()
         // Advanced
         "advanced.network" -> AdvancedSettingsContent()
         "advanced.about" -> AboutSettingsContent(
@@ -721,6 +722,7 @@ private fun settingsCategories(): List<HubCategory> = listOf(
         icon = Icons.Default.PlayArrow,
         subItems = listOf(
             HubSubItem.Content("playback.main", "Playback"),
+            HubSubItem.Content("playback.buffer", "Buffer & Network"),
         ),
     ),
     HubCategory(

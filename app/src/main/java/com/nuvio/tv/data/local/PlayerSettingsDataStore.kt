@@ -177,6 +177,10 @@ data class PlayerSettings(
     val libassRenderType: LibassRenderType = LibassRenderType.OVERLAY_OPEN_GL,
     val subtitleStyle: SubtitleStyleSettings = SubtitleStyleSettings(),
     val bufferSettings: BufferSettings = BufferSettings(),
+    // Parallel-range network download (opt-in; progressive streams only)
+    val parallelNetworkEnabled: Boolean = false,
+    val parallelConnectionCount: Int = DEFAULT_PARALLEL_CONNECTION_COUNT,
+    val parallelChunkSizeMb: Int = DEFAULT_PARALLEL_CHUNK_SIZE_MB,
     // Audio settings
     val decoderPriority: Int = 1, // EXTENSION_RENDERER_MODE_ON (0=off, 1=on, 2=prefer)
     val tunnelingEnabled: Boolean = false,
@@ -228,6 +232,10 @@ data class PlayerSettings(
         const val LARGE_TARGET_BUFFER_MAX_MB = 2048
         const val DEFAULT_PARALLEL_CONNECTION_COUNT = 2
         const val DEFAULT_PARALLEL_CHUNK_SIZE_MB = 16
+        const val MIN_PARALLEL_CONNECTION_COUNT = 2
+        const val MAX_PARALLEL_CONNECTION_COUNT = 4
+        const val MIN_PARALLEL_CHUNK_SIZE_MB = 8
+        const val MAX_PARALLEL_CHUNK_SIZE_MB = 128
 
         const val STREAM_AUTOPLAY_TIMEOUT_UNLIMITED = Int.MAX_VALUE
 
@@ -426,6 +434,11 @@ class PlayerSettingsDataStore @Inject constructor(
     private val backBufferDurationMsKey = intPreferencesKey("back_buffer_duration_ms")
     private val retainBackBufferFromKeyframeKey = booleanPreferencesKey("retain_back_buffer_from_keyframe")
 
+    // Parallel-range network download keys
+    private val parallelNetworkEnabledKey = booleanPreferencesKey("parallel_network_enabled")
+    private val parallelConnectionCountKey = intPreferencesKey("parallel_connection_count")
+    private val parallelChunkSizeMbKey = intPreferencesKey("parallel_chunk_size_mb")
+
     private val migrationLoadControlDefaultsAlignedDoneKey = booleanPreferencesKey("migration_load_control_defaults_aligned_done")
 
     init {
@@ -617,7 +630,12 @@ class PlayerSettingsDataStore @Inject constructor(
                     targetBufferSizeMb = prefs[targetBufferSizeMbKey] ?: 0,
                     backBufferDurationMs = prefs[backBufferDurationMsKey] ?: 0,
                     retainBackBufferFromKeyframe = prefs[retainBackBufferFromKeyframeKey] ?: false
-                )
+                ),
+                parallelNetworkEnabled = prefs[parallelNetworkEnabledKey] ?: false,
+                parallelConnectionCount = (prefs[parallelConnectionCountKey] ?: PlayerSettings.DEFAULT_PARALLEL_CONNECTION_COUNT)
+                    .coerceIn(PlayerSettings.MIN_PARALLEL_CONNECTION_COUNT, PlayerSettings.MAX_PARALLEL_CONNECTION_COUNT),
+                parallelChunkSizeMb = (prefs[parallelChunkSizeMbKey] ?: PlayerSettings.DEFAULT_PARALLEL_CHUNK_SIZE_MB)
+                    .coerceIn(PlayerSettings.MIN_PARALLEL_CHUNK_SIZE_MB, PlayerSettings.MAX_PARALLEL_CHUNK_SIZE_MB)
             )
         }
     }
@@ -1148,6 +1166,30 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setBufferRetainBackBufferFromKeyframe(retain: Boolean) {
         store().edit { prefs ->
             prefs[retainBackBufferFromKeyframeKey] = retain
+        }
+    }
+
+    suspend fun setParallelNetworkEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[parallelNetworkEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setParallelConnectionCount(count: Int) {
+        store().edit { prefs ->
+            prefs[parallelConnectionCountKey] = count.coerceIn(
+                PlayerSettings.MIN_PARALLEL_CONNECTION_COUNT,
+                PlayerSettings.MAX_PARALLEL_CONNECTION_COUNT
+            )
+        }
+    }
+
+    suspend fun setParallelChunkSizeMb(mb: Int) {
+        store().edit { prefs ->
+            prefs[parallelChunkSizeMbKey] = mb.coerceIn(
+                PlayerSettings.MIN_PARALLEL_CHUNK_SIZE_MB,
+                PlayerSettings.MAX_PARALLEL_CHUNK_SIZE_MB
+            )
         }
     }
 }

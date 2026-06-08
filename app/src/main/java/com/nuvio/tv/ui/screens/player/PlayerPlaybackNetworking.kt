@@ -49,7 +49,7 @@ internal object PlayerPlaybackNetworking {
     }
 
     @OptIn(UnstableApi::class)
-    fun createHttpDataSourceFactory(defaultHeaders: Map<String, String> = emptyMap()): DataSource.Factory {
+    fun createHttpDataSourceFactory(defaultHeaders: Map<String, String> = emptyMap()): OkHttpDataSource.Factory {
         val client = if (defaultHeaders.any { it.key.equals("Authorization", ignoreCase = true) }) {
             // OkHttp strips the Authorization header on cross-host redirects.
             // WebDAV servers behind reverse proxies commonly redirect to a
