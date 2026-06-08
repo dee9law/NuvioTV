@@ -150,7 +150,12 @@ data class BufferSettings(
     val targetBufferSizeMb: Int = 0, // 0 = ExoPlayer default
     val backBufferDurationMs: Int = 0,
     val retainBackBufferFromKeyframe: Boolean = false
-)
+) {
+    companion object {
+        // Default memory-budget target for the bitrate-aware buffer engine (MB).
+        const val DEFAULT_TARGET_BUFFER_SIZE_MB: Int = 150
+    }
+}
 
 /**
  * Available audio language options
@@ -218,6 +223,11 @@ data class PlayerSettings(
         const val DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD = 3
         const val MIN_STILL_WATCHING_EPISODE_THRESHOLD = 2
         const val MAX_STILL_WATCHING_EPISODE_THRESHOLD = 6
+
+        // Bitrate-aware buffer engine + parallel-range data source defaults.
+        const val LARGE_TARGET_BUFFER_MAX_MB = 2048
+        const val DEFAULT_PARALLEL_CONNECTION_COUNT = 2
+        const val DEFAULT_PARALLEL_CHUNK_SIZE_MB = 16
 
         const val STREAM_AUTOPLAY_TIMEOUT_UNLIMITED = Int.MAX_VALUE
 

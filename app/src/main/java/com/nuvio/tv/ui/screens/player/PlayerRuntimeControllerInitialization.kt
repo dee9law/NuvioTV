@@ -18,6 +18,8 @@ import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import com.nuvio.tv.core.player.BitrateAwareLoadControl
+import com.nuvio.tv.ui.screens.settings.MemoryBudget
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
@@ -227,15 +229,21 @@ internal fun PlayerRuntimeController.initializePlayer(
                 )
             }
             val loadControl = run {
-                DefaultLoadControl.Builder()
-                    .setTargetBufferBytes(100 * 1024 * 1024)
-                    .setBufferDurationsMs(
-                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-                        70_000,
-                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                        5_000
-                    )
-                    .build()
+                val bs = playerSettings.bufferSettings
+                // Memory-budget-aware byte target (device-heap-tiered) instead of a flat 100MB.
+                val budgetBytes = MemoryBudget.budgetMb.toLong() * 1024L * 1024L
+                BitrateAwareLoadControl(
+                    minBufferMs = bs.minBufferMs,
+                    maxBufferMs = bs.maxBufferMs,
+                    bufferForPlaybackMs = bs.bufferForPlaybackMs,
+                    bufferForPlaybackAfterRebufferMs = bs.bufferForPlaybackAfterRebufferMs,
+                    prioritizeTimeOverSizeThresholds = false,
+                    backBufferDurationMs = bs.backBufferDurationMs,
+                    // Retain back to the keyframe so a backward seek within the buffer
+                    // doesn't have to re-fetch.
+                    retainBackBufferFromKeyframe = true,
+                    budgetBytes = budgetBytes
+                )
             }
 
             
