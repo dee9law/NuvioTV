@@ -123,7 +123,10 @@ fun ModernHomeContent(
     resetRowFocusTrigger: Int = 0,
     focusHeroTrigger: Int = 0,
     onRequestLazyCatalogLoad: (String) -> Unit = {},
-    onRowItemFocusedCallback: (String, Int, Boolean) -> Unit = { _, _, _ -> }
+    onRowItemFocusedCallback: (String, Int, Boolean) -> Unit = { _, _, _ -> },
+    // Reports the live focused-row index to the shared focusState so the TopBar
+    // immersion effect (HomeScreen) can hide/show on scroll, same as Classic.
+    onFocusedRowIndexChanged: (Int) -> Unit = {}
 ) {
     val onRowItemFocusedPassedDown = rememberUpdatedState(onRowItemFocusedCallback)
     val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
@@ -574,6 +577,19 @@ fun ModernHomeContent(
                 focusedItemIndex
             )
         }
+    }
+
+    // Feed the live focused-row index into the shared focusState so the TopBar
+    // immersion effect hides on scroll. activeRowKey tracks the focused row live
+    // (set by onActiveRowKeyChangeLambda); map it to the same global row index
+    // Modern uses for save/restore. -1 (no active row) reads as "top" → visible.
+    val latestOnFocusedRowIndexChanged = rememberUpdatedState(onFocusedRowIndexChanged)
+    LaunchedEffect(Unit) {
+        snapshotFlow { activeRowKey.value }
+            .collect { key ->
+                val idx = key?.let { latestRowIndexByKey.value.map[it] } ?: -1
+                latestOnFocusedRowIndexChanged.value(idx)
+            }
     }
 
     val portraitBaseWidth = uiState.posterCardWidthDp.dp

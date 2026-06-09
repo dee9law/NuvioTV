@@ -44,10 +44,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusTarget
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -96,8 +101,6 @@ fun SettingsHubScreen(
     onNavigateToTrakt: () -> Unit,
     onNavigateToCollections: () -> Unit,
 ) {
-    BackHandler { onBack() }
-
     val categories = remember { settingsCategories() }
     // Single-expand accordion: at most one category open at a time. Tapping
     // a different category collapses the previous one. Tapping the same
@@ -106,6 +109,31 @@ fun SettingsHubScreen(
     var selectedContentSubId by remember { mutableStateOf("") }
 
     val backFocusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    // Two-portal navigation: focus is either in the left rail or the right pane.
+    // The panes never cross via D-pad (LEFT is trapped in the right pane); Select
+    // moves into the pane, BACK moves back out to the rail.
+    var contentHasFocus by remember { mutableStateOf(false) }
+    // Bumped whenever a left-rail Content item is selected, to pull focus right.
+    var enterRightPaneToken by remember { mutableStateOf(0) }
+
+    // BACK from the right pane returns to the left rail; BACK from the left rail
+    // exits Settings.
+    BackHandler {
+        if (contentHasFocus) {
+            runCatching { backFocusRequester.requestFocus() }
+        } else {
+            onBack()
+        }
+    }
+
+    // Select on a left item pulls focus into the right pane (portal model).
+    LaunchedEffect(enterRightPaneToken) {
+        if (enterRightPaneToken == 0) return@LaunchedEffect
+        withFrameNanos { }
+        withFrameNanos { }
+        focusManager.moveFocus(FocusDirection.Right)
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -125,6 +153,8 @@ fun SettingsHubScreen(
                     // back later with a collapsed rail.
                     expandedCategoryId = catId
                     selectedContentSubId = subId
+                    // Pull focus into the right pane (portal model).
+                    enterRightPaneToken++
                 },
                 onNavAction = { action ->
                     when (action) {
@@ -139,6 +169,7 @@ fun SettingsHubScreen(
             VerticalDivider()
             RightPane(
                 contentSubId = selectedContentSubId,
+                onContentFocusChanged = { contentHasFocus = it },
                 onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
                 onNavigateToManageProfiles = onNavigateToManageProfiles,
                 onNavigateToSupportersContributors = onNavigateToSupportersContributors,
@@ -514,9 +545,11 @@ private fun VerticalDivider() {
 
 // ── Right pane (pure content) ───────────────────────────────────────────────
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 private fun RightPane(
     contentSubId: String,
+    onContentFocusChanged: (Boolean) -> Unit,
     onNavigateToAuthQrSignIn: () -> Unit,
     onNavigateToManageProfiles: () -> Unit,
     onNavigateToSupportersContributors: () -> Unit,
@@ -525,9 +558,28 @@ private fun RightPane(
     // Open canvas — content renders directly on the background (no card /
     // border / surface). Medium-tight padding so it owns the full pane without
     // feeling boxed in or cramped.
+    //
+    // The pane is its own focus group. D-pad LEFT that would exit the pane is
+    // cancelled so focus never crosses back into the left rail — the rail is
+    // reached only via BACK (handled in SettingsHubScreen). Internal LEFT
+    // (chips, sliders) still works because only group EXITS are cancelled.
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onFocusChanged { onContentFocusChanged(it.hasFocus) }
+            // Make the pane a focus group (canFocus=false + focusTarget, same as
+            // focusGroup()) AND cancel focus EXITS that move LEFT out of it — both
+            // on the same focus node so the exit handler governs the group. Internal
+            // LEFT (chips) is not a group exit, so it still works; the left rail is
+            // reached only via BACK.
+            .focusProperties {
+                canFocus = false
+                exit = { direction ->
+                    if (direction == FocusDirection.Left) FocusRequester.Cancel
+                    else FocusRequester.Default
+                }
+            }
+            .focusTarget()
             .padding(horizontal = RightPaneHorizontalPadding, vertical = RightPaneVerticalPadding),
     ) {
         if (contentSubId.isBlank()) {

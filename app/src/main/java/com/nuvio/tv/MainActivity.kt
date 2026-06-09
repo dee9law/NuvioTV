@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import coil3.request.crossfade
 import coil3.request.transformations
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -959,6 +960,17 @@ private fun TopNavBarScaffold(
                     modifier = Modifier
                         .alpha(topBarAlpha)
                         .fillMaxWidth()
+                        // FIX 4: the bar is hidden via alpha (still laid out and
+                        // focusable), so when Back/Up from deep rows returns focus
+                        // to the TopBar it can land here while invisible. Force it
+                        // visible the moment it (or any child pill) gains focus so
+                        // the user is never focused on an invisible bar.
+                        .onFocusChanged { focusState ->
+                            if (focusState.hasFocus) {
+                                com.nuvio.tv.ui.components.TopBarImmersionState
+                                    .setVisible(true)
+                            }
+                        }
                         // Measure the actual rendered bar height and push
                         // it into TopBarImmersionState so hero text can
                         // inset itself dynamically (Task 1).

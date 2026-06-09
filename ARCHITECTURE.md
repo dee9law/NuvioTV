@@ -144,6 +144,32 @@ Management (`FolderPillsDropdown`) moved to:
 TopBar channel-pill redesign (2026-05-30/31): capsule → artwork-backed dynamic
 underline; `NavBarHeight` 54dp, avatar 26dp, uniform 48×24 logos, edge-to-edge.
 
+### TopBar pill indicator (rebuilt 2026-06-09)
+Both category and channel pills render as `Box { Column { topDash; Card{content} } }`
+— **no capsule** background or focus border on any state (edit-mode reorder cues
+kept). Selection/focus shown by a **TOP dash + downward glow** (`Modifier.dashDownGlow`,
+glow drawn in +Y below the dash) + a dash-width **dark contrast gradient**
+(`Modifier.pillContrastGradient(active, dashWidth)` — vertical gradient sized to the
+dash, NOT the pill/bar). Dash width tracks the measured content width.
+- **Category pills** (Home/For You/Movies/TV Shows/Collections): 3-state colour —
+  **selected → accent** (`NuvioColors.Secondary`), **focused-not-selected → gray**
+  (`TextSecondary`), idle → none. Selected **wins** over focused (active pill stays
+  accent even while focused). Icon + dash + text all share the state colour.
+- **Channel pills**: dash + glow use the channel's **brand colour**
+  (`rememberArtworkBackedGlowColor`, logo-sampled, `channel.brandColor` fallback) when
+  selected/focused — **never** accent/gray. Caption white@0.65 idle → white active.
+  Text-only channels (no logo) centre the name in a 24dp box to align with logo pills.
+- Layout insets (Modern feel): leading `6dp` (avatar near left edge), trailing `0dp`
+  (channels edge-to-edge right), bar content **top-aligned** with `2dp` top pad (bar
+  bg is transparent so the visible bar = the pills), category↔channel divider `8dp`
+  each side.
+- **Immersion / hide-on-scroll:** `TopBarImmersionState.visible` drives a 300/400ms
+  alpha fade. `HomeScreen` sets visible from `focusedRowIndex <= 1` when a hero is on
+  screen (else always visible). Modern feeds `focusedRowIndex` live via
+  `ModernHomeContent` `snapshotFlow{activeRowKey}` → `viewModel.updateFocusedRowIndex`.
+  The TopBar Box has `onFocusChanged{ hasFocus → setVisible(true) }` so Back/Up from
+  deep rows always re-shows the (alpha-hidden but still focusable) bar.
+
 ---
 
 ## 🏠 Home layouts

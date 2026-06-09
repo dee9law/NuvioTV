@@ -523,16 +523,12 @@ private fun RowsManagerContent(
                             viewModel.removeRow(row.id)
                         },
                         removeFocusRequester = removeFocusRequesters.getOrPut(index) { FocusRequester() },
-                        // Vertical loop wrap via each edge row's orientation chip.
-                        onWrapPrev = if (index == 0) {
-                            {
-                                rowsScope.launch {
-                                    rowsListState.scrollToItem(lastRowIndex)
-                                    withFrameNanos { }
-                                    runCatching { lastRowFr.requestFocus() }
-                                }
-                            }
-                        } else null,
+                        // First row UP escapes upward to the controls above the
+                        // table (column header → source pills → scope tabs)
+                        // instead of looping to the last row. null = no UP
+                        // interception, so default focus search moves up out of
+                        // the table.
+                        onWrapPrev = null,
                         onWrapNext = if (index == lastRowIndex) {
                             {
                                 rowsScope.launch {

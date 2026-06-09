@@ -856,6 +856,19 @@ open class BaseHomeViewModel(
     }
 
     /**
+     * Updates only the currently focused row index, live. The Modern layout feeds
+     * this as the user scrolls so the shared [focusState] (and the TopBar immersion
+     * effect in HomeScreen that reads focusedRowIndex) tracks scrolling the same way
+     * Classic does. Deliberately does NOT set hasSavedFocus, so it never triggers
+     * focus restoration.
+     */
+    fun updateFocusedRowIndex(index: Int) {
+        _focusState.update { state ->
+            if (state.focusedRowIndex == index) state else state.copy(focusedRowIndex = index)
+        }
+    }
+
+    /**
      * Clears the saved focus state.
      */
     fun clearFocusState() {

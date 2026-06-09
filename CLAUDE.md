@@ -75,6 +75,17 @@ adb connect <tv-ip>:5555                  # IP drifts — check `adb devices` fi
 ## 📌 Current State (as of 2026-06-09)
 
 ### Recently shipped
+- **TopBar pill redesign + nav fixes — ON-DEVICE VERIFIED (2026-06-09).** Two blocks
+  of TopBar/nav polish (`TopNavigationBar.kt`, `MainActivity.kt`, `HomeScreen.kt`,
+  `HomeViewModel.kt`, `ModernHomeContent.kt`, plus earlier-block Rows Manager D-pad
+  trap + Settings pane-nav fixes in `NewLayoutSettingsScreen.kt`/`SettingsHubScreen.kt`).
+  New pill indicator: **no capsule**; **TOP dash + downward glow** + **dash-width dark
+  contrast gradient**. Category pills 3-state (selected→accent **wins over** focused→gray);
+  channel pills keep **brand colour** (never accent/gray). Modern TopBar hides on
+  scroll past row 1 and **re-shows on Back/focus** (alpha-hidden but focusable + live
+  `focusedRowIndex`). Layout: avatar near left edge (6dp), channels edge-to-edge right,
+  2dp top pad, tighter divider, text-only channel names vertically centred. See
+  `ARCHITECTURE.md` → TopBar pill indicator.
 - **Custom buffer engine — ON-DEVICE VERIFIED (2026-06-09).** Smoke test on Jawwy
   TV passed clean: playback, ~50s forward buffer, seeks re-buffer/recover, Buffer
   & Network screen, and `ParallelRangeDataSource` engaging on a Torbox progressive
@@ -112,6 +123,21 @@ adb connect <tv-ip>:5555                  # IP drifts — check `adb devices` fi
   2026-06-09.)
 
 ### Open follow-ups (priority order)
+0. **Next-session queue (from 2026-06-09 EOD) — TopBar/nav polish:**
+   1. **Immersive view** — first catalog card shows metadata but **no image**.
+   2. **GLOBAL ROW NAVIGATION** — every row on **every** screen + layout must be a
+      **closed horizontal container**: D-pad Left at first item → stops (no-op);
+      D-pad Right at last item → stops (no-op); **no** jumping to TopBar, **no**
+      wrapping, **no** spilling into other rows. Applies to ALL rows on ALL screens
+      (Home, For You, Movies, TV Shows, Collections) and ALL layouts (Classic,
+      Modern, Immersive, Spotlight, Grid). ⚠️ contradicts current TopBar loop-wrap
+      (`ARCHITECTURE.md` "Loop scrolling scope") — scope/confirm before coding.
+   3. **Category↔channel separator** is pushed to the **top** — vertically centre it
+      (the divider `Row` is `CenterVertically` but the parent bar is now `Top`-aligned
+      with a 2dp pad; the `NavDivider` needs its own vertical centring within bar height).
+   4. **Category pill selected state** — icon takes accent (good) but the **dash should
+      NOT be accent**; keep it neutral/subtle. Icon = primary selection signal, dash =
+      secondary. (Reverts part of the 2026-06-09 dash-colour work for category pills.)
 1. **Optional badge polish** — import a real badge JSON URL and visually confirm
    Style chips render on stream rows (only crash/wiring verified so far, no rules
    imported); optionally wire badge **placement** (TOP) + player-side badge paths

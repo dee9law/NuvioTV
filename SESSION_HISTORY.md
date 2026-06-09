@@ -2393,3 +2393,81 @@ this device — deliberately **not** exposed. The device-heap-tiered byte budget
 
 `compileFullDebugKotlin` + full `assembleFullDebug` (Hilt + lint-vital + APK)
 green throughout. Installed + exercised on TV. No FATAL/ANR/DI errors.
+
+---
+
+## 📅 Session log — 2026-06-09 (TopBar pill indicator rebuild + nav fixes)
+
+Long UI-polish cycle on the Modern TopBar plus two earlier-block navigation
+bug fixes. All on-device verified on Jawwy TV (`com.nuviodebug.com`). Files:
+`ui/components/TopNavigationBar.kt` (bulk), `MainActivity.kt`,
+`ui/screens/home/HomeScreen.kt`, `HomeViewModel.kt`, `ModernHomeContent.kt`,
+`ui/screens/settings/NewLayoutSettingsScreen.kt`, `SettingsHubScreen.kt`.
+
+### Earlier-block nav fixes (bundled in this push)
+- **TopBar hide-rule correctness** — immersion (`TopBarImmersionState.visible`)
+  now keyed off whether a hero is on screen: `heroSectionEnabled || SPOTLIGHT` →
+  hide when `focusedRowIndex >= 2` (visible at `<= 1`); no hero → always visible.
+  Tuned hero-on threshold `<= 0` → `<= 1` so rows 0–1 keep the bar.
+- **Modern hide-on-scroll** — Modern only persisted `focusedRowIndex` on dispose,
+  so immersion never fired while scrolling. Added
+  `BaseHomeViewModel.updateFocusedRowIndex(index)` and wired `ModernHomeContent`
+  `snapshotFlow { activeRowKey } → rowIndexByKey → updateFocusedRowIndex` so the
+  index updates live. Verified: Modern hides TopBar at row 2.
+- **Rows Manager D-pad UP trap** — `NewLayoutSettingsScreen` `onWrapPrev = null`
+  so UP from the first row no longer wraps/escapes unexpectedly.
+- **Settings left/right pane portal nav** — `SettingsHubScreen`: Select-enter via
+  `moveFocus(Right)`; LEFT-trap via `focusProperties { canFocus = false; exit =
+  { Left → Cancel } }.focusTarget()` (canFocus + exit on the SAME node before
+  focusTarget — the textbook focus-group-exit setup; two earlier attempts with
+  the props on separate nodes leaked focus to the rail); BACK returns to rail.
+
+### TopBar pill indicator — full rebuild (the headline)
+Replaced the bottom-underline + capsule design with a TOP dash + downward glow,
+no capsule, and a dash-width contrast gradient. Both category and channel pills
+now render as `Box { Column { topDash; Spacer; Card{content} } }`.
+- **New modifiers:** `Modifier.dashDownGlow(color, active)` (rect glow drawn in
+  +Y *below* the dash, fading ~9dp — no layout height added) and
+  `Modifier.pillContrastGradient(active, dashWidth)` (vertical dark gradient sized
+  strictly to the dash width, centred, behind content — not the pill/bar width).
+- **Capsule removed** — category `Card` `containerColor`/`focusedContainerColor`
+  → Transparent, `focusedBorder` → None (kept the edit-mode static border and the
+  `isGrabbed` accent border for reorder).
+- **Category 3-state colour:** `when { isSelected → accent; isFocused → gray; else
+  → none }` — **selected wins over focused** (active pill stays accent/orange even
+  while focused). Icon + dash + text share the colour.
+- **Channel pills keep brand colour** — dash + glow use
+  `rememberArtworkBackedGlowColor` (logo-sampled, `channel.brandColor` fallback)
+  when active; **never** accent or gray. Caption white@0.65 idle → white active.
+- **Text-only channel pills** centre the name in a 24dp `Box` (matching the logo
+  box) so a logo-less channel's name aligns vertically with logo pills (LazyRow
+  defaults to `Alignment.Top`, which had pinned the text to the top).
+- **Layout insets (Modern):** leading `16dp → 6dp` (avatar near left edge),
+  trailing `16dp → 0dp` (channels edge-to-edge right), bar `verticalAlignment`
+  `CenterVertically → Top` + `2dp` top pad (bar bg is transparent → the visible
+  bar IS the pills; this kills the large centred top gap), category↔channel
+  divider spacers `16dp → 8dp` each side.
+
+### FIX 4 — TopBar stays hidden after Back (Modern)
+Root cause: the bar is hidden via `alpha`, so it's still laid out and focusable;
+Back/Up from deep rows could land focus on the invisible bar. Fix: TopBar `Box`
+in `MainActivity` gets `onFocusChanged { if (hasFocus) setVisible(true) }` —
+focus returning to the bar always re-shows it. Verified on device.
+
+### Verification
+Two compile-green + install-green cycles; every fix screenshotted on the Jawwy
+TV via `adb screencap` + `ffmpeg` crop/zoom (HW-surface white-out doesn't affect
+the Compose TopBar). Confirmed: orange selected dash, gray focused dash, brand-red
+NETFLIX dash, dash-width gradient, flush top, edge-to-edge channels, avatar near
+left edge, centred text-only names, Back re-shows the bar.
+
+### Pending follow-ups queued for next session (see CLAUDE.md follow-up #0)
+1. Immersive view — first catalog card shows metadata but no image.
+2. **Global row navigation** — make every row on every screen/layout a closed
+   horizontal container (Left at first / Right at last = no-op; no TopBar jump,
+   no wrap, no row spill). ⚠️ conflicts with current TopBar loop-wrap — scope first.
+3. Category↔channel separator pushed to top → vertically centre it (parent bar is
+   now Top-aligned; `NavDivider` needs its own centring within bar height).
+4. Category pill selected dash should be neutral/subtle, NOT accent — icon is the
+   primary selection signal, dash secondary. (Partial revert of this session's
+   category dash colour.)

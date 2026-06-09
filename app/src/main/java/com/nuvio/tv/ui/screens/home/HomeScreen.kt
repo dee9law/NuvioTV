@@ -132,9 +132,25 @@ fun HomeScreen(
     // The fade is gradual (600ms tween) and driven by MainActivity, which
     // owns the TopBar overlay.
     val focusStateForImmersion by viewModel.focusState.collectAsStateWithLifecycle()
-    LaunchedEffect(focusStateForImmersion.focusedRowIndex) {
-        val onHeroOrTop = focusStateForImmersion.focusedRowIndex <= 0
-        com.nuvio.tv.ui.components.TopBarImmersionState.setVisible(onHeroOrTop)
+    // The TopBar may only hide (immersion mode) when a hero is actually on screen.
+    // A hero is present when heroSectionEnabled is true, OR for the SPOTLIGHT layout
+    // which always renders a hero regardless of the toggle. On hero-off screens
+    // (For You, and Movies/TV Shows/Collections with the hero disabled) the TopBar
+    // must stay fully visible — re-keyed on heroSectionEnabled/homeLayout so it
+    // resets to visible the moment such a screen lands (e.g. back from Settings).
+    LaunchedEffect(
+        focusStateForImmersion.focusedRowIndex,
+        uiState.heroSectionEnabled,
+        uiState.homeLayout
+    ) {
+        val heroOnScreen =
+            uiState.heroSectionEnabled || uiState.homeLayout == HomeLayout.SPOTLIGHT
+        if (heroOnScreen) {
+            val onHeroOrTop = focusStateForImmersion.focusedRowIndex <= 1
+            com.nuvio.tv.ui.components.TopBarImmersionState.setVisible(onHeroOrTop)
+        } else {
+            com.nuvio.tv.ui.components.TopBarImmersionState.setVisible(true)
+        }
     }
     androidx.compose.runtime.DisposableEffect(Unit) {
         onDispose {
@@ -807,6 +823,9 @@ private fun ModernHomeRoute(
         onSaveFocusState = saveModernFocusState,
         onRequestLazyCatalogLoad = remember(viewModel) {
             { catalogKey: String -> viewModel.requestLazyCatalogLoad(catalogKey) }
+        },
+        onFocusedRowIndexChanged = remember(viewModel) {
+            { index: Int -> viewModel.updateFocusedRowIndex(index) }
         }
     )
 }
