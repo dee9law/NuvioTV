@@ -40,6 +40,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.ui.navigation.tvLeftFromFirstItemToSideRail
+import com.nuvio.tv.ui.navigation.tvStopRightAtLastItem
 import androidx.compose.ui.text.style.TextOverflow
 import com.nuvio.tv.R
 import androidx.compose.ui.unit.Dp
@@ -281,6 +283,18 @@ fun ContinueWatchingSection(
                             if (firstItemFocusRequester != null && index == 0) {
                                 Modifier.focusRequester(firstItemFocusRequester)
                             } else Modifier
+                        )
+                        // Closed-row edges: Left at the first card opens the
+                        // SideRail (Legacy) / hard-stops (Modern); Right at the
+                        // last card hard-stops.
+                        .then(
+                            when {
+                                index == 0 && index == items.lastIndex ->
+                                    Modifier.tvLeftFromFirstItemToSideRail().tvStopRightAtLastItem()
+                                index == 0 -> Modifier.tvLeftFromFirstItemToSideRail()
+                                index == items.lastIndex -> Modifier.tvStopRightAtLastItem()
+                                else -> Modifier
+                            }
                         )
                         .then(focusModifier)
                 )

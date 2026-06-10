@@ -1153,6 +1153,9 @@ fun NuvioNavHost(
                 onNavigateToAddons = { navController.navigate(Screen.AddonManager.route) },
                 onNavigateToTrakt = { navController.navigate(Screen.Trakt.route) },
                 onNavigateToCollections = { navController.navigate(Screen.Collections.route) },
+                onNavigateToCollectionEditor = { collectionId ->
+                    navController.navigate(Screen.CollectionEditor.createRoute(collectionId))
+                },
             )
         }
 

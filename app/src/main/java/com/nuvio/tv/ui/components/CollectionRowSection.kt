@@ -65,6 +65,8 @@ import coil3.compose.AsyncImage
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.CollectionFolder
 import com.nuvio.tv.domain.model.PosterShape
+import com.nuvio.tv.ui.navigation.tvLeftFromFirstItemToSideRail
+import com.nuvio.tv.ui.navigation.tvStopRightAtLastItem
 import com.nuvio.tv.ui.theme.NuvioColors
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -209,7 +211,19 @@ fun CollectionRowSection(
                                 currentOnFolderFocused(collection, folder)
                             }
                         },
-                        modifier = if (isEntryTarget) Modifier.focusRequester(entryFocusRequester!!) else Modifier,
+                        modifier = (if (isEntryTarget) Modifier.focusRequester(entryFocusRequester!!) else Modifier)
+                            // Closed-row edges: Left at the first folder opens
+                            // the SideRail (Legacy) / hard-stops (Modern);
+                            // Right at the last folder hard-stops.
+                            .then(
+                                when {
+                                    index == 0 && index == collection.folders.lastIndex ->
+                                        Modifier.tvLeftFromFirstItemToSideRail().tvStopRightAtLastItem()
+                                    index == 0 -> Modifier.tvLeftFromFirstItemToSideRail()
+                                    index == collection.folders.lastIndex -> Modifier.tvStopRightAtLastItem()
+                                    else -> Modifier
+                                }
+                            ),
                         focusRequester = itemFocusRequesters.getOrPut(
                             folderFocusKey(index, folder)
                         ) { FocusRequester() }

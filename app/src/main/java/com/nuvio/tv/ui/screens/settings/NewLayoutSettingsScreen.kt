@@ -82,6 +82,24 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Switch
 import androidx.tv.material3.Text
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.ui.draw.rotate
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.mutableStateMapOf
+import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
+import com.nuvio.tv.domain.model.Collection
+import com.nuvio.tv.domain.model.CollectionFolder
+import com.nuvio.tv.domain.model.CollectionSource
+import com.nuvio.tv.domain.model.FOLDER_LAYOUT_METADATA_KEY
+import com.nuvio.tv.domain.model.FOLDER_LAYOUT_VALUE_ROWS
+import com.nuvio.tv.domain.model.FOLDER_LAYOUT_VALUE_TABS
+import com.nuvio.tv.domain.model.LayoutRowKey
+import com.nuvio.tv.domain.model.SRC_OFF_METADATA_PREFIX
+import com.nuvio.tv.domain.model.SRC_STYLE_METADATA_PREFIX
+import com.nuvio.tv.domain.model.SRC_WIDTH_METADATA_PREFIX
+import com.nuvio.tv.domain.model.TmdbCollectionSource
+import com.nuvio.tv.domain.model.TraktCollectionSource
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.ContinueWatchingFilter
 import com.nuvio.tv.domain.model.continueWatchingFilter
@@ -109,6 +127,7 @@ fun NewLayoutSettingsContent(
     initialFocusRequester: FocusRequester? = null,
     viewModel: NewLayoutSettingsViewModel = hiltViewModel(),
     mode: NewLayoutContentMode = NewLayoutContentMode.ALL,
+    onNavigateToCollectionEditor: (String) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     // Four scoped pickers replace the single "Add Row" entry point on
@@ -146,6 +165,7 @@ fun NewLayoutSettingsContent(
             onAddTmdb = { showTmdbPicker = true },
             onAddTrakt = { showTraktPicker = true },
             onAddCollection = { showCollectionPicker = true },
+            onNavigateToCollectionEditor = onNavigateToCollectionEditor,
         )
     } else LazyColumn(
         state = rememberLazyListState(),
@@ -367,12 +387,20 @@ private fun RowsManagerContent(
     onAddTmdb: () -> Unit,
     onAddTrakt: () -> Unit,
     onAddCollection: () -> Unit,
+    onNavigateToCollectionEditor: (String) -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val isCollectionsScope = uiState.selectedScope == LayoutScreenScope.COLLECTIONS
     // Collections rows are managed elsewhere; this scope shows the list only.
     val showScopedControls = !isCollectionsScope
     var showDeleteAllConfirm by remember { mutableStateOf(false) }
+    // Destructive LEVEL 2/3 accordion data deletes are confirmed first.
+    var pendingFolderDelete by remember {
+        mutableStateOf<Pair<Collection, CollectionFolder>?>(null)
+    }
+    var pendingSourceDelete by remember {
+        mutableStateOf<Triple<Collection, CollectionFolder, Int>?>(null)
+    }
 
     // Global style/size reflect the first row when rows exist, else the global
     // landscape default / Balanced. Header taps apply to every row.
@@ -458,15 +486,39 @@ private fun RowsManagerContent(
         val rowsScope = rememberCoroutineScope()
         val firstRowFr = remember { FocusRequester() }
         val lastRowFr = remember { FocusRequester() }
-        val lastRowIndex = uiState.rows.lastIndex
+        // Collections render as 3-level accordion blocks: the scope's
+        // collection-kind rows group by collection id into one display unit
+        // anchored at the first row's position. The COLLECTIONS scope lists
+        // every collection as a block (its rows attached when present).
+        val collectionsById = remember(uiState.availableCollections) {
+            uiState.availableCollections.associateBy { it.id }
+        }
+        val displayUnits = remember(uiState.rows, uiState.availableCollections, isCollectionsScope) {
+            buildManagerDisplayUnits(
+                rows = uiState.rows,
+                collectionsById = collectionsById,
+                isCollectionsScope = isCollectionsScope,
+                allCollections = uiState.availableCollections,
+            )
+        }
+        // "addon|<id>|<type>|<catalogId>" → catalog display name, for LEVEL 3.
+        val addonCatalogNames = remember(uiState.availableSources) {
+            uiState.availableSources
+                .filter { it.kind == LayoutRowKind.ADDON }
+                .associate { it.id to it.name }
+        }
+        // Accordion expand/collapse — UI-only, never persisted.
+        val expandedBlocks = remember { mutableStateMapOf<String, Boolean>() }
+        val expandedFolders = remember { mutableStateMapOf<String, Boolean>() }
+        val lastRowIndex = displayUnits.lastIndex
         // Focus retention: per-index ✕ requesters + the index pending refocus
         // after a delete (so focus stays in the list, on the next row).
         val removeFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
         var pendingRemoveFocusIndex by remember { mutableStateOf<Int?>(null) }
-        androidx.compose.runtime.LaunchedEffect(uiState.rows.size, pendingRemoveFocusIndex) {
+        androidx.compose.runtime.LaunchedEffect(displayUnits.size, pendingRemoveFocusIndex) {
             val target = pendingRemoveFocusIndex ?: return@LaunchedEffect
-            if (uiState.rows.isEmpty()) { pendingRemoveFocusIndex = null; return@LaunchedEffect }
-            val clamped = target.coerceIn(0, uiState.rows.lastIndex)
+            if (displayUnits.isEmpty()) { pendingRemoveFocusIndex = null; return@LaunchedEffect }
+            val clamped = target.coerceIn(0, displayUnits.lastIndex)
             withFrameNanos { }
             runCatching { removeFocusRequesters[clamped]?.requestFocus() }
             pendingRemoveFocusIndex = null
@@ -479,77 +531,174 @@ private fun RowsManagerContent(
             contentPadding = PaddingValues(vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (uiState.rows.isEmpty()) {
+            if (displayUnits.isEmpty()) {
                 item(key = "rows_empty") {
                     Text(
                         text = if (showScopedControls) {
                             "No rows yet — add one from the bar above."
                         } else {
-                            "No rows configured for this scope."
+                            "No collections yet — create one under Settings → Extensions → Collections."
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = NuvioColors.TextSecondary,
                     )
                 }
             } else {
-                itemsIndexed(items = uiState.rows, key = { _, it -> it.id }) { index, row ->
-                    ManagerRowItem(
-                        row = row,
-                        canMoveUp = index != 0,
-                        canMoveDown = index != lastRowIndex,
-                        onMoveUp = { viewModel.moveRow(row.id, -1) },
-                        onMoveDown = { viewModel.moveRow(row.id, +1) },
-                        onToggleStyle = {
-                            // CW rows cycle their own orientation set (Poster /
-                            // Card / Wide); all other rows cycle the generic
-                            // card style (Poster / Landscape / Cinema).
-                            if (row.kind.continueWatchingFilter != null) {
-                                viewModel.setContinueWatchingStyle(
-                                    row.id, nextContinueWatchingStyle(row.continueWatchingStyle),
-                                )
-                            } else {
-                                viewModel.setRowCardStyle(row.id, nextCardStyle(row.cardStyle))
-                            }
-                        },
-                        onWidthChange = { viewModel.setRowCardWidth(row.id, it) },
-                        onCycleExpand = {
-                            viewModel.setRowExpandEnabled(row.id, nextExpandState(row.expandEnabled))
-                        },
-                        onToggleEnabled = { viewModel.toggleRowEnabled(row.id) },
-                        onRemove = {
-                            // Keep focus in the list: the row that shifts into
-                            // this index regains focus after the delete.
-                            pendingRemoveFocusIndex = index
-                            viewModel.removeRow(row.id)
-                        },
-                        removeFocusRequester = removeFocusRequesters.getOrPut(index) { FocusRequester() },
-                        // First row UP escapes upward to the controls above the
-                        // table (column header → source pills → scope tabs)
-                        // instead of looping to the last row. null = no UP
-                        // interception, so default focus search moves up out of
-                        // the table.
-                        onWrapPrev = null,
-                        onWrapNext = if (index == lastRowIndex) {
-                            {
-                                rowsScope.launch {
-                                    rowsListState.scrollToItem(0)
-                                    withFrameNanos { }
-                                    runCatching { firstRowFr.requestFocus() }
-                                }
-                            }
-                        } else null,
-                        orientationFocusRequester = when (index) {
-                            0 -> firstRowFr
-                            lastRowIndex -> lastRowFr
-                            else -> null
-                        },
-                    )
+                itemsIndexed(items = displayUnits, key = { _, it -> it.key }) { index, unit ->
+                    when (unit) {
+                        is ManagerDisplayUnit.Flat -> {
+                            val row = unit.row
+                            ManagerRowItem(
+                                row = row,
+                                canMoveUp = index != 0,
+                                canMoveDown = index != lastRowIndex,
+                                onMoveUp = { viewModel.moveRow(row.id, -1) },
+                                onMoveDown = { viewModel.moveRow(row.id, +1) },
+                                onToggleStyle = {
+                                    // CW rows cycle their own orientation set (Poster /
+                                    // Card / Wide); all other rows cycle the generic
+                                    // card style (Poster / Landscape / Cinema).
+                                    if (row.kind.continueWatchingFilter != null) {
+                                        viewModel.setContinueWatchingStyle(
+                                            row.id, nextContinueWatchingStyle(row.continueWatchingStyle),
+                                        )
+                                    } else {
+                                        viewModel.setRowCardStyle(row.id, nextCardStyle(row.cardStyle))
+                                    }
+                                },
+                                onWidthChange = { viewModel.setRowCardWidth(row.id, it) },
+                                onCycleExpand = {
+                                    viewModel.setRowExpandEnabled(row.id, nextExpandState(row.expandEnabled))
+                                },
+                                onToggleEnabled = { viewModel.toggleRowEnabled(row.id) },
+                                onRemove = {
+                                    // Keep focus in the list: the row that shifts into
+                                    // this index regains focus after the delete.
+                                    pendingRemoveFocusIndex = index
+                                    viewModel.removeRow(row.id)
+                                },
+                                removeFocusRequester = removeFocusRequesters.getOrPut(index) { FocusRequester() },
+                                // First row UP escapes upward to the controls above the
+                                // table (column header → source pills → scope tabs)
+                                // instead of looping to the last row. null = no UP
+                                // interception, so default focus search moves up out of
+                                // the table.
+                                onWrapPrev = null,
+                                onWrapNext = if (index == lastRowIndex) {
+                                    {
+                                        rowsScope.launch {
+                                            rowsListState.scrollToItem(0)
+                                            withFrameNanos { }
+                                            runCatching { firstRowFr.requestFocus() }
+                                        }
+                                    }
+                                } else null,
+                                orientationFocusRequester = when (index) {
+                                    0 -> firstRowFr
+                                    lastRowIndex -> lastRowFr
+                                    else -> null
+                                },
+                            )
+                        }
+                        is ManagerDisplayUnit.CollectionBlock -> {
+                            CollectionBlockItem(
+                                unit = unit,
+                                isCollectionsScope = isCollectionsScope,
+                                expanded = expandedBlocks[unit.collectionId] == true,
+                                onToggleExpanded = {
+                                    expandedBlocks[unit.collectionId] =
+                                        expandedBlocks[unit.collectionId] != true
+                                },
+                                expandedFolders = expandedFolders,
+                                canMoveUp = index != 0,
+                                canMoveDown = index != lastRowIndex,
+                                onMoveBlock = { dir ->
+                                    if (isCollectionsScope) {
+                                        viewModel.moveCollection(unit.collectionId, dir)
+                                    } else {
+                                        viewModel.moveCollectionBlock(unit.collectionId, dir)
+                                    }
+                                },
+                                onEditCollection = { onNavigateToCollectionEditor(unit.collectionId) },
+                                onToggleBlockEnabled = {
+                                    viewModel.setCollectionBlockEnabled(
+                                        unit.collectionId, !unit.blockEnabled,
+                                    )
+                                },
+                                onRemoveBlock = {
+                                    pendingRemoveFocusIndex = index
+                                    viewModel.removeCollectionBlock(unit.collectionId)
+                                },
+                                addonCatalogNames = addonCatalogNames,
+                                viewModel = viewModel,
+                                onRequestFolderDelete = { c, fo -> pendingFolderDelete = c to fo },
+                                onRequestSourceDelete = { c, fo, i ->
+                                    pendingSourceDelete = Triple(c, fo, i)
+                                },
+                                headerFocusRequester = if (index == 0) firstRowFr else null,
+                            )
+                        }
+                    }
                 }
             }
         }
         // Source pills moved to the fixed top (Row 2) — no bottom bar.
     }
 
+    val folderDelete = pendingFolderDelete
+    if (folderDelete != null) {
+        com.nuvio.tv.ui.components.NuvioDialog(
+            onDismiss = { pendingFolderDelete = null },
+            title = "Delete folder \"${folderDelete.second.title}\"?",
+            subtitle = "This removes the folder (and its catalogs) from the " +
+                "\"${folderDelete.first.title}\" collection everywhere — not just this screen.",
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        viewModel.deleteFolderFromCollection(folderDelete.first, folderDelete.second.id)
+                        pendingFolderDelete = null
+                    },
+                    colors = ButtonDefaults.colors(
+                        containerColor = Color(0xFF7A2C2C),
+                        focusedContainerColor = Color(0xFFAA3C3C),
+                    ),
+                ) { Text("Delete Folder") }
+                Button(
+                    onClick = { pendingFolderDelete = null },
+                    colors = ButtonDefaults.colors(containerColor = NuvioColors.BackgroundCard),
+                ) { Text("Cancel") }
+            }
+        }
+    }
+    val sourceDelete = pendingSourceDelete
+    if (sourceDelete != null) {
+        com.nuvio.tv.ui.components.NuvioDialog(
+            onDismiss = { pendingSourceDelete = null },
+            title = "Remove this catalog?",
+            subtitle = "This removes the catalog from the \"${sourceDelete.second.title}\" folder " +
+                "everywhere — not just this screen.",
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        viewModel.deleteSourceFromFolder(
+                            sourceDelete.first, sourceDelete.second.id, sourceDelete.third,
+                        )
+                        pendingSourceDelete = null
+                    },
+                    colors = ButtonDefaults.colors(
+                        containerColor = Color(0xFF7A2C2C),
+                        focusedContainerColor = Color(0xFFAA3C3C),
+                    ),
+                ) { Text("Remove Catalog") }
+                Button(
+                    onClick = { pendingSourceDelete = null },
+                    colors = ButtonDefaults.colors(containerColor = NuvioColors.BackgroundCard),
+                ) { Text("Cancel") }
+            }
+        }
+    }
     if (showDeleteAllConfirm) {
         com.nuvio.tv.ui.components.NuvioDialog(
             onDismiss = { showDeleteAllConfirm = false },
@@ -2323,5 +2472,680 @@ private fun DetailPageToggleRow(
             )
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+// ── Collections accordion (3-level: collection → folder → catalog) ──────────
+//
+// Collection-kind rows group into one display unit per collection. LEVEL 1
+// header controls act on the block's rows in this scope; LEVEL 2 visibility /
+// layout and LEVEL 3 display config persist on the per-folder rows; LEVEL 2/3
+// reorder + delete mutate the collection itself (same CRUD the Collection
+// Manager screen uses). Expand state is UI-only.
+
+internal sealed interface ManagerDisplayUnit {
+    val key: String
+
+    data class Flat(val row: LayoutRowConfig) : ManagerDisplayUnit {
+        override val key: String get() = row.id
+    }
+
+    data class CollectionBlock(
+        val collectionId: String,
+        val title: String,
+        val rows: List<LayoutRowConfig>,
+        val collection: Collection?,
+    ) : ManagerDisplayUnit {
+        override val key: String get() = "colblock_$collectionId"
+        val blockEnabled: Boolean get() = rows.isEmpty() || rows.any { it.enabled }
+    }
+}
+
+internal fun buildManagerDisplayUnits(
+    rows: List<LayoutRowConfig>,
+    collectionsById: Map<String, Collection>,
+    isCollectionsScope: Boolean,
+    allCollections: List<Collection>,
+): List<ManagerDisplayUnit> {
+    if (isCollectionsScope) {
+        // The Collections scope manages the collections themselves — one
+        // block per collection in data order, scope rows attached by id.
+        val rowsByCid = rows
+            .filter { it.kind == LayoutRowKind.COLLECTION }
+            .groupBy { LayoutRowKey.collectionIdFrom(it.id) }
+        return allCollections.map { c ->
+            ManagerDisplayUnit.CollectionBlock(
+                collectionId = c.id,
+                title = c.title,
+                rows = rowsByCid[c.id].orEmpty(),
+                collection = c,
+            )
+        }
+    }
+    val units = mutableListOf<ManagerDisplayUnit>()
+    val blockIndexByCid = mutableMapOf<String, Int>()
+    rows.forEach { row ->
+        val cid = if (row.kind == LayoutRowKind.COLLECTION) {
+            LayoutRowKey.collectionIdFrom(row.id)
+        } else null
+        if (cid == null) {
+            units += ManagerDisplayUnit.Flat(row)
+            return@forEach
+        }
+        val at = blockIndexByCid[cid]
+        if (at != null) {
+            val block = units[at] as ManagerDisplayUnit.CollectionBlock
+            units[at] = block.copy(rows = block.rows + row)
+        } else {
+            val collection = collectionsById[cid]
+            blockIndexByCid[cid] = units.size
+            units += ManagerDisplayUnit.CollectionBlock(
+                collectionId = cid,
+                title = collection?.title ?: row.name,
+                rows = listOf(row),
+                collection = collection,
+            )
+        }
+    }
+    return units
+}
+
+/** Source display name for LEVEL 3 rows. */
+private fun collectionSourceDisplayName(
+    source: CollectionSource,
+    addonCatalogNames: Map<String, String>,
+): String = when (source) {
+    is AddonCatalogCollectionSource -> {
+        val base = addonCatalogNames["addon|${source.addonId}|${source.type}|${source.catalogId}"]
+            ?: source.catalogId
+        if (source.genre.isNullOrBlank()) base else "$base • ${source.genre}"
+    }
+    is TmdbCollectionSource -> source.title.ifBlank { "TMDB ${source.sourceType.name.lowercase()}" }
+    is TraktCollectionSource -> source.title.ifBlank { "Trakt list ${source.traktListId}" }
+}
+
+@Composable
+internal fun CollectionBlockItem(
+    unit: ManagerDisplayUnit.CollectionBlock,
+    isCollectionsScope: Boolean,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    expandedFolders: MutableMap<String, Boolean>,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMoveBlock: (Int) -> Unit,
+    onEditCollection: () -> Unit,
+    onToggleBlockEnabled: () -> Unit,
+    onRemoveBlock: () -> Unit,
+    addonCatalogNames: Map<String, String>,
+    viewModel: NewLayoutSettingsViewModel,
+    onRequestFolderDelete: (Collection, CollectionFolder) -> Unit,
+    onRequestSourceDelete: (Collection, CollectionFolder, Int) -> Unit,
+    headerFocusRequester: FocusRequester? = null,
+) {
+    val collection = unit.collection
+    val folderRowsByFid = remember(unit.rows) {
+        unit.rows
+            .mapNotNull { row -> LayoutRowKey.folderIdFrom(row.id)?.let { it to row } }
+            .toMap()
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(NuvioColors.BackgroundCard),
+    ) {
+        Column {
+            // ── LEVEL 1 — collection header ────────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // Chevron + title form one focusable that toggles expansion.
+                val chevronRotation by animateFloatAsState(
+                    targetValue = if (expanded) 0f else -90f,
+                    animationSpec = tween(150),
+                    label = "blockChevron",
+                )
+                var headerFocused by remember { mutableStateOf(false) }
+                Card(
+                    onClick = onToggleExpanded,
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(
+                            if (headerFocusRequester != null) {
+                                Modifier.focusRequester(headerFocusRequester)
+                            } else Modifier,
+                        )
+                        .onFocusChanged { headerFocused = it.isFocused || it.hasFocus },
+                    shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
+                    colors = CardDefaults.colors(
+                        containerColor = Color.Transparent,
+                        focusedContainerColor = Color.White.copy(alpha = 0.10f),
+                    ),
+                    border = CardDefaults.border(
+                        border = Border.None,
+                        focusedBorder = Border(
+                            border = BorderStroke(1.5.dp, NuvioColors.FocusRing),
+                            shape = RoundedCornerShape(8.dp),
+                        ),
+                    ),
+                    scale = CardDefaults.scale(focusedScale = 1f),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (expanded) "Collapse" else "Expand",
+                            tint = NuvioColors.TextSecondary,
+                            modifier = Modifier.size(20.dp).rotate(chevronRotation),
+                        )
+                        Text(
+                            text = unit.title,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (unit.blockEnabled) NuvioColors.TextPrimary else NuvioColors.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = "Collection",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NuvioColors.TextSecondary.copy(alpha = 0.7f),
+                        )
+                    }
+                }
+                Box(modifier = Modifier.width(RowOrderColWidth), contentAlignment = Alignment.Center) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        IconChipButton(
+                            icon = Icons.Default.ArrowUpward,
+                            contentDesc = "Move collection up",
+                            enabled = canMoveUp,
+                            onClick = { onMoveBlock(-1) },
+                        )
+                        IconChipButton(
+                            icon = Icons.Default.ArrowDownward,
+                            contentDesc = "Move collection down",
+                            enabled = canMoveDown,
+                            onClick = { onMoveBlock(+1) },
+                        )
+                    }
+                }
+                Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
+                    IconChipButton(
+                        icon = Icons.Default.Edit,
+                        contentDesc = "Edit collection",
+                        enabled = collection != null,
+                        onClick = onEditCollection,
+                    )
+                }
+                Box(modifier = Modifier.width(RowToggleColWidth), contentAlignment = Alignment.Center) {
+                    // COLLECTIONS scope: blocks are the collections themselves —
+                    // there is no row to enable/disable, the tab always shows
+                    // every collection. Hide the switch there.
+                    if (!isCollectionsScope) {
+                        ManagerSwitch(checked = unit.blockEnabled, onCheckedChange = { onToggleBlockEnabled() })
+                    }
+                }
+                Box(modifier = Modifier.width(RowRemoveColWidth), contentAlignment = Alignment.Center) {
+                    if (!isCollectionsScope) {
+                        IconChipButton(
+                            icon = Icons.Default.Close,
+                            contentDesc = "Remove collection row",
+                            enabled = true,
+                            onClick = onRemoveBlock,
+                        )
+                    }
+                }
+            }
+
+            // ── LEVEL 2/3 — folders + catalogs ─────────────────────────────
+            AnimatedVisibility(visible = expanded) {
+                Column(modifier = Modifier.padding(bottom = 6.dp)) {
+                    if (collection == null) {
+                        Text(
+                            text = "Collection no longer exists — remove this row.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NuvioColors.TextSecondary,
+                            modifier = Modifier.padding(start = 40.dp, bottom = 8.dp),
+                        )
+                    } else if (collection.folders.isEmpty()) {
+                        Text(
+                            text = "No folders in this collection.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NuvioColors.TextSecondary,
+                            modifier = Modifier.padding(start = 40.dp, bottom = 8.dp),
+                        )
+                    } else {
+                        collection.folders.forEachIndexed { fIdx, folder ->
+                            val folderRow = folderRowsByFid[folder.id]
+                            val folderKey = "${unit.collectionId}|${folder.id}"
+                            val folderExpanded = expandedFolders[folderKey] == true
+                            CollectionFolderManagerRow(
+                                folder = folder,
+                                folderRow = folderRow,
+                                // With NO per-folder rows configured the pipeline
+                                // shows every folder; once ANY exist, only folders
+                                // with an enabled row render.
+                                defaultVisible = folderRowsByFid.isEmpty(),
+                                isCollectionsScope = isCollectionsScope,
+                                expanded = folderExpanded,
+                                onToggleExpanded = {
+                                    expandedFolders[folderKey] = expandedFolders[folderKey] != true
+                                },
+                                canMoveUp = fIdx != 0,
+                                canMoveDown = fIdx != collection.folders.lastIndex,
+                                onMove = { dir -> viewModel.moveFolderInCollection(collection, folder.id, dir) },
+                                onSelectLayout = { value -> viewModel.setFolderLayout(collection, folder.id, value) },
+                                onEdit = onEditCollection,
+                                onToggleVisible = { visible ->
+                                    viewModel.setFolderRowVisible(collection, folder.id, visible)
+                                },
+                                onDelete = { onRequestFolderDelete(collection, folder) },
+                            )
+                            AnimatedVisibility(visible = folderExpanded) {
+                                Column {
+                                    if (folder.sources.isEmpty()) {
+                                        Text(
+                                            text = "No catalogs in this folder.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NuvioColors.TextSecondary,
+                                            modifier = Modifier.padding(start = 64.dp, top = 2.dp, bottom = 4.dp),
+                                        )
+                                    } else {
+                                        folder.sources.forEachIndexed { sIdx, source ->
+                                            CollectionSourceManagerRow(
+                                                name = collectionSourceDisplayName(source, addonCatalogNames),
+                                                srcKey = collectionSourceKey(source),
+                                                folderRow = folderRow,
+                                                canMoveUp = sIdx != 0,
+                                                canMoveDown = sIdx != folder.sources.lastIndex,
+                                                onMove = { dir ->
+                                                    viewModel.moveSourceInFolder(collection, folder.id, sIdx, dir)
+                                                },
+                                                onSelectStyle = { style ->
+                                                    viewModel.setSourceStyle(
+                                                        collection, folder.id, collectionSourceKey(source), style,
+                                                    )
+                                                },
+                                                onSelectWidth = { width ->
+                                                    viewModel.setSourceWidth(
+                                                        collection, folder.id, collectionSourceKey(source), width,
+                                                    )
+                                                },
+                                                onToggleEnabled = { enabled ->
+                                                    viewModel.setSourceEnabled(
+                                                        collection, folder.id, collectionSourceKey(source), enabled,
+                                                    )
+                                                },
+                                                onDelete = { onRequestSourceDelete(collection, folder, sIdx) },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** LEVEL 2 — one folder inside an expanded collection block. */
+@Composable
+private fun CollectionFolderManagerRow(
+    folder: CollectionFolder,
+    folderRow: LayoutRowConfig?,
+    defaultVisible: Boolean,
+    isCollectionsScope: Boolean,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMove: (Int) -> Unit,
+    onSelectLayout: (String?) -> Unit,
+    onEdit: () -> Unit,
+    onToggleVisible: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+) {
+    // Mirrors the pipeline's visibility rule (see collectionFolderVisibility).
+    val visible = folderRow?.enabled ?: defaultVisible
+    val layoutOverride = folderRow?.metadata?.get(FOLDER_LAYOUT_METADATA_KEY)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White.copy(alpha = 0.03f))
+            .padding(start = 28.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "├─",
+            style = MaterialTheme.typography.bodyMedium,
+            color = NuvioColors.TextSecondary.copy(alpha = 0.5f),
+        )
+        val chevronRotation by animateFloatAsState(
+            targetValue = if (expanded) 0f else -90f,
+            animationSpec = tween(150),
+            label = "folderChevron",
+        )
+        Card(
+            onClick = onToggleExpanded,
+            modifier = Modifier.weight(1f),
+            shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
+            colors = CardDefaults.colors(
+                containerColor = Color.Transparent,
+                focusedContainerColor = Color.White.copy(alpha = 0.10f),
+            ),
+            border = CardDefaults.border(
+                border = Border.None,
+                focusedBorder = Border(
+                    border = BorderStroke(1.5.dp, NuvioColors.FocusRing),
+                    shape = RoundedCornerShape(8.dp),
+                ),
+            ),
+            scale = CardDefaults.scale(focusedScale = 1f),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = NuvioColors.TextSecondary,
+                    modifier = Modifier.size(18.dp).rotate(chevronRotation),
+                )
+                if (!folder.coverEmoji.isNullOrBlank()) {
+                    Text(text = folder.coverEmoji!!, style = MaterialTheme.typography.bodyMedium)
+                }
+                Text(
+                    text = folder.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (visible) NuvioColors.TextPrimary else NuvioColors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Box(modifier = Modifier.width(RowOrderColWidth), contentAlignment = Alignment.Center) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                IconChipButton(
+                    icon = Icons.Default.ArrowUpward,
+                    contentDesc = "Move folder up",
+                    enabled = canMoveUp,
+                    onClick = { onMove(-1) },
+                )
+                IconChipButton(
+                    icon = Icons.Default.ArrowDownward,
+                    contentDesc = "Move folder down",
+                    enabled = canMoveDown,
+                    onClick = { onMove(+1) },
+                )
+            }
+        }
+        Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
+            // The folder's presentation override is a single canonical value —
+            // editable only from the COLLECTIONS scope tab, which is the scope
+            // FolderDetail reads. Other scopes manage visibility/order only.
+            if (isCollectionsScope) {
+                FolderLayoutShapeButton(current = layoutOverride, onSelect = onSelectLayout)
+            }
+        }
+        Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
+            IconChipButton(
+                icon = Icons.Default.Edit,
+                contentDesc = "Edit folder",
+                enabled = true,
+                onClick = onEdit,
+            )
+        }
+        Box(modifier = Modifier.width(RowToggleColWidth), contentAlignment = Alignment.Center) {
+            if (!isCollectionsScope) {
+                ManagerSwitch(checked = visible, onCheckedChange = { onToggleVisible(!visible) })
+            }
+        }
+        Box(modifier = Modifier.width(RowRemoveColWidth), contentAlignment = Alignment.Center) {
+            IconChipButton(
+                icon = Icons.Default.Close,
+                contentDesc = "Delete folder from collection",
+                enabled = true,
+                onClick = onDelete,
+            )
+        }
+    }
+}
+
+/** LEVEL 3 — one catalog (source) inside an expanded folder. */
+@Composable
+private fun CollectionSourceManagerRow(
+    name: String,
+    srcKey: String,
+    folderRow: LayoutRowConfig?,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMove: (Int) -> Unit,
+    onSelectStyle: (LayoutCardStyle) -> Unit,
+    onSelectWidth: (Int) -> Unit,
+    onToggleEnabled: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+) {
+    val meta = folderRow?.metadata.orEmpty()
+    val style = meta[SRC_STYLE_METADATA_PREFIX + srcKey]
+        ?.let { raw -> runCatching { LayoutCardStyle.valueOf(raw) }.getOrNull() }
+        ?: LayoutCardStyle.POSTER
+    val widthDp = meta[SRC_WIDTH_METADATA_PREFIX + srcKey]?.toIntOrNull() ?: 126
+    val enabled = meta[SRC_OFF_METADATA_PREFIX + srcKey] == null
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White.copy(alpha = 0.015f))
+            .padding(start = 52.dp, end = 14.dp, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "├─",
+            style = MaterialTheme.typography.bodySmall,
+            color = NuvioColors.TextSecondary.copy(alpha = 0.4f),
+        )
+        Text(
+            text = name,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (enabled) NuvioColors.TextPrimary else NuvioColors.TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Box(modifier = Modifier.width(RowOrderColWidth), contentAlignment = Alignment.Center) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                IconChipButton(
+                    icon = Icons.Default.ArrowUpward,
+                    contentDesc = "Move catalog up",
+                    enabled = canMoveUp,
+                    onClick = { onMove(-1) },
+                )
+                IconChipButton(
+                    icon = Icons.Default.ArrowDownward,
+                    contentDesc = "Move catalog down",
+                    enabled = canMoveDown,
+                    onClick = { onMove(+1) },
+                )
+            }
+        }
+        Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
+            StyleShapeButton(
+                style = style,
+                enabled = true,
+                onClick = { onSelectStyle(nextCardStyle(style)) },
+            )
+        }
+        Box(modifier = Modifier.width(RowShapeColWidth), contentAlignment = Alignment.Center) {
+            if (style != LayoutCardStyle.CINEMA) {
+                SizeShapeButton(widthDp = widthDp, enabled = true, onSelect = onSelectWidth)
+            }
+        }
+        Box(modifier = Modifier.width(RowToggleColWidth), contentAlignment = Alignment.Center) {
+            ManagerSwitch(checked = enabled, onCheckedChange = { onToggleEnabled(!enabled) })
+        }
+        Box(modifier = Modifier.width(RowRemoveColWidth), contentAlignment = Alignment.Center) {
+            IconChipButton(
+                icon = Icons.Default.Close,
+                contentDesc = "Remove catalog from folder",
+                enabled = true,
+                onClick = onDelete,
+            )
+        }
+    }
+}
+
+/** Focus-ringed Switch matching the flat-row toggle treatment. */
+@Composable
+private fun ManagerSwitch(checked: Boolean, onCheckedChange: () -> Unit) {
+    var switchFocused by remember { mutableStateOf(false) }
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .then(
+                if (switchFocused) {
+                    Modifier.border(2.dp, NuvioColors.FocusRing, RoundedCornerShape(20.dp))
+                } else Modifier,
+            )
+            .padding(3.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Switch(
+            checked = checked,
+            onCheckedChange = { onCheckedChange() },
+            modifier = Modifier.onFocusChanged {
+                switchFocused = it.isFocused || it.hasFocus
+            },
+        )
+    }
+}
+
+// ── Per-folder layout picker (LEVEL 2 "Layout") ─────────────────────────────
+
+// Unified per-folder presentation options: the two FolderDetail structures
+// (Tabs / Rows) plus the FOLLOW_LAYOUT home layouts. Values are the raw
+// FOLDER_LAYOUT_METADATA_KEY strings; null = Default (collection.viewMode).
+private val FolderLayoutOptions: List<Pair<String, String?>> = listOf(
+    "Default" to null,
+    "Tabs" to FOLDER_LAYOUT_VALUE_TABS,
+    "Rows" to FOLDER_LAYOUT_VALUE_ROWS,
+    "Classic" to HomeLayout.CLASSIC.name,
+    "Modern" to HomeLayout.MODERN.name,
+    "Immersive" to HomeLayout.IMMERSIVE.name,
+    "Spotlight" to HomeLayout.SPOTLIGHT.name,
+    "Grid" to HomeLayout.GRID.name,
+)
+
+private fun folderLayoutGlyph(value: String?): String = when (value) {
+    null -> "—"
+    FOLDER_LAYOUT_VALUE_TABS -> "TB"
+    FOLDER_LAYOUT_VALUE_ROWS -> "RW"
+    HomeLayout.CLASSIC.name -> "CL"
+    HomeLayout.MODERN.name -> "MO"
+    HomeLayout.IMMERSIVE.name -> "IM"
+    HomeLayout.SPOTLIGHT.name -> "SP"
+    HomeLayout.GRID.name -> "GR"
+    else -> "—"
+}
+
+@Composable
+private fun FolderLayoutShapeButton(current: String?, onSelect: (String?) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        ShapeChip(onClick = { expanded = true }, active = current != null) {
+            Text(
+                text = folderLayoutGlyph(current),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = if (current != null) NuvioColors.Secondary else NuvioColors.TextSecondary,
+            )
+        }
+        if (expanded) {
+            Popup(
+                alignment = Alignment.TopStart,
+                onDismissRequest = { expanded = false },
+                properties = PopupProperties(focusable = true),
+            ) {
+                BackHandler { expanded = false }
+                val firstFr = remember { FocusRequester() }
+                val lastFr = remember { FocusRequester() }
+                val lastIndex = FolderLayoutOptions.lastIndex
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF101418).copy(alpha = 0.96f))
+                        .padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    FolderLayoutOptions.forEachIndexed { index, (label, value) ->
+                        var isFocused by remember { mutableStateOf(false) }
+                        Card(
+                            onClick = { onSelect(value); expanded = false },
+                            modifier = Modifier
+                                .width(200.dp)
+                                .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+                                .then(if (index == 0) Modifier.focusRequester(firstFr) else Modifier)
+                                .then(if (index == lastIndex) Modifier.focusRequester(lastFr) else Modifier)
+                                .dpadLoopWrap(
+                                    onPrev = if (index == 0) {
+                                        { runCatching { lastFr.requestFocus() } }
+                                    } else null,
+                                    onNext = if (index == lastIndex) {
+                                        { runCatching { firstFr.requestFocus() } }
+                                    } else null,
+                                ),
+                            shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
+                            colors = CardDefaults.colors(
+                                containerColor = if (isFocused) Color.White.copy(alpha = 0.16f) else Color.Transparent,
+                                focusedContainerColor = Color.White.copy(alpha = 0.16f),
+                            ),
+                            border = CardDefaults.border(
+                                border = Border.None,
+                                focusedBorder = Border(
+                                    border = BorderStroke(1.2.dp, NuvioColors.FocusRing),
+                                    shape = RoundedCornerShape(8.dp),
+                                ),
+                            ),
+                            scale = CardDefaults.scale(focusedScale = 1f),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = NuvioColors.TextPrimary,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (value == current) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = NuvioColors.FocusRing,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

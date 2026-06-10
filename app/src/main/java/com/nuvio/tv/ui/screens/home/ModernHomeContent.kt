@@ -786,6 +786,10 @@ fun ModernHomeContent(
             //   L5: item > 0 → snap to first card in current row
             //   L1: item 0 (any row) → TopBar directly (skip the hero)
             val navBarFr = LocalNavBarFocusRequester.current
+            // Terminal "→ TopBar" step defers to LocalContentBackFallback when
+            // embedded on a TopBar-less route (FolderDetail) — otherwise the
+            // requestFocus on the absent bar swallows Back (the Back trap).
+            val contentBackFallback = com.nuvio.tv.LocalContentBackFallback.current
             BackHandler(enabled = contentHasFocus.value && !isTrailerPlayingFullscreenState.value) {
                 when {
                     activeItemIndex.intValue > 0 -> {
@@ -799,7 +803,8 @@ fun ModernHomeContent(
                     }
                     // First poster of ANY row → straight to the TopBar. The
                     // Modern hero is a backdrop only, never a focus target.
-                    else -> runCatching { navBarFr.requestFocus() }
+                    else -> contentBackFallback?.invoke()
+                        ?: runCatching { navBarFr.requestFocus() }
                 }
             }
 

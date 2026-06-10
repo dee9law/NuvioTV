@@ -66,6 +66,7 @@ import com.nuvio.tv.ui.screens.home.HomeScreenFocusState
 import com.nuvio.tv.ui.screens.home.key
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.screens.home.ModernHomeContent
+import com.nuvio.tv.ui.screens.home.SpotlightHomeContent
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -109,6 +110,12 @@ fun FolderDetailScreen(
     val scrollToTopTrigger by viewModel.scrollToTopTrigger.collectAsStateWithLifecycle()
 
     if (uiState.viewMode == FolderViewMode.FOLLOW_LAYOUT) {
+        // This route has no TopBar, so every layout's terminal "Back → TopBar"
+        // step must pop the folder instead — for EVERY folder and entry point
+        // (TopBar pill / Collections tab / home-row card), not per layout.
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.nuvio.tv.LocalContentBackFallback provides onBack,
+        ) {
         FollowLayoutContent(
             uiState = uiState,
             focusState = followLayoutFocusState,
@@ -131,6 +138,7 @@ fun FolderDetailScreen(
             onRequestTrailerPreview = viewModel::requestTrailerPreview,
             scrollToTopTrigger = scrollToTopTrigger
         )
+        }
     } else {
         Column(
             modifier = Modifier
@@ -766,27 +774,23 @@ private fun FollowLayoutContent(
             onSaveFocusState = onSaveFocusState,
             scrollToTopTrigger = scrollToTopTrigger
         )
-        // Folder Detail keeps its existing horizontal-row treatment for
-        // Spotlight selections — the dedicated Spotlight surface lives
-        // on Home / Movies / TV. Reuse Classic content here.
-        HomeLayout.SPOTLIGHT -> ClassicHomeContent(
+        // Real Spotlight surface (was a Classic fallback). FolderDetail's
+        // home state already matches SpotlightHomeContent's inputs; the hero
+        // falls back to the first row's first item (heroItems is empty here),
+        // and CW handlers stay no-ops like the other branches. Inside the
+        // TopBar-less FolderDetail route Spotlight's bar-escape paths no-op
+        // harmlessly (same coupling Modern already tolerates here).
+        HomeLayout.SPOTLIGHT -> SpotlightHomeContent(
             uiState = homeState,
-            posterCardStyle = posterCardStyle,
             focusState = focusState,
-            trailerPreviewUrls = trailerPreviewUrls,
-            trailerPreviewAudioUrls = trailerPreviewAudioUrls,
+            posterCardStyle = posterCardStyle,
             onNavigateToDetail = onNavigateToDetail,
-            onContinueWatchingClick = noOpCwClick,
             onNavigateToCatalogSeeAll = onLoadMoreCatalog,
             onNavigateToFolderDetail = noOpFolderDetail,
-            onRemoveContinueWatching = noOpRemoveCw,
             isCatalogItemWatched = isItemWatched,
-            catalogSeeAllLabel = loadMoreLabel,
-            onRequestTrailerPreview = { item ->
-                onRequestTrailerPreview(item.id, item.name, item.releaseInfo, item.apiType)
-            },
+            onCatalogItemLongPress = onCatalogItemLongPress,
             onItemFocus = onItemFocus,
-            onSaveFocusState = onSaveFocusState
+            onContinueWatchingClick = noOpCwClick,
         )
     }
 }

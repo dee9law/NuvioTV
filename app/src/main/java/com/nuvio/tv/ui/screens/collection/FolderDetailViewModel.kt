@@ -18,8 +18,13 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.CollectionSource
 import com.nuvio.tv.domain.model.CollectionFolder
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.FOLDER_LAYOUT_METADATA_KEY
+import com.nuvio.tv.domain.model.FOLDER_LAYOUT_VALUE_ROWS
+import com.nuvio.tv.domain.model.FOLDER_LAYOUT_VALUE_TABS
 import com.nuvio.tv.domain.model.FolderViewMode
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.LayoutRowKey
+import com.nuvio.tv.domain.model.LayoutScreenScope
 import com.nuvio.tv.domain.model.usesModernPresentation
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.TmdbCollectionSource
@@ -211,12 +216,31 @@ class FolderDetailViewModel @Inject constructor(
             val collection = collections.find { it.id == collectionId }
             val folder = collection?.folders?.find { it.id == folderId }
 
+            // 3-tier presentation resolution: per-folder override (Rows
+            // Manager accordion, stored on the folder's COLLECTIONS-scope row)
+            // → collection.viewMode → TABBED_GRID. The override value is TABS,
+            // ROWS, or a HomeLayout name (→ FOLLOW_LAYOUT with that layout).
+            // COLLECTIONS scope is the canonical home so every entry point
+            // (TopBar pill / Collections tab / home-row card) resolves the same.
+            val folderLayoutOverride = layoutPreferenceDataStore
+                .rowsForScope(LayoutScreenScope.COLLECTIONS).first()
+                .firstOrNull { it.id == LayoutRowKey.forCollectionFolder(collectionId, folderId) }
+                ?.metadata?.get(FOLDER_LAYOUT_METADATA_KEY)
+            val overrideHomeLayout = folderLayoutOverride
+                ?.let { raw -> runCatching { HomeLayout.valueOf(raw) }.getOrNull() }
+            val resolvedViewMode = when {
+                folderLayoutOverride == FOLDER_LAYOUT_VALUE_TABS -> FolderViewMode.TABBED_GRID
+                folderLayoutOverride == FOLDER_LAYOUT_VALUE_ROWS -> FolderViewMode.ROWS
+                overrideHomeLayout != null -> FolderViewMode.FOLLOW_LAYOUT
+                else -> collection?.viewMode ?: FolderViewMode.TABBED_GRID
+            }
+
             if (folder == null || folder.sources.isEmpty()) {
                 _uiState.update {
                     it.copy(
                         folder = folder,
                         collectionTitle = collection?.title ?: "",
-                        viewMode = collection?.viewMode ?: FolderViewMode.TABBED_GRID,
+                        viewMode = resolvedViewMode,
                         isLoading = false
                     )
                 }
@@ -224,7 +248,7 @@ class FolderDetailViewModel @Inject constructor(
             }
 
             val addons = addonRepository.getInstalledAddons().first()
-            val homeLayout = layoutPreferenceDataStore.selectedLayout.first()
+            val homeLayout = overrideHomeLayout ?: layoutPreferenceDataStore.selectedLayout.first()
             val posterLabelsEnabled = layoutPreferenceDataStore.posterLabelsEnabled.first()
             val catalogAddonNameEnabled = layoutPreferenceDataStore.catalogAddonNameEnabled.first()
             val catalogTypeSuffixEnabled = layoutPreferenceDataStore.catalogTypeSuffixEnabled.first()
@@ -278,7 +302,7 @@ class FolderDetailViewModel @Inject constructor(
                 it.copy(
                     folder = folder,
                     collectionTitle = collection?.title ?: "",
-                    viewMode = collection?.viewMode ?: FolderViewMode.TABBED_GRID,
+                    viewMode = resolvedViewMode,
                     homeLayout = homeLayout,
                     posterLabelsEnabled = posterLabelsEnabled,
                     catalogAddonNameEnabled = catalogAddonNameEnabled,

@@ -100,6 +100,7 @@ fun SettingsHubScreen(
     onNavigateToAddons: () -> Unit,
     onNavigateToTrakt: () -> Unit,
     onNavigateToCollections: () -> Unit,
+    onNavigateToCollectionEditor: (String) -> Unit = {},
 ) {
     val categories = remember { settingsCategories() }
     // Single-expand accordion: at most one category open at a time. Tapping
@@ -174,6 +175,7 @@ fun SettingsHubScreen(
                 onNavigateToManageProfiles = onNavigateToManageProfiles,
                 onNavigateToSupportersContributors = onNavigateToSupportersContributors,
                 onNavigateToLicensesAttributions = onNavigateToLicensesAttributions,
+                onNavigateToCollectionEditor = onNavigateToCollectionEditor,
             )
         }
     }
@@ -554,6 +556,7 @@ private fun RightPane(
     onNavigateToManageProfiles: () -> Unit,
     onNavigateToSupportersContributors: () -> Unit,
     onNavigateToLicensesAttributions: () -> Unit,
+    onNavigateToCollectionEditor: (String) -> Unit = {},
 ) {
     // Open canvas — content renders directly on the background (no card /
     // border / surface). Medium-tight padding so it owns the full pane without
@@ -593,6 +596,7 @@ private fun RightPane(
             onNavigateToManageProfiles = onNavigateToManageProfiles,
             onNavigateToSupportersContributors = onNavigateToSupportersContributors,
             onNavigateToLicensesAttributions = onNavigateToLicensesAttributions,
+            onNavigateToCollectionEditor = onNavigateToCollectionEditor,
         )
     }
 }
@@ -604,6 +608,7 @@ private fun SubItemContent(
     onNavigateToManageProfiles: () -> Unit,
     onNavigateToSupportersContributors: () -> Unit,
     onNavigateToLicensesAttributions: () -> Unit,
+    onNavigateToCollectionEditor: (String) -> Unit = {},
 ) {
     when (contentSubId) {
         // Appearance
@@ -617,7 +622,10 @@ private fun SubItemContent(
         }
         "appearance.global" -> GlobalSettingsContent()
         "appearance.layout" -> NewLayoutSettingsContent(mode = NewLayoutContentMode.LAYOUT_ONLY)
-        "appearance.rows" -> NewLayoutSettingsContent(mode = NewLayoutContentMode.ROWS_ONLY)
+        "appearance.rows" -> NewLayoutSettingsContent(
+            mode = NewLayoutContentMode.ROWS_ONLY,
+            onNavigateToCollectionEditor = onNavigateToCollectionEditor,
+        )
         "appearance.continue_watching" -> ContinueWatchingSettingsContent()
         "appearance.theme" -> ThemeSettingsContent()
         "appearance.trailers" -> TrailersSettingsContent()

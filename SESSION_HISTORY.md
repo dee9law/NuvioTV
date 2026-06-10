@@ -2471,3 +2471,143 @@ left edge, centred text-only names, Back re-shows the bar.
 4. Category pill selected dash should be neutral/subtle, NOT accent — icon is the
    primary selection signal, dash secondary. (Partial revert of this session's
    category dash colour.)
+
+## 📅 Session log — 2026-06-10 (Nav-polish 4-fix batch, Collections accordion in Rows Manager, per-folder layouts + Spotlight FolderDetail, global Back-trap fix)
+
+Four work blocks in one day-long session, all compile-green and verified on
+the Jawwy TV (`com.nuviodebug.com`). 22 files changed (+~1500/−~110).
+
+### Block 1 — the queued 4-fix nav batch (all on-device verified)
+1. **Immersive first-card "no image" — NOT an app bug, no code change.**
+   Reproduced on Movies/Immersive; temp logging proved the poster URL is
+   non-null and identical across rows. The artwork itself is the AIO Metadata
+   addon's btttr.cc rating-poster: for brand-new titles (typically the
+   "#1 Today" first card) btttr auto-generates a poster from a backdrop slice
+   + title logo on near-black → reads as "metadata but no image". Self-heals
+   when btttr gets real art; or switch the addon's poster style.
+2. **Closed horizontal row containers (global).** `TvDpadNavigation.kt`:
+   `tvLeftFromFirstItemToSideRail` now ALWAYS consumes Left (Legacy → opens
+   rail, Modern → hard stop) + new `Modifier.tvStopRightAtLastItem()` on each
+   row's last focusable. Applied in `ModernHomeRows` (first/last item Box,
+   covers Modern+Immersive catalog+CW), `CatalogRowSection` (last poster, or
+   the trailing See All card when shown), `ContinueWatchingSection`,
+   `CollectionRowSection`, `GridContinueWatchingSection`.
+   `CollectionsHomeScreen.kt` untouched (inherits via shared components).
+   **TopBar loop-wrap conflict resolved by location**: wrap handlers live on
+   the bar's own pills and only fire with focus in the bar — verified intact
+   (first channel Left ↔ last channel Right). Doc correction: the avatar's
+   `onWrapLeft` is null in code (hard left edge) — the old "avatar ↔ last
+   channel" wrap note was stale.
+3. **Category↔channel divider** vertically centred (`fillMaxHeight` +
+   CenterVertically on the divider Row — parent bar is Top-aligned).
+4. **Selected category pill dash → neutral white** (0.85 alpha) + white glow;
+   icon/text keep accent. Focused-not-selected stays gray; channel pills'
+   brand colour untouched.
+
+### Block 2 — Collections 3-level accordion in the Rows Manager
+Research-first (4 parallel agents mapped the Collections subsystem — data /
+UI / integrations / settings+history; ~90 files touch it). Then:
+- **Display units**: collection-kind rows group by collection id into one
+  accordion block at the first row's position (`buildManagerDisplayUnits`);
+  flat rows unchanged. **COLLECTIONS scope tab** (previously dead list-only
+  UI) now lists every collection as a block.
+- **LEVEL 1** (collection header): chevron+title toggles expand | ↑↓ moves the
+  whole block through the scope's row list (COLLECTIONS scope: reorders the
+  collections themselves via CollectionsDataStore + sync push) | Edit →
+  CollectionEditorScreen (new `onNavigateToCollectionEditor` plumbing
+  NuvioNavHost → SettingsHubScreen → NewLayoutSettingsContent) | On/Off + ✕
+  act on the block's rows (hidden in COLLECTIONS scope — would be inert).
+- **LEVEL 2** (folders): visibility via per-folder rows
+  (`collection|<cid>|<fid>`, materialize-all-on-first-interaction) | ↑↓ /
+  ✕ mutate the collection itself (existing CRUD + 500ms sync push; ✕ behind a
+  NuvioDialog confirm) | unified Layout picker (see Block 3) | Edit → parent
+  collection editor (direct folder-editor deep-link would need a nav-arg on
+  the frozen editor — declined follow-up).
+- **LEVEL 3** (catalogs = folder sources): ↑↓/✕ mutate sources (confirm
+  dialog); Orient/Size/On-Off persist per-source in the folder row's metadata
+  (`src_style|/src_width|/src_off|<sourceKey>`) — **render-inert** until
+  FolderDetail learns to read them (FolderDetail uses `PosterCardDefaults`).
+- **Pipeline folder filtering (the one non-UI change)** — the old
+  ":376 folder-level filtering happens downstream" comment was unimplemented;
+  per-folder rows all collapsed to the whole collection.
+  `applyConfiguredHomeRows` now computes `collectionFolderVisibility`
+  (cid → enabled-folder-row ids; key absent = no folder rows = show all) and
+  `updateCatalogRowsPipeline` injects `HomeRow.CollectionRow` with filtered
+  folders (empty → row skipped). Makes LEVEL 2 On/Off real.
+- **Bugs found during on-device verify**: (a) rows created inside mutateRows
+  transforms defaulted to `viewContext=HOME` and were silently dropped by
+  `rowsForScope`'s read filter → mutateRows now stamps the active scope on
+  every row; (b) folders without rows displayed "On" while the pipeline would
+  hide them → `defaultVisible = folderRowsByFid.isEmpty()` mirrors the
+  pipeline rule; (c) layout popover width pinned to 200dp.
+- Verified on TV: Collections-scope tree (7 collections → Networks' folders →
+  NBC's catalogs), folder reorder both directions, layout persistence
+  round-trip, Edit→editor nav, Home-scope block with correct per-folder
+  switch states, block delete. **Known gap (pre-existing): Spotlight home
+  layout renders no collection rows at all** (no CollectionRow branch in
+  SpotlightHomeContent) — collection rows on a Spotlight Home are invisible.
+
+### Block 3 — per-folder presentation + Spotlight as a real FolderDetail layout
+- **Why TABBED_GRID was the default**: backward-compat — tabbed grid was
+  FolderDetail's original presentation; `Collection.viewMode` deserializes
+  missing fields to it.
+- **Design**: the editor's View Mode and the accordion picker are TIERS, not
+  rivals. Unified per-folder picker: **Default · Tabs · Rows · Classic ·
+  Modern · Immersive · Spotlight · Grid** (metadata values TABS / ROWS /
+  HomeLayout name in `folder_layout`), shown ONLY in the COLLECTIONS scope
+  tab = single canonical value. `FolderDetailViewModel.loadFolder()` resolves
+  **folder override → collection.viewMode → TABBED_GRID** (override layout
+  also feeds `homeLayout` + Immersive fullscreen backdrop). All three entry
+  points (TopBar pill / Collections tab / home-row card) hit the same route +
+  resolver. Editor View Mode subtitle: "Default for folders without their own
+  layout".
+- **Spotlight wired into `FollowLayoutContent`** (replaces the Classic
+  fallback) — FolderDetail's homeState already matches SpotlightHomeContent's
+  inputs; hero falls back to first row's first item (heroItems empty there).
+- Verified on TV: Netflix folder (user-set SP) opens in Spotlight from BOTH
+  the TopBar pill and the Collections tab; Prime (IM) opens Immersive;
+  Spotlight Up/Down hero collapse/restore works in-folder. Home-row entry
+  point verified by code-path equivalence (same route/resolver).
+
+### Block 4 — global FolderDetail Back-trap fix (user-reported)
+- **Root cause**: ALL FOUR layout composables end their Back hierarchy with
+  `navBarFr.requestFocus()` — a silent no-op on the TopBar-less FolderDetail
+  route → Back consumed forever. The first fix (a Spotlight-only param) only
+  cured Spotlight folders (Netflix); Modern/Immersive/Classic/Grid folders
+  still trapped (Prime, Apple TV+).
+- **Fix**: new **`LocalContentBackFallback`** CompositionLocal
+  (MainActivity.kt, beside the other nav Locals) — an optional back action
+  invoked by each layout's terminal TopBar-escape branch
+  (`contentBackFallback?.invoke() ?: runCatching { navBarFr.requestFocus() }`)
+  in SpotlightHomeContent / ModernHomeContent / ClassicHomeContent (both
+  terminal branches) / GridHomeContent. FolderDetailScreen provides its
+  `onBack` around the whole FollowLayoutContent branch → every folder, every
+  layout, every entry point. Main screens provide nothing → unchanged.
+  The interim Spotlight `backEscapesToTopBar` param was removed.
+- Verified on TV: Prime (Immersive — the reported trap) and Netflix
+  (Spotlight regression check) both exit on one Back press.
+
+### Session ops notes
+- The user drove the TV with the physical remote during parts of the session
+  (e.g. the Feel→Legacy flip + several focus jumps were remote input, not
+  app/ADB behavior; Feel restored to Modern). Two ADB-navigation near-misses
+  were self-inflicted and reverted (NBC folder order; Home layout briefly
+  Grid → restored to Spotlight).
+- Collections research artifacts: the "+ Collection" picker DOES support
+  per-folder rows from the UI (an agent claim to the contrary was wrong);
+  `detail/CollectionSection.kt` is a name collision (generic carousel), no
+  add-to-collection exists on details pages; folder content has no TTL cache;
+  CollectionsDropdown position is hardcoded (305dp,64dp).
+
+### Pending follow-ups (queued)
+1. Wire LEVEL 3 Orient/Size/On-Off + (optionally) per-source order into
+   FolderDetail rendering (its card style is hardcoded `PosterCardDefaults`).
+2. Spotlight home layout: render `HomeRow.CollectionRow` (currently invisible
+   on Spotlight Home/Movies/TV) — needs a CollectionRow branch in
+   SpotlightHomeContent.
+3. Folder-editor deep link from LEVEL 2 Edit (optional `folderId` nav-arg on
+   CollectionEditor, ~5 lines on the frozen editor).
+4. Eyeball-verify: home-row-card folder entry point, Movies-scope accordion
+   chip hidden, editor View Mode subtitle (all code-verified only).
+5. FIX 1 option: switch AIO Metadata poster style to plain TMDB posters if
+   the btttr "#1 Today" generated posters annoy (removes rating badges).

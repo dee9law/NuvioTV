@@ -99,14 +99,25 @@ tapping promotes to rightmost TopBar position **and** navigates to its route.
 
 ## 🔄 Loop scrolling scope
 
-### TopBar — both feels
-- **Modern:** avatar ↔ first category ↔ last channel → wraps to avatar.
-- **Legacy:** first category ↔ last channel → wraps to first category.
-- First bar item Left: `onPreviewKeyEvent` → `wrapToLastChannel()`
-  (`listState.scrollToItem(lastIndex) + withFrameNanos + channelFr.requestFocus()`).
-- Last channel Right: `wrapToLeftmostBarItem()` (avatar in Modern / first
-  category in Legacy).
+### TopBar — both feels (verified 2026-06-10)
+- The loop lives in the **channel zone**: first channel Left →
+  `wrapToLastChannel()`; last channel Right → `wrapToFirstChannel()`.
+- The **avatar is a hard left edge** (`onWrapLeft = null` — the old
+  "avatar ↔ last channel" wrap was removed in the pill rebuild;
+  `wrapToLeftmostBarItem` is currently unused).
 - Edit Mode L/R: wraps within category list (`onEditSwap` modulo `categories.size`).
+
+### Content rows — CLOSED horizontal containers (2026-06-10)
+Every content row on every screen/layout is a closed container:
+- **Left at first item**: `tvLeftFromFirstItemToSideRail` ALWAYS consumes —
+  opens the SideRail in Legacy, hard-stops in Modern (null controller).
+- **Right at last item**: `Modifier.tvStopRightAtLastItem()` on the row's
+  last focusable (last card, or the trailing "See All" card when shown).
+- Applied in `ModernHomeRows` (Modern+Immersive, catalog+CW),
+  `CatalogRowSection` (Classic/Spotlight/Collections), `ContinueWatchingSection`,
+  `CollectionRowSection`, `GridContinueWatchingSection`. Both modifiers live in
+  `ui/navigation/TvDpadNavigation.kt`. No jump to TopBar, no wrap, no row spill;
+  the TopBar's own channel loop is unaffected (its handlers sit on bar pills).
 
 ### Popups & dropdowns (wired)
 - `ProfileOverlay` — `focusProperties { up/down }` on boundary rows.
@@ -151,10 +162,12 @@ kept). Selection/focus shown by a **TOP dash + downward glow** (`Modifier.dashDo
 glow drawn in +Y below the dash) + a dash-width **dark contrast gradient**
 (`Modifier.pillContrastGradient(active, dashWidth)` — vertical gradient sized to the
 dash, NOT the pill/bar). Dash width tracks the measured content width.
-- **Category pills** (Home/For You/Movies/TV Shows/Collections): 3-state colour —
-  **selected → accent** (`NuvioColors.Secondary`), **focused-not-selected → gray**
-  (`TextSecondary`), idle → none. Selected **wins** over focused (active pill stays
-  accent even while focused). Icon + dash + text all share the state colour.
+- **Category pills** (Home/For You/Movies/TV Shows/Collections): 3-state —
+  **selected → NEUTRAL white dash** (0.85 alpha; the dash is the secondary cue)
+  with **accent icon + text** (primary selection signal),
+  **focused-not-selected → gray** dash+icon+text, idle → none. Selected wins
+  over focused. (Dash de-accented 2026-06-10.) The category↔channel divider
+  is vertically centred via its own `fillMaxHeight` row (bar is Top-aligned).
 - **Channel pills**: dash + glow use the channel's **brand colour**
   (`rememberArtworkBackedGlowColor`, logo-sampled, `channel.brandColor` fallback) when
   selected/focused — **never** accent/gray. Caption white@0.65 idle → white active.
@@ -397,6 +410,59 @@ badges (from imported JSON rule URLs) + an optional file-"Size" chip.
 - **NOT ported:** upstream's player-side badge rendering
   (`PlayerViewModel`/`PlayerRuntimeController`), `ProfileSettingsSyncService`
   badge sync, the 2 badge test files.
+
+## 🗂️ Collections in the Rows Manager — 3-level accordion (2026-06-10)
+
+Collection-kind rows render as accordion blocks in `RowsManagerContent`
+(`NewLayoutSettingsScreen.kt`): rows group by collection id into one display
+unit (`buildManagerDisplayUnits`); the **COLLECTIONS scope tab** lists every
+collection (it was dead UI before). Expand state is UI-only.
+
+- **LEVEL 1 — collection**: chevron+title (expand) | ↑↓ block move (in
+  COLLECTIONS scope: reorders collections via CollectionsDataStore + sync) |
+  Edit → `CollectionEditorScreen` (`onNavigateToCollectionEditor` plumbed
+  NuvioNavHost → SettingsHubScreen → NewLayoutSettingsContent) | On/Off + ✕ on
+  the block's rows (hidden in COLLECTIONS scope).
+- **LEVEL 2 — folders**: visibility = per-folder rows
+  (`collection|<cid>|<fid>`; materialize-all-on-first-interaction; the
+  pipeline's `collectionFolderVisibility` map in `applyConfiguredHomeRows` /
+  `updateCatalogRowsPipeline` filters `HomeRow.CollectionRow` — no folder rows
+  = all folders, all-disabled = row hidden). ↑↓/✕ mutate the collection itself
+  (confirm dialog on ✕). Unified **Layout picker** (COLLECTIONS scope only).
+- **LEVEL 3 — catalogs (sources)**: ↑↓/✕ mutate `folder.sources` (confirm);
+  Orient/Size/On-Off persist per-source in the folder row's metadata
+  (`src_style|/src_width|/src_off|<key>`, `collectionSourceKey()` in the VM)
+  — **render-inert** until FolderDetail consumes them.
+- ⚠️ `mutateRows` stamps `viewContext` on every row — rows created inside
+  transforms otherwise default to HOME and get dropped by `rowsForScope`'s
+  read filter.
+- ⚠️ **Spotlight home layout renders NO collection rows** (no CollectionRow
+  branch in `SpotlightHomeContent`) — pre-existing gap, open follow-up.
+
+### Per-folder presentation (3-tier, 2026-06-10)
+"How a folder opens" resolves in `FolderDetailViewModel.loadFolder()`:
+**per-folder override → `collection.viewMode` → TABBED_GRID**. The override
+lives in the folder row's `metadata[FOLDER_LAYOUT_METADATA_KEY]` in the
+**COLLECTIONS scope (canonical — entry-point independent)**; values:
+`TABS` / `ROWS` / a `HomeLayout` name (→ FOLLOW_LAYOUT with that layout;
+IMMERSIVE implies fullscreen backdrop). Picker options: Default · Tabs · Rows ·
+Classic · Modern · Immersive · Spotlight · Grid. The collection editor's View
+Mode is the tier-2 default (subtitle says so). All three folder entry points
+(TopBar pill, Collections tab, home-row card) hit the same
+`Screen.FolderDetail` route + resolver.
+
+### FolderDetail layouts + the Back trap (2026-06-10)
+`FollowLayoutContent` renders ALL five layouts — **Spotlight is real now**
+(was a Classic fallback; hero falls back to first row's first item since
+folder homeState has no heroItems). All four content composables
+(Spotlight/Modern/Classic/Grid) end their Back hierarchy with
+`navBarFr.requestFocus()`, which silently no-ops on the TopBar-less
+FolderDetail route → Back trap. Fix: **`LocalContentBackFallback`**
+(MainActivity.kt) — optional back action invoked at each terminal
+TopBar-escape branch (`fallback?.invoke() ?: requestFocus`);
+FolderDetailScreen provides its `onBack` around FollowLayoutContent. Main
+screens provide nothing → unchanged. Any future TopBar-less embed of these
+layouts MUST provide this Local.
 
 ## 🖥️ Device notes
 

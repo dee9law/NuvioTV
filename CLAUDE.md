@@ -72,85 +72,58 @@ adb connect <tv-ip>:5555                  # IP drifts — check `adb devices` fi
 
 ---
 
-## 📌 Current State (as of 2026-06-09)
+## 📌 Current State (as of 2026-06-10)
 
-### Recently shipped
-- **TopBar pill redesign + nav fixes — ON-DEVICE VERIFIED (2026-06-09).** Two blocks
-  of TopBar/nav polish (`TopNavigationBar.kt`, `MainActivity.kt`, `HomeScreen.kt`,
-  `HomeViewModel.kt`, `ModernHomeContent.kt`, plus earlier-block Rows Manager D-pad
-  trap + Settings pane-nav fixes in `NewLayoutSettingsScreen.kt`/`SettingsHubScreen.kt`).
-  New pill indicator: **no capsule**; **TOP dash + downward glow** + **dash-width dark
-  contrast gradient**. Category pills 3-state (selected→accent **wins over** focused→gray);
-  channel pills keep **brand colour** (never accent/gray). Modern TopBar hides on
-  scroll past row 1 and **re-shows on Back/focus** (alpha-hidden but focusable + live
-  `focusedRowIndex`). Layout: avatar near left edge (6dp), channels edge-to-edge right,
-  2dp top pad, tighter divider, text-only channel names vertically centred. See
-  `ARCHITECTURE.md` → TopBar pill indicator.
-- **Custom buffer engine — ON-DEVICE VERIFIED (2026-06-09).** Smoke test on Jawwy
-  TV passed clean: playback, ~50s forward buffer, seeks re-buffer/recover, Buffer
-  & Network screen, and `ParallelRangeDataSource` engaging on a Torbox progressive
-  stream (logcat-confirmed). `BitrateAwareLoadControl` (device-heap-tiered byte
-  budget) + `MemoryBudget` + the opt-in parallel data source. Two tweaks shipped:
-  **parallel connections default 2 → 3** and a **Max buffer duration** row
-  (30s–180s, default 50s) on the Buffer & Network screen.
-- **Fusion Style/Size badges (ported 2026-06-09, on-device sanity-checked).** Full
-  subsystem from upstream `0.7.4-beta` — see `ARCHITECTURE.md` Stream Badges. Badges
-  attach at `StreamRepositoryImpl` and render in both the stream picker
-  (`StreamScreen.StreamCard`) and player side panels (`StreamComponents.StreamItem`).
-  Config web "gateway" server is an **app-lifetime `@Singleton`** (`StreamBadgeServerManager`,
-  started in `NuvioApplication`) — stays bound on port 8091 as long as the app runs.
-  Settings → Extensions → **Stream Badges**.
-- **Upstream sync Phase 1 (engine likely-clean)** — 13 upstream commits
-  incorporated: player AFR/24fps-judder fixes, AFR-for-m3u8, subtitle filename
-  urlencode, AniSkip `types[]` + skip types, episode-rating dup-key fix, updater
-  border, SPL language map, user-agent, **Let's Encrypt legacy-Android TLS**
-  (bundled ISRG certs + `network_security_config.xml`), **NuvioDialog CEC
-  select-key state machine** (manual port). Compiled green; **smoke test pending**.
-- **Docs restructured** — CLAUDE.md trimmed; new `ARCHITECTURE.md`;
-  `PHASE1_PICKLIST.md` upstream audit (`0.6.18..0.7.4`, 237 commits).
-- **Trakt catalog pipeline** / **For You** screen / **CW subsystem** /
-  **Immersive** 5th layout — prior sessions, on-device-verified.
+### Recently shipped (2026-06-10 — all ON-DEVICE VERIFIED unless noted)
+- **Global Back-trap fix** — new `LocalContentBackFallback` (MainActivity.kt):
+  all four home-content composables' terminal "Back → TopBar" steps defer to
+  it; FolderDetail provides its route-pop. Cures the Back trap in folders for
+  every layout/folder/entry point. See ARCHITECTURE.md → FolderDetail Back trap.
+- **Per-folder presentation + Spotlight in FolderDetail** — 3-tier resolution
+  (folder `folder_layout` metadata in COLLECTIONS scope → collection.viewMode
+  → TABBED_GRID); unified picker Default·Tabs·Rows·Classic·Modern·Immersive·
+  Spotlight·Grid (COLLECTIONS scope only); Spotlight is a real FolderDetail
+  layout (was Classic fallback); editor View Mode subtitle = tier-2 default.
+- **Collections 3-level accordion in Rows Manager** — collection→folder→catalog
+  tree with block move/enable/delete, folder visibility (pipeline
+  `collectionFolderVisibility` filtering — per-folder rows finally real),
+  data-level folder/source reorder+delete (confirm dialogs + sync push),
+  Edit→CollectionEditor nav. COLLECTIONS scope tab now functional (was dead).
+  LEVEL 3 Orient/Size/On-Off persist but are render-inert (follow-up #1).
+- **Nav-polish 4-fix batch**: (1) Immersive first-card "no image" = AIO
+  Metadata addon's btttr.cc auto-generated rating-posters for brand-new
+  titles — NOT an app bug, no code change; (2) **closed horizontal rows**
+  everywhere (`tvLeftFromFirstItemToSideRail` always consumes;
+  `tvStopRightAtLastItem` on last items) with TopBar channel loop intact —
+  note: the avatar is a hard left edge (old avatar-wrap doc was stale);
+  (3) category↔channel divider vertically centred; (4) selected category dash
+  NEUTRAL white, icon/text stay accent.
+- Previous (2026-06-09): TopBar pill rebuild, custom buffer engine, Fusion
+  Style/Size badges, upstream Phase-1 engine picks — see SESSION_HISTORY.md.
 
 ### Upstream sync status (see `PHASE1_PICKLIST.md`)
-- Latest upstream = `0.7.4-beta`. **Cherry-pick-based sync is EXHAUSTED** — a full
-  protected-filter sweep yielded 0 cleanly-pickable commits (already-applied /
-  i18n diverged / absent-infra / diverged player-stream files). Remaining value
-  requires **manual review-then-port**. The buffer engine was the first such port.
-- i18n = not viable via cherry-pick (all locales diverged; needs wholesale locale
-  refresh — lint-baselined Phase 8 debt).
-- **Fork lacks** upstream's `DolbyVision`/HDR-strip + `CloudLibrary` subsystems
-  (0 files each) — commits depending on them are unpickable. (`StreamBadge` ported
-  2026-06-09.)
+- Latest upstream = `0.7.4-beta`. Cherry-pick-based sync is EXHAUSTED —
+  remaining value requires manual review-then-port (buffer engine + badges
+  were the first such ports).
+- i18n not viable via cherry-pick (wholesale locale refresh = Phase 8 debt).
+- Fork lacks upstream `DolbyVision`/HDR-strip + `CloudLibrary` subsystems.
 
 ### Open follow-ups (priority order)
-0. **Next-session queue (from 2026-06-09 EOD) — TopBar/nav polish:**
-   1. **Immersive view** — first catalog card shows metadata but **no image**.
-   2. **GLOBAL ROW NAVIGATION** — every row on **every** screen + layout must be a
-      **closed horizontal container**: D-pad Left at first item → stops (no-op);
-      D-pad Right at last item → stops (no-op); **no** jumping to TopBar, **no**
-      wrapping, **no** spilling into other rows. Applies to ALL rows on ALL screens
-      (Home, For You, Movies, TV Shows, Collections) and ALL layouts (Classic,
-      Modern, Immersive, Spotlight, Grid). ⚠️ contradicts current TopBar loop-wrap
-      (`ARCHITECTURE.md` "Loop scrolling scope") — scope/confirm before coding.
-   3. **Category↔channel separator** is pushed to the **top** — vertically centre it
-      (the divider `Row` is `CenterVertically` but the parent bar is now `Top`-aligned
-      with a 2dp pad; the `NavDivider` needs its own vertical centring within bar height).
-   4. **Category pill selected state** — icon takes accent (good) but the **dash should
-      NOT be accent**; keep it neutral/subtle. Icon = primary selection signal, dash =
-      secondary. (Reverts part of the 2026-06-09 dash-colour work for category pills.)
-1. **Optional badge polish** — import a real badge JSON URL and visually confirm
-   Style chips render on stream rows (only crash/wiring verified so far, no rules
-   imported); optionally wire badge **placement** (TOP) + player-side badge paths
-   (`PlayerViewModel`) if wanted.
-2. **Performance + Apple-TV animations** session.
-3. **The ~76 conflict-prone player/stream commits** — manual review-then-port
-   (45 player / 14 stream-debrid / 11 other / 6 dolby-vision).
-4. On-device verify of the 13 engine picks (Let's Encrypt TLS, AFR, NuvioDialog
-   CEC, subtitle urlencode, AniSkip).
-5. Modern State-2 hero proportions; CW data quality (phantom Up Next); i18n
+1. **Wire LEVEL 3 source Orient/Size/On-Off into FolderDetail rendering**
+   (FolderDetail card style is hardcoded `PosterCardDefaults`).
+2. **Spotlight home layout: render collection rows** (`SpotlightHomeContent`
+   has no `HomeRow.CollectionRow` branch — collection rows invisible there).
+3. Folder-editor deep link from accordion LEVEL 2 Edit (optional `folderId`
+   nav-arg on CollectionEditor, ~5 lines).
+4. Eyeball-verify (code-verified only): home-row-card folder entry point,
+   Movies-scope accordion Layout-chip hidden, editor View Mode subtitle.
+5. Optional badge polish — import a real badge JSON URL, confirm Style chips.
+6. Performance + Apple-TV animations session.
+7. ~76 conflict-prone player/stream upstream commits — manual review-then-port.
+8. On-device verify of the 13 engine picks (Let's Encrypt TLS, AFR,
+   NuvioDialog CEC, subtitle urlencode, AniSkip).
+9. Modern State-2 hero proportions; CW data quality (phantom Up Next); i18n
    wholesale locale refresh; settings(30)/visual(29) sync buckets; misc.
-
----
 
 ## EOD Protocol
 

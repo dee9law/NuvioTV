@@ -273,6 +273,17 @@ open class BaseHomeViewModel(
     internal var configuredHomeRows: List<com.nuvio.tv.domain.model.LayoutRowConfig> = emptyList()
 
     /**
+     * Per-collection folder visibility for [homeScope], derived from ALL
+     * configured collection rows (enabled or not):
+     *  - key absent → no per-folder rows configured → show every folder
+     *    (legacy whole-collection behavior).
+     *  - value = ids of folders whose per-folder row is ENABLED. May be empty
+     *    (every folder toggled off) → the collection row is skipped.
+     * Written by [applyConfiguredHomeRows]; read at CollectionRow injection.
+     */
+    internal var collectionFolderVisibility: Map<String, Set<String>> = emptyMap()
+
+    /**
      * Canonical catalog keys ("addonId_apiType_catalogId") that are allowed to
      * load and render under [homeScope] — derived from [configuredHomeRows].
      * Empty until the first emission of `rowsForScope(homeScope)`.

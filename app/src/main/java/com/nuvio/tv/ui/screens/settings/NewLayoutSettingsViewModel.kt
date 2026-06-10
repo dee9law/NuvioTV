@@ -2,10 +2,19 @@ package com.nuvio.tv.ui.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.core.sync.CollectionSyncService
 import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
+import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
 import com.nuvio.tv.domain.model.Collection
+import com.nuvio.tv.domain.model.CollectionSource
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
+import com.nuvio.tv.domain.model.FOLDER_LAYOUT_METADATA_KEY
+import com.nuvio.tv.domain.model.SRC_OFF_METADATA_PREFIX
+import com.nuvio.tv.domain.model.SRC_STYLE_METADATA_PREFIX
+import com.nuvio.tv.domain.model.SRC_WIDTH_METADATA_PREFIX
+import com.nuvio.tv.domain.model.TmdbCollectionSource
+import com.nuvio.tv.domain.model.TraktCollectionSource
 import com.nuvio.tv.domain.model.ContinueWatchingFilter
 import com.nuvio.tv.domain.model.CW_DEFAULT_CARD_WIDTH_DP
 import com.nuvio.tv.domain.model.CW_STYLE_METADATA_KEY
@@ -114,6 +123,7 @@ class NewLayoutSettingsViewModel @Inject constructor(
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val addonRepository: AddonRepository,
     private val collectionsDataStore: CollectionsDataStore,
+    private val collectionSyncService: CollectionSyncService,
     traktAuthDataStore: com.nuvio.tv.data.local.TraktAuthDataStore,
 ) : ViewModel() {
 
@@ -574,10 +584,259 @@ class NewLayoutSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val scope = _selectedScope.value
             val current = layoutPreferenceDataStore.rowsForScope(scope).first()
-            val next = transform(current)
+            // Stamp the scope on every row: rows read from the scope already
+            // carry it, but rows CREATED inside a transform (e.g. the
+            // accordion's materializeFolderRows) would otherwise default to
+            // HOME and be silently dropped by rowsForScope's read filter.
+            val next = transform(current).map {
+                if (it.viewContext == scope) it else it.copy(viewContext = scope)
+            }
             if (next != current) {
                 layoutPreferenceDataStore.setRowsForScope(scope, next)
             }
         }
     }
+
+    // ── Collections accordion (Rows Manager 3-level tree) ───────────────────
+    //
+    // LEVEL 1 ops act on the collection's ROW(S) in the active scope (the
+    // "block"). LEVEL 2/3 visibility + display config persist on per-folder
+    // rows; LEVEL 2/3 reorder/delete mutate the collection itself via the
+    // existing CollectionsDataStore CRUD (+ debounced cloud-sync push), the
+    // same calls the Collection Manager screen makes.
+
+    private fun rowCollectionId(row: LayoutRowConfig): String? =
+        if (row.kind == LayoutRowKind.COLLECTION) LayoutRowKey.collectionIdFrom(row.id) else null
+
+    /**
+     * Move a collection's whole block (all of its rows, contiguously) one
+     * display position up/down relative to the other rows/blocks in scope.
+     */
+    fun moveCollectionBlock(collectionId: String, direction: Int) = mutateRows { rows ->
+        // Display units: each non-collection row is a unit; a collection's
+        // rows form one unit anchored at their first occurrence.
+        data class DisplayUnit(val key: String, val rows: MutableList<LayoutRowConfig>)
+        val units = mutableListOf<DisplayUnit>()
+        val unitByCid = mutableMapOf<String, DisplayUnit>()
+        rows.forEach { row ->
+            val cid = rowCollectionId(row)
+            if (cid == null) {
+                units += DisplayUnit("row:${row.id}", mutableListOf(row))
+            } else {
+                val existing = unitByCid[cid]
+                if (existing != null) {
+                    existing.rows += row
+                } else {
+                    val unit = DisplayUnit("col:$cid", mutableListOf(row))
+                    unitByCid[cid] = unit
+                    units += unit
+                }
+            }
+        }
+        val idx = units.indexOfFirst { it.key == "col:$collectionId" }
+        if (idx < 0) return@mutateRows rows
+        val target = (idx + direction).coerceIn(0, units.lastIndex)
+        if (target == idx) return@mutateRows rows
+        val unit = units.removeAt(idx)
+        units.add(target, unit)
+        units.flatMap { it.rows }
+    }
+
+    /** Enable/disable every row of the collection's block in this scope. */
+    fun setCollectionBlockEnabled(collectionId: String, enabled: Boolean) = mutateRows { rows ->
+        rows.map { if (rowCollectionId(it) == collectionId) it.copy(enabled = enabled) else it }
+    }
+
+    /** Remove the collection's entire block (all its rows) from this scope. */
+    fun removeCollectionBlock(collectionId: String) = mutateRows { rows ->
+        rows.filterNot { rowCollectionId(it) == collectionId }
+    }
+
+    /**
+     * Ensure every folder of [collection] has a per-folder row in [rows],
+     * inserted after the block's last existing row (or appended). First
+     * folder-level interaction materializes the explicit per-folder state;
+     * until then the pipeline shows all folders.
+     */
+    private fun materializeFolderRows(
+        collection: Collection,
+        rows: List<LayoutRowConfig>,
+    ): List<LayoutRowConfig> {
+        val existingFolderIds = rows
+            .filter { rowCollectionId(it) == collection.id }
+            .mapNotNull { LayoutRowKey.folderIdFrom(it.id) }
+            .toSet()
+        val missing = collection.folders.filter { it.id !in existingFolderIds }
+        if (missing.isEmpty()) return rows
+        val newRows = missing.map { folder ->
+            LayoutRowConfig(
+                id = LayoutRowKey.forCollectionFolder(collection.id, folder.id),
+                kind = LayoutRowKind.COLLECTION,
+                name = folder.title,
+                metadata = mapOf(
+                    "collection_id" to collection.id,
+                    "folder_id" to folder.id,
+                ),
+            )
+        }
+        val lastBlockIdx = rows.indexOfLast { rowCollectionId(it) == collection.id }
+        return if (lastBlockIdx < 0) {
+            rows + newRows
+        } else {
+            rows.toMutableList().apply { addAll(lastBlockIdx + 1, newRows) }
+        }
+    }
+
+    /** Per-folder visibility within the collection's home row (LEVEL 2 On/Off). */
+    fun setFolderRowVisible(collection: Collection, folderId: String, visible: Boolean) =
+        mutateRows { rows ->
+            materializeFolderRows(collection, rows).map { row ->
+                if (rowCollectionId(row) == collection.id &&
+                    LayoutRowKey.folderIdFrom(row.id) == folderId
+                ) {
+                    row.copy(enabled = visible)
+                } else row
+            }
+        }
+
+    /**
+     * Per-folder presentation override (LEVEL 2 Layout picker — shown only in
+     * the COLLECTIONS scope, which is the canonical home FolderDetail reads).
+     * [value] is a raw [FOLDER_LAYOUT_METADATA_KEY] value: TABS / ROWS / a
+     * HomeLayout name, or null to clear (= follow collection.viewMode).
+     */
+    fun setFolderLayout(collection: Collection, folderId: String, value: String?) =
+        mutateRows { rows ->
+            materializeFolderRows(collection, rows).map { row ->
+                if (rowCollectionId(row) == collection.id &&
+                    LayoutRowKey.folderIdFrom(row.id) == folderId
+                ) {
+                    val meta = if (value == null) {
+                        row.metadata - FOLDER_LAYOUT_METADATA_KEY
+                    } else {
+                        row.metadata + (FOLDER_LAYOUT_METADATA_KEY to value)
+                    }
+                    row.copy(metadata = meta)
+                } else row
+            }
+        }
+
+    /** Per-source display config on the folder's row (LEVEL 3 Orient/Size/On-Off). */
+    private fun setSourceMetadata(
+        collection: Collection,
+        folderId: String,
+        key: String,
+        value: String?,
+    ) = mutateRows { rows ->
+        materializeFolderRows(collection, rows).map { row ->
+            if (rowCollectionId(row) == collection.id &&
+                LayoutRowKey.folderIdFrom(row.id) == folderId
+            ) {
+                val meta = if (value == null) row.metadata - key else row.metadata + (key to value)
+                row.copy(metadata = meta)
+            } else row
+        }
+    }
+
+    fun setSourceStyle(collection: Collection, folderId: String, srcKey: String, style: LayoutCardStyle) =
+        setSourceMetadata(collection, folderId, SRC_STYLE_METADATA_PREFIX + srcKey, style.name)
+
+    fun setSourceWidth(collection: Collection, folderId: String, srcKey: String, widthDp: Int) =
+        setSourceMetadata(collection, folderId, SRC_WIDTH_METADATA_PREFIX + srcKey, widthDp.toString())
+
+    fun setSourceEnabled(collection: Collection, folderId: String, srcKey: String, enabled: Boolean) =
+        setSourceMetadata(
+            collection, folderId, SRC_OFF_METADATA_PREFIX + srcKey,
+            if (enabled) null else "1",
+        )
+
+    // ── LEVEL 2/3 data ops (collection mutations via existing CRUD + sync) ──
+
+    /** Reorder collections themselves (COLLECTIONS scope LEVEL 1 ↑↓). */
+    fun moveCollection(collectionId: String, direction: Int) = viewModelScope.launch {
+        val current = collectionsDataStore.getCurrentCollections()
+        val idx = current.indexOfFirst { it.id == collectionId }
+        if (idx < 0) return@launch
+        val target = (idx + direction).coerceIn(0, current.lastIndex)
+        if (target == idx) return@launch
+        val next = current.toMutableList().apply { add(target, removeAt(idx)) }
+        collectionsDataStore.setCollections(next)
+        collectionSyncService.triggerPush()
+    }
+
+    /** Reorder a folder within its collection (LEVEL 2 ↑↓ — data-level). */
+    fun moveFolderInCollection(collection: Collection, folderId: String, direction: Int) =
+        viewModelScope.launch {
+            val idx = collection.folders.indexOfFirst { it.id == folderId }
+            if (idx < 0) return@launch
+            val target = (idx + direction).coerceIn(0, collection.folders.lastIndex)
+            if (target == idx) return@launch
+            val folders = collection.folders.toMutableList().apply { add(target, removeAt(idx)) }
+            collectionsDataStore.updateCollection(collection.copy(folders = folders))
+            collectionSyncService.triggerPush()
+        }
+
+    /** Remove a folder from its collection (LEVEL 2 ✕ — data-level, confirmed in UI). */
+    fun deleteFolderFromCollection(collection: Collection, folderId: String) =
+        viewModelScope.launch {
+            val folders = collection.folders.filterNot { it.id == folderId }
+            if (folders.size == collection.folders.size) return@launch
+            collectionsDataStore.updateCollection(collection.copy(folders = folders))
+            collectionSyncService.triggerPush()
+            // Drop the now-orphaned per-folder row from the active scope.
+            mutateRows { rows ->
+                rows.filterNot {
+                    rowCollectionId(it) == collection.id &&
+                        LayoutRowKey.folderIdFrom(it.id) == folderId
+                }
+            }
+        }
+
+    /** Reorder a source within its folder (LEVEL 3 ↑↓ — data-level). */
+    fun moveSourceInFolder(
+        collection: Collection,
+        folderId: String,
+        sourceIndex: Int,
+        direction: Int,
+    ) = viewModelScope.launch {
+        val folder = collection.folders.firstOrNull { it.id == folderId } ?: return@launch
+        if (sourceIndex !in folder.sources.indices) return@launch
+        val target = (sourceIndex + direction).coerceIn(0, folder.sources.lastIndex)
+        if (target == sourceIndex) return@launch
+        val sources = folder.sources.toMutableList().apply { add(target, removeAt(sourceIndex)) }
+        val folders = collection.folders.map {
+            if (it.id == folderId) it.copy(sources = sources) else it
+        }
+        collectionsDataStore.updateCollection(collection.copy(folders = folders))
+        collectionSyncService.triggerPush()
+    }
+
+    /** Remove a source from its folder (LEVEL 3 ✕ — data-level, confirmed in UI). */
+    fun deleteSourceFromFolder(
+        collection: Collection,
+        folderId: String,
+        sourceIndex: Int,
+    ) = viewModelScope.launch {
+        val folder = collection.folders.firstOrNull { it.id == folderId } ?: return@launch
+        if (sourceIndex !in folder.sources.indices) return@launch
+        val sources = folder.sources.toMutableList().apply { removeAt(sourceIndex) }
+        val folders = collection.folders.map {
+            if (it.id == folderId) it.copy(sources = sources) else it
+        }
+        collectionsDataStore.updateCollection(collection.copy(folders = folders))
+        collectionSyncService.triggerPush()
+    }
+}
+
+/**
+ * Stable identity for a [CollectionSource] — keys the per-source metadata on
+ * the folder's row so reorders don't shift another source's config.
+ */
+internal fun collectionSourceKey(source: CollectionSource): String = when (source) {
+    is AddonCatalogCollectionSource ->
+        "addon|${source.addonId}|${source.type}|${source.catalogId}|${source.genre.orEmpty()}"
+    is TmdbCollectionSource ->
+        "tmdb|${source.sourceType.name}|${source.tmdbId ?: 0}|${source.mediaType.value}"
+    is TraktCollectionSource ->
+        "trakt|${source.traktListId}|${source.mediaType.value}"
 }

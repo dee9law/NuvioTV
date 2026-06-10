@@ -122,6 +122,35 @@ enum class ContinueWatchingCardStyle { POSTER, CARD, WIDE }
 /** Metadata key under which a CONTINUE_WATCHING row stores its orientation. */
 const val CW_STYLE_METADATA_KEY = "cw_style"
 
+// ── Collection-accordion metadata keys (Rows Manager 3-level tree) ──────────
+//
+// All stored on COLLECTION-kind rows' [LayoutRowConfig.metadata] so no data
+// model changes: the folder's per-row layout override and the per-source
+// (catalog) display config live on the per-folder row
+// ("collection|<collectionId>|<folderId>").
+
+/**
+ * Per-folder presentation override for FolderDetail. Written by the Rows
+ * Manager accordion (COLLECTIONS scope only — the canonical home), read by
+ * FolderDetailViewModel. Values: [FOLDER_LAYOUT_VALUE_TABS],
+ * [FOLDER_LAYOUT_VALUE_ROWS], or a [HomeLayout].name (→ FOLLOW_LAYOUT with
+ * that layout). 3-tier resolution: this key → collection.viewMode →
+ * TABBED_GRID.
+ */
+const val FOLDER_LAYOUT_METADATA_KEY = "folder_layout"
+
+/** [FOLDER_LAYOUT_METADATA_KEY] value: open as the per-source tabbed grid. */
+const val FOLDER_LAYOUT_VALUE_TABS = "TABS"
+
+/** [FOLDER_LAYOUT_METADATA_KEY] value: open as one row per source. */
+const val FOLDER_LAYOUT_VALUE_ROWS = "ROWS"
+
+/** Per-source (catalog inside a folder) config, keyed by a stable source key
+ *  suffix: "<prefix><sourceKey>" → value. */
+const val SRC_STYLE_METADATA_PREFIX = "src_style|"
+const val SRC_WIDTH_METADATA_PREFIX = "src_width|"
+const val SRC_OFF_METADATA_PREFIX = "src_off|"
+
 /**
  * Default poster-scale width for a Continue Watching row ("Medium" on the
  * Compact→Large size scale — the 120dp "Standard" step). The actual card
@@ -151,6 +180,19 @@ object LayoutRowKey {
 
     fun forCollectionFolder(collectionId: String, folderId: String): String =
         "collection|$collectionId|$folderId"
+
+    /** Collection id from a COLLECTION-kind row id, or null if not one. */
+    fun collectionIdFrom(rowId: String): String? {
+        if (!rowId.startsWith("collection|")) return null
+        return rowId.split("|").getOrNull(1)?.takeIf { it.isNotBlank() }
+    }
+
+    /** Folder id from a per-folder COLLECTION row id, or null for the
+     *  whole-collection form ("collection|<id>"). */
+    fun folderIdFrom(rowId: String): String? {
+        if (!rowId.startsWith("collection|")) return null
+        return rowId.split("|").getOrNull(2)?.takeIf { it.isNotBlank() }
+    }
 
     fun forTrakt(slug: String): String = "trakt|$slug"
 

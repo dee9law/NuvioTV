@@ -70,6 +70,7 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.LayoutCardStyle
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.navigation.tvLeftFromFirstItemToSideRail
+import com.nuvio.tv.ui.navigation.tvStopRightAtLastItem
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.util.formatAddonTypeLabel
 
@@ -486,6 +487,14 @@ fun CatalogRowSection(
                                 else -> Modifier
                             }
                         )
+                        // Closed-row right edge: hard-stop on the last poster
+                        // unless a trailing "See All" card follows it (then the
+                        // stop lives on that card instead).
+                        .then(
+                            if (index == catalogRow.items.lastIndex && !showSeeAll) {
+                                Modifier.tvStopRightAtLastItem()
+                            } else Modifier
+                        )
                         .then(
                             if (isEntryTarget) Modifier.focusRequester(entryFocusRequester!!) else Modifier
                         )
@@ -519,7 +528,10 @@ fun CatalogRowSection(
                         modifier = Modifier
                             .width(posterCardStyle.width)
                             .height(posterCardStyle.height)
-                            .then(directionalFocusModifier),
+                            .then(directionalFocusModifier)
+                            // Trailing card is the row's last focusable —
+                            // closed-row right edge stops here.
+                            .tvStopRightAtLastItem(),
                         shape = CardDefaults.shape(shape = seeAllCardShape),
                         colors = CardDefaults.colors(
                             containerColor = NuvioColors.BackgroundCard,

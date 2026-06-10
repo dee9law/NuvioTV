@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -446,7 +447,14 @@ fun TopNavigationBar(
                 enter = fadeIn(tween(300)),
                 exit = fadeOut(tween(300)),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // fillMaxHeight + CenterVertically: the bar itself is
+                // Top-aligned (the pills hug the top edge), so the divider
+                // must claim the full bar height and centre within it —
+                // otherwise it renders pinned to the top.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxHeight(),
+                ) {
                     // FIX 7: tighten the category→channel gap so the two zones read
                     // as one continuous row (was 16dp each side of the divider).
                     Spacer(Modifier.width(8.dp))
@@ -621,15 +629,17 @@ private fun CategoryTabItem(
     // FIX 2/6: no capsule background/border. Selection & focus are signalled
     // only by the TOP dash + downward glow + text colour. Three states:
     //   focused/hovered  -> GRAY dash + glow + text
-    //   active/selected   -> ACCENT dash + glow + text
+    //   active/selected   -> NEUTRAL dash + ACCENT icon/text
     //   idle              -> no dash, normal text
     val accentColor = NuvioColors.Secondary
     val grayColor = NuvioColors.TextSecondary
     val indicatorActive = isSelected || isFocused
-    // FIX 1: the active (selected) pill always wins → stays ACCENT even when it's
-    // also the focused pill. Gray is only for a focused-but-not-selected pill.
+    // The active (selected) pill always wins over focused. The dash itself is
+    // a SECONDARY cue and stays neutral/subtle — the accent-coloured icon is
+    // the primary selection signal (accent dash + accent icon read as one
+    // oversized blob of orange).
     val indicatorColor = when {
-        isSelected -> accentColor
+        isSelected -> Color.White.copy(alpha = 0.85f)
         isFocused  -> grayColor
         else       -> Color.Transparent
     }

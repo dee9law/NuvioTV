@@ -274,12 +274,17 @@ fun GridHomeContent(
         if (hasHero) "hero"
         else gridItemsWithKeys.firstOrNull { it.first is GridItem.Content || it.first is GridItem.SeeAll }?.second
     }
+    // Terminal "→ TopBar" step defers to LocalContentBackFallback when this
+    // layout is embedded on a TopBar-less route (FolderDetail) — otherwise the
+    // requestFocus on the absent bar swallows Back (the Back trap).
+    val contentBackFallback = com.nuvio.tv.LocalContentBackFallback.current
     BackHandler(enabled = gridContentHasFocus) {
         if (lastFocusedGridItemKey.value != firstFocusableKey) {
             if (hasHero) runCatching { heroFocusRequester.requestFocus() }
             else runCatching { gridFirstContentFocusRequester.requestFocus() }
         } else {
-            runCatching { gridNavBarFr.requestFocus() }
+            contentBackFallback?.invoke()
+                ?: runCatching { gridNavBarFr.requestFocus() }
         }
     }
 

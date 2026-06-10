@@ -114,6 +114,7 @@ import com.nuvio.tv.ui.components.placeholderCardShimmer
 import com.nuvio.tv.ui.components.rememberArtworkBackedCardGlow
 import com.nuvio.tv.ui.components.rememberArtworkBackedGlowColor
 import com.nuvio.tv.ui.navigation.tvLeftFromFirstItemToSideRail
+import com.nuvio.tv.ui.navigation.tvStopRightAtLastItem
 import com.nuvio.tv.ui.components.rememberPlaceholderShimmerOffsetState
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.ThemeColors
@@ -928,16 +929,22 @@ internal fun ModernRowSection(
                         isPending || isCurrent
                     }
 
-                    // Per nav-spec: D-pad Left from the FIRST item of any
-                    // horizontal carousel invokes the SideRail; from middle
-                    // items it lets focus traverse normally. Wrap each
-                    // item in a Box that intercepts Left only when this is
-                    // the index-0 item — `onPreviewKeyEvent` on the parent
-                    // fires before the focused descendant.
+                    // Closed-row edges: D-pad Left from the FIRST item invokes
+                    // the SideRail (Legacy) or hard-stops (Modern); D-pad Right
+                    // from the LAST item hard-stops. Wrap each edge item in a
+                    // Box — `onPreviewKeyEvent` on the parent fires before the
+                    // focused descendant.
+                    val isLastRowItem = index == row.items.list.lastIndex
                     androidx.compose.foundation.layout.Box(
-                        modifier = if (index == 0) {
-                            androidx.compose.ui.Modifier.tvLeftFromFirstItemToSideRail()
-                        } else androidx.compose.ui.Modifier
+                        modifier = when {
+                            index == 0 && isLastRowItem ->
+                                androidx.compose.ui.Modifier
+                                    .tvLeftFromFirstItemToSideRail()
+                                    .tvStopRightAtLastItem()
+                            index == 0 -> androidx.compose.ui.Modifier.tvLeftFromFirstItemToSideRail()
+                            isLastRowItem -> androidx.compose.ui.Modifier.tvStopRightAtLastItem()
+                            else -> androidx.compose.ui.Modifier
+                        }
                     ) {
                     when (val payload = item.payload) {
                         is ModernPayload.ContinueWatching -> {

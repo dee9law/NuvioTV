@@ -316,10 +316,15 @@ fun ClassicHomeContent(
     //   middle of row (item > 0) → first poster of that row
     //   first poster (item 0, any row) → hero (when visible)
     //   hero → TopBar
+    // Terminal "→ TopBar" steps defer to LocalContentBackFallback when this
+    // layout is embedded on a TopBar-less route (FolderDetail) — otherwise the
+    // requestFocus on the absent bar swallows Back (the Back trap).
+    val contentBackFallback = com.nuvio.tv.LocalContentBackFallback.current
     BackHandler(enabled = classicContentHasFocus) {
         when {
             // On the hero → up to the TopBar.
-            heroHasFocus -> runCatching { classicNavBarFr.requestFocus() }
+            heroHasFocus -> contentBackFallback?.invoke()
+                ?: runCatching { classicNavBarFr.requestFocus() }
             // Deep in a row → snap back to the first poster of that row.
             currentFocusSnapshot.itemIndex > 0 -> {
                 val fr = currentFocusSnapshot.rowKey?.let { rowFirstItemFocusRequesters[it] }
@@ -329,7 +334,8 @@ fun ClassicHomeContent(
             // First poster of any row → the hero (when visible), else TopBar.
             else -> {
                 if (heroVisible) runCatching { heroFocusRequester.requestFocus() }
-                else runCatching { classicNavBarFr.requestFocus() }
+                else contentBackFallback?.invoke()
+                    ?: runCatching { classicNavBarFr.requestFocus() }
             }
         }
     }

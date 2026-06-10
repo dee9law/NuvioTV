@@ -89,16 +89,37 @@ fun Modifier.tvLeftFromFirstItemToSideRail(enabled: () -> Boolean = { true }): M
     onPreviewKeyEvent { event ->
         if (enabled() &&
             event.type == KeyEventType.KeyDown &&
-            event.key == Key.DirectionLeft &&
-            rail != null
+            event.key == Key.DirectionLeft
         ) {
-            rail()
+            // Legacy feel: open the SideRail. Modern feel provides a null
+            // controller → the press is still consumed so the row behaves as a
+            // closed horizontal container (no spill into the TopBar or
+            // neighbouring focusables).
+            rail?.invoke()
             true
         } else {
             false
         }
     }
 }
+
+/**
+ * Right-edge hard stop for horizontal carousels. Apply ONLY to the LAST
+ * focusable item of a row (last content card, or the trailing "See All"
+ * card when one is shown). Consumes D-pad Right so focus never escapes the
+ * row — no jump to the TopBar, no wrap, no spill into other rows.
+ *
+ * Together with [tvLeftFromFirstItemToSideRail] on the first item this makes
+ * every content row a closed horizontal container. The TopBar's own
+ * loop-wrap is unaffected: it lives on the bar's pills and only fires while
+ * focus is inside the bar.
+ */
+fun Modifier.tvStopRightAtLastItem(enabled: () -> Boolean = { true }): Modifier =
+    onPreviewKeyEvent { event ->
+        enabled() &&
+            event.type == KeyEventType.KeyDown &&
+            event.key == Key.DirectionRight
+    }
 
 /**
  * Unified Back-button routing for any screen with carousel/list content:

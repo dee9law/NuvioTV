@@ -486,6 +486,10 @@ fun SpotlightHomeContent(
     // the TopBar's channel-carousel back-chain (LIFO: content composes after
     // the TopBar, so it would win). Mirrors how Classic/Grid/Modern gate on
     // their own content focus.
+    // Terminal "→ TopBar" step defers to LocalContentBackFallback when this
+    // layout is embedded on a TopBar-less route (FolderDetail) — otherwise the
+    // requestFocus on the absent bar silently swallows Back (the Back trap).
+    val contentBackFallback = com.nuvio.tv.LocalContentBackFallback.current
     BackHandler(enabled = rowsAreaHasFocus || heroHasFocus) {
         when {
             rowsAreaHasFocus && focusedItemInRow > 0 -> {
@@ -503,7 +507,8 @@ fun SpotlightHomeContent(
                 }
             }
             rowsAreaHasFocus -> runCatching { heroFocusRequester.requestFocus() }
-            else -> runCatching { navBarFr.requestFocus() }
+            else -> contentBackFallback?.invoke()
+                ?: runCatching { navBarFr.requestFocus() }
         }
     }
 

@@ -33,6 +33,8 @@ import androidx.tv.material3.Text
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
+import com.nuvio.tv.ui.navigation.tvLeftFromFirstItemToSideRail
+import com.nuvio.tv.ui.navigation.tvStopRightAtLastItem
 import com.nuvio.tv.ui.theme.NuvioColors
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
@@ -134,7 +136,19 @@ fun GridContinueWatchingSection(
                             if (focusState.isFocused && lastFocusedIndex.intValue != index) {
                                 lastFocusedIndex.intValue = index
                             }
-                        },
+                        }
+                        // Closed-row edges: Left at the first card opens the
+                        // SideRail (Legacy) / hard-stops (Modern); Right at the
+                        // last card hard-stops.
+                        .then(
+                            when {
+                                index == 0 && index == items.lastIndex ->
+                                    Modifier.tvLeftFromFirstItemToSideRail().tvStopRightAtLastItem()
+                                index == 0 -> Modifier.tvLeftFromFirstItemToSideRail()
+                                index == items.lastIndex -> Modifier.tvStopRightAtLastItem()
+                                else -> Modifier
+                            }
+                        ),
                     cardWidth = 220.dp,
                     imageHeight = 124.dp
                 )

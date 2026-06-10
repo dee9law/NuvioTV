@@ -349,6 +349,19 @@ internal fun BaseHomeViewModel.applyConfiguredHomeRows(
     val orderedKeys = mutableListOf<String>()
     val allowed = linkedSetOf<String>()
     val enabledRows = rows.filter { it.enabled }
+    // Per-collection folder visibility (Rows Manager accordion): computed
+    // from ALL collection rows — a DISABLED per-folder row still marks the
+    // collection as "explicitly folder-configured", it just doesn't
+    // contribute its folder id to the visible set.
+    val folderVisibility = mutableMapOf<String, MutableSet<String>>()
+    rows.forEach { row ->
+        if (row.kind != LayoutRowKind.COLLECTION) return@forEach
+        val cid = LayoutRowKey.collectionIdFrom(row.id) ?: return@forEach
+        val fid = LayoutRowKey.folderIdFrom(row.id) ?: return@forEach
+        val set = folderVisibility.getOrPut(cid) { mutableSetOf() }
+        if (row.enabled) set.add(fid)
+    }
+    collectionFolderVisibility = folderVisibility
     enabledRows.forEach { row ->
         when (row.kind) {
             LayoutRowKind.ADDON -> {
@@ -1023,10 +1036,22 @@ internal suspend fun BaseHomeViewModel.updateCatalogRowsPipeline() {
             }
             val collectionEntry = collectionsSnapshot[key]
             if (collectionEntry != null) {
-                // Always render: in rows-only mode the user's explicit row
-                // ordering wins over `pinToTop` (no separate pinToTop block
-                // above means there's no longer a risk of duplication).
-                add(HomeRow.CollectionRow(collectionEntry))
+                // In rows-only mode the user's explicit row ordering wins over
+                // `pinToTop`. Per-folder rows (Rows Manager accordion) narrow
+                // the rendered folders; with no per-folder rows configured the
+                // whole collection renders (legacy behavior). An empty visible
+                // set (every folder toggled off) hides the row entirely.
+                val visibleIds = collectionFolderVisibility[collectionEntry.id]
+                val effective = if (visibleIds == null) {
+                    collectionEntry
+                } else {
+                    collectionEntry.copy(
+                        folders = collectionEntry.folders.filter { it.id in visibleIds },
+                    )
+                }
+                if (effective.folders.isNotEmpty()) {
+                    add(HomeRow.CollectionRow(effective))
+                }
             } else {
                 val catalogRow = displayRowsByKey[key]
                 if (catalogRow != null && catalogRow.items.isNotEmpty()) {

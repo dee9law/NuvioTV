@@ -309,6 +309,14 @@ fun CollectionEditorScreen(
                 style = MaterialTheme.typography.labelLarge,
                 color = NuvioColors.TextSecondary
             )
+            Spacer(modifier = Modifier.height(2.dp))
+            // Per-folder overrides from the Rows Manager accordion win over
+            // this collection-wide value (3-tier: folder → collection → Tabs).
+            Text(
+                text = "Default for folders without their own layout",
+                style = MaterialTheme.typography.bodySmall,
+                color = NuvioColors.TextSecondary.copy(alpha = 0.7f)
+            )
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),

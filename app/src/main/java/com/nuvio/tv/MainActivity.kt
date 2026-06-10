@@ -119,6 +119,18 @@ val LocalContentFocusRequester = compositionLocalOf { FocusRequester.Default }
 val LocalNavBarFocusRequester  = compositionLocalOf { FocusRequester.Default }
 val LocalSideRailController   = compositionLocalOf<(() -> Unit)?> { null }
 /**
+ * What Back should do when a home-content layout (Classic / Modern / Grid /
+ * Spotlight) reaches the TOP of its internal Back hierarchy — the step that
+ * normally escapes upward to the TopBar via [LocalNavBarFocusRequester].
+ *
+ * On the main screens this is null and the TopBar escape runs as always.
+ * Screens that embed the layouts WITHOUT a TopBar (FolderDetail's
+ * follow-layout mode) provide their route-pop here — otherwise the terminal
+ * `navBarFr.requestFocus()` silently no-ops on a bar that isn't composed and
+ * Back is swallowed forever (the "Back trap").
+ */
+val LocalContentBackFallback = compositionLocalOf<(() -> Unit)?> { null }
+/**
  * `true` when the current screen sits inside the Feel.MODERN navigation
  * shell — i.e. there is no SideRail consuming left-edge space. Content
  * composables read this to drop the left buffer that otherwise reserves
